@@ -80,7 +80,7 @@ const (
 	ErrConditionalExpression      = "illegal conditional (?(...)) expression"
 	ErrTooManyAlternates          = "too many | in (?()|)"
 	ErrUnrecognizedGrouping       = "unrecognized grouping construct"
-	ErrInvalidGroupName           = "invalid group name: group names must begin with a word character"
+	ErrInvalidGroupName           = "invalid group name: group names must begin with a word character and have a matching terminator"
 	ErrCapNumNotZero              = "capture number cannot be zero"
 	ErrUndefinedBackRef           = "reference to undefined group number %v"
 	ErrUndefinedNameRef           = "reference to undefined group name %v"

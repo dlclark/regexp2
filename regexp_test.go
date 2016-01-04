@@ -259,24 +259,24 @@ func TestErr_GroupName(t *testing.T) {
 	// group tag can't start with a num
 	if _, err := Compile("foo(?<1bar>)", 0); err == nil {
 		t.Fatalf("invalid group name, expected error during compile")
-	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character in `foo(?<1bar>)`", err.Error(); want != got {
+	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character and have a matching terminator in `foo(?<1bar>)`", err.Error(); want != got {
 		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
 	}
 	if _, err := Compile("foo(?'1bar')", 0); err == nil {
 		t.Fatalf("invalid group name, expected error during compile")
-	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character in `foo(?'1bar')`", err.Error(); want != got {
+	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character and have a matching terminator in `foo(?'1bar')`", err.Error(); want != got {
 		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
 	}
 
 	// missing closing group tag
 	if _, err := Compile("foo(?<bar)", 0); err == nil {
 		t.Fatalf("invalid group name, expected error during compile")
-	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character in `foo(?<1bar>)`", err.Error(); want != got {
+	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character and have a matching terminator in `foo(?<bar)`", err.Error(); want != got {
 		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
 	}
 	if _, err := Compile("foo(?'bar)", 0); err == nil {
 		t.Fatalf("invalid group name, expected error during compile")
-	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character in `foo(?'1bar')`", err.Error(); want != got {
+	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character and have a matching terminator in `foo(?'bar)`", err.Error(); want != got {
 		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
 	}
 
