@@ -322,9 +322,10 @@ func getUnicodeCategory(r rune) UnicodeCategory {
 		return 1
 	} else if unicode.IsTitle(r) {
 		return 2
-		//etc
+	} else if unicode.IsDigit(r) {
+		return 8
 	}
-
+	//etc
 	return 29
 }
 

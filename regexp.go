@@ -177,8 +177,10 @@ func (re *Regexp) GroupNameFromNumber(i int) string {
 
 		return ""
 	}
+
 	if re.caps != nil {
-		if _, ok := re.caps[i]; !ok {
+		var ok bool
+		if i, ok = re.caps[i]; !ok {
 			return ""
 		}
 	}

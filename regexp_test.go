@@ -114,38 +114,95 @@ func TestGroups_Basic(t *testing.T) {
 		strs []string
 	}
 	data := []d{
-		d{"(?<first_name>\\S+)\\s(?<last_name>\\S+)",
+		d{"(?<first_name>\\S+)\\s(?<last_name>\\S+)", // example
 			"Ryan Byington",
 			[]string{"0", "first_name", "last_name"},
 			[]int{0, 1, 2},
 			[]string{"Ryan Byington", "Ryan", "Byington"}},
-		d{"((?<One>abc)\\d+)?(?<Two>xyz)(.*)",
+		d{"((?<One>abc)\\d+)?(?<Two>xyz)(.*)", // example
 			"abc208923xyzanqnakl",
 			[]string{"0", "1", "2", "One", "Two"},
 			[]int{0, 1, 2, 3, 4},
 			[]string{"abc208923xyzanqnakl", "abc208923", "anqnakl", "abc", "xyz"}},
+		d{"((?<256>abc)\\d+)?(?<16>xyz)(.*)", // numeric names
+			"0272saasdabc8978xyz][]12_+-",
+			[]string{"0", "1", "2", "16", "256"},
+			[]int{0, 1, 2, 16, 256},
+			[]string{"abc8978xyz][]12_+-", "abc8978", "][]12_+-", "xyz", "abc"}},
+		d{"((?<4>abc)(?<digits>\\d+))?(?<2>xyz)(?<everything_else>.*)", // mix numeric and string names
+			"0272saasdabc8978xyz][]12_+-",
+			[]string{"0", "1", "2", "digits", "4", "everything_else"},
+			[]int{0, 1, 2, 3, 4, 5},
+			[]string{"abc8978xyz][]12_+-", "abc8978", "xyz", "8978", "abc", "][]12_+-"}},
+		d{"(?<first_name>\\S+)\\s(?<first_name>\\S+)", // dupe string names
+			"Ryan Byington",
+			[]string{"0", "first_name"},
+			[]int{0, 1},
+			[]string{"Ryan Byington", "Byington"}},
+		d{"(?<15>\\S+)\\s(?<15>\\S+)", // dupe numeric names
+			"Ryan Byington",
+			[]string{"0", "15"},
+			[]int{0, 15},
+			[]string{"Ryan Byington", "Byington"}},
+		// *** repeated from above, but with alt cap syntax ***
+		d{"(?'first_name'\\S+)\\s(?'last_name'\\S+)", //example
+			"Ryan Byington",
+			[]string{"0", "first_name", "last_name"},
+			[]int{0, 1, 2},
+			[]string{"Ryan Byington", "Ryan", "Byington"}},
+		d{"((?'One'abc)\\d+)?(?'Two'xyz)(.*)", // example
+			"abc208923xyzanqnakl",
+			[]string{"0", "1", "2", "One", "Two"},
+			[]int{0, 1, 2, 3, 4},
+			[]string{"abc208923xyzanqnakl", "abc208923", "anqnakl", "abc", "xyz"}},
+		d{"((?'256'abc)\\d+)?(?'16'xyz)(.*)", // numeric names
+			"0272saasdabc8978xyz][]12_+-",
+			[]string{"0", "1", "2", "16", "256"},
+			[]int{0, 1, 2, 16, 256},
+			[]string{"abc8978xyz][]12_+-", "abc8978", "][]12_+-", "xyz", "abc"}},
+		d{"((?'4'abc)(?'digits'\\d+))?(?'2'xyz)(?'everything_else'.*)", // mix numeric and string names
+			"0272saasdabc8978xyz][]12_+-",
+			[]string{"0", "1", "2", "digits", "4", "everything_else"},
+			[]int{0, 1, 2, 3, 4, 5},
+			[]string{"abc8978xyz][]12_+-", "abc8978", "xyz", "8978", "abc", "][]12_+-"}},
+		d{"(?'first_name'\\S+)\\s(?'first_name'\\S+)", // dupe string names
+			"Ryan Byington",
+			[]string{"0", "first_name"},
+			[]int{0, 1},
+			[]string{"Ryan Byington", "Byington"}},
+		d{"(?'15'\\S+)\\s(?'15'\\S+)", // dupe numeric names
+			"Ryan Byington",
+			[]string{"0", "15"},
+			[]int{0, 15},
+			[]string{"Ryan Byington", "Byington"}},
+	}
+
+	fatalf := func(re *Regexp, v d, format string, args ...interface{}) {
+		args = append(args, v, re.code.Dump())
+
+		t.Fatalf(format+" using test data: %#v\ndump:%v", args...)
 	}
 
 	validateGroupNamesNumbers := func(re *Regexp, v d) {
 		if len(v.name) != len(v.num) {
-			t.Fatalf("Invalid data, group name count and number count must match: %+v", v)
+			fatalf(re, v, "Invalid data, group name count and number count must match")
 		}
 
 		groupNames := re.GetGroupNames()
 		if !reflect.DeepEqual(groupNames, v.name) {
-			t.Fatalf("expected: %v, actual: %v", v.name, groupNames)
+			fatalf(re, v, "group names expected: %v, actual: %v", v.name, groupNames)
 		}
 		groupNums := re.GetGroupNumbers()
 		if !reflect.DeepEqual(groupNums, v.num) {
-			t.Fatalf("expected: %v, actual: %v", v.num, groupNums)
+			fatalf(re, v, "group numbers expected: %v, actual: %v", v.num, groupNums)
 		}
 		// make sure we can freely get names and numbers from eachother
 		for i := range groupNums {
-			if want, got := groupNames[i], re.GroupNameFromNumber(groupNums[i]); want != got {
-				t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
-			}
 			if want, got := groupNums[i], re.GroupNumberFromName(groupNames[i]); want != got {
-				t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+				fatalf(re, v, "group num from name Wanted '%v'\nGot '%v'", want, got)
+			}
+			if want, got := groupNames[i], re.GroupNameFromNumber(groupNums[i]); want != got {
+				fatalf(re, v, "group name from num Wanted '%v'\nGot '%v'", want, got)
 			}
 		}
 	}
@@ -154,24 +211,19 @@ func TestGroups_Basic(t *testing.T) {
 		// compile the regex
 		re := MustCompile(v.p, 0)
 
-		fatalf := func(format string, args ...interface{}) {
-			args = append(args, v, re.code.Dump())
-			t.Fatalf(format+" using test data: %#v\ndump:%v", args...)
-		}
-
 		// validate our group name/num info before execute
 		validateGroupNamesNumbers(re, v)
 
 		m, err := re.FindStringMatch(v.s)
 		if err != nil {
-			fatalf("Unexpected error in match: %v", err)
+			fatalf(re, v, "Unexpected error in match: %v", err)
 		}
 		if want, got := len(v.strs), m.GroupCount(); want != got {
-			fatalf("Wanted '%v'\nGot '%v'", want, got)
+			fatalf(re, v, "GroupCount() Wanted '%v'\nGot '%v'", want, got)
 		}
 		g := m.Groups()
 		if want, got := len(v.strs), len(g); want != got {
-			fatalf("Wanted '%v'\nGot '%v'", want, got)
+			fatalf(re, v, "len(m.Groups()) Wanted '%v'\nGot '%v'", want, got)
 		}
 		// validate each group's value from the execute
 		for i := range v.name {
@@ -179,14 +231,53 @@ func TestGroups_Basic(t *testing.T) {
 			grp2 := m.GroupByNumber(v.num[i])
 			// should be identical reference
 			if grp1 != grp2 {
-				fatalf("Expected GroupByName and GroupByNumber to return same result for %v, %v", v.name[i], v.num[i])
+				fatalf(re, v, "Expected GroupByName and GroupByNumber to return same result for %v, %v", v.name[i], v.num[i])
 			}
 			if want, got := v.strs[i], grp1.String(); want != got {
-				fatalf("Value[%v] Wanted '%v'\nGot '%v'", i, want, got)
+				fatalf(re, v, "Value[%v] Wanted '%v'\nGot '%v'", i, want, got)
 			}
 		}
 
 		// validate our group name/num info after execute
 		validateGroupNamesNumbers(re, v)
 	}
+}
+
+func TestErr_GroupName(t *testing.T) {
+	// group 0 is off limits
+	if _, err := Compile("foo(?<0>bar)", 0); err == nil {
+		t.Fatalf("zero group, expected error during compile")
+	} else if want, got := "error parsing regexp: capture number cannot be zero in `foo(?<0>bar)`", err.Error(); want != got {
+		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
+	}
+	if _, err := Compile("foo(?'0'bar)", 0); err == nil {
+		t.Fatalf("zero group, expected error during compile")
+	} else if want, got := "error parsing regexp: capture number cannot be zero in `foo(?'0'bar)`", err.Error(); want != got {
+		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
+	}
+
+	// group tag can't start with a num
+	if _, err := Compile("foo(?<1bar>)", 0); err == nil {
+		t.Fatalf("invalid group name, expected error during compile")
+	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character in `foo(?<1bar>)`", err.Error(); want != got {
+		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
+	}
+	if _, err := Compile("foo(?'1bar')", 0); err == nil {
+		t.Fatalf("invalid group name, expected error during compile")
+	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character in `foo(?'1bar')`", err.Error(); want != got {
+		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
+	}
+
+	// missing closing group tag
+	if _, err := Compile("foo(?<bar)", 0); err == nil {
+		t.Fatalf("invalid group name, expected error during compile")
+	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character in `foo(?<1bar>)`", err.Error(); want != got {
+		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
+	}
+	if _, err := Compile("foo(?'bar)", 0); err == nil {
+		t.Fatalf("invalid group name, expected error during compile")
+	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character in `foo(?'1bar')`", err.Error(); want != got {
+		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
+	}
+
 }
