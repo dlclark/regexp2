@@ -435,8 +435,25 @@ func (n *regexNode) reduceGroup() *regexNode {
 	panic("not implemented")
 }
 
+// Simple optimization. If a set is a singleton, an inverse singleton,
+// or empty, it's transformed accordingly.
 func (n *regexNode) reduceSet() *regexNode {
-	panic("not implemented")
+	// Extract empty-set, one and not-one case as special
+
+	if IsEmpty(n.str) {
+		n.t = ntNothing
+		n.str = ""
+	} else if IsSingleton(n.str) {
+		n.ch = SingletonChar(n.str)
+		n.str = ""
+		n.t += (ntOne - ntSet)
+	} else if IsSingletonInverse(n.str) {
+		n.ch = SingletonChar(n.str)
+		n.str = ""
+		n.t += (ntNotone - ntSet)
+	}
+
+	return n
 }
 
 func (n *regexNode) reverseLeft() *regexNode {

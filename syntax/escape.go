@@ -15,7 +15,7 @@ func Escape(input string) string {
 	return b.String()
 }
 
-const meta = `\.+*?()|[]{}^$#`
+const meta = `\.+*?()|[]{}^$# `
 
 func escape(b *bytes.Buffer, r rune, force bool) {
 	if unicode.IsPrint(r) {
@@ -52,5 +52,44 @@ func escape(b *bytes.Buffer, r rune, force bool) {
 		b.WriteString(`\x{`)
 		b.WriteString(strconv.FormatInt(int64(r), 16))
 		b.WriteString(`}`)
+	}
+}
+
+func Unescape(input string) (string, error) {
+	idx := strings.IndexRune(input, '\\')
+	// no slashes means no unescape needed
+	if idx == -1 {
+		return input, nil
+	}
+
+	buf := bytes.NewBufferString(input[:idx])
+	// get the runes for the rest of the string -- we're going full parser scan on this
+
+	p := parser{}
+	p.setPattern(input[idx+1:])
+	for {
+		if p.rightMost() {
+			return "", p.getErr(ErrIllegalEndEscape)
+		}
+		r, err := p.scanCharEscape()
+		if err != nil {
+			return "", err
+		}
+		buf.WriteRune(r)
+		// are we done?
+		if p.rightMost() {
+			return buf.String(), nil
+		}
+
+		r = p.moveRightGetChar()
+		for r != '\\' {
+			buf.WriteRune(r)
+			if p.rightMost() {
+				// we're done, no more slashes
+				return buf.String(), nil
+			}
+			// keep scanning until we get another slash
+			r = p.moveRightGetChar()
+		}
 	}
 }

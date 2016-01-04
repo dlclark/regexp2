@@ -32,7 +32,7 @@ type Match struct {
 }
 
 type Group struct {
-	Capture // the last capture of this group is embded for ease of use
+	Capture // the last capture of this group is embeded for ease of use
 
 	Name     string    // group name
 	Captures []Capture // captures of this group
@@ -60,6 +60,7 @@ func newMatch(regex *Regexp, capcount int, text string, startpos int) *Match {
 		textstart:  startpos,
 		balancing:  false,
 	}
+	m.Name = "0"
 	m.text = text
 	m.matches[0] = make([]int, 2)
 	return &m
@@ -87,6 +88,8 @@ func (m *Match) tidy(textpos int) {
 	m.Length = interval[1]
 	m.textpos = textpos
 	m.capcount = m.matchcount[0]
+	//copy our root capture to the list
+	m.Group.Captures = []Capture{m.Group.Capture}
 
 	if m.balancing {
 		// The idea here is that we want to compact all of our unbalanced captures.  To do that we
@@ -159,6 +162,7 @@ func (m *Match) addMatch(c, start, l int) {
 	m.matches[c][capcount*2] = start
 	m.matches[c][capcount*2+1] = l
 	m.matchcount[c] = capcount + 1
+	//log.Printf("addMatch: c=%v, i=%v, l=%v ... matches: %v", c, start, l, m.matches)
 }
 
 // Nonpublic builder: Add a capture to balance the specified group.  This is used by the
@@ -224,7 +228,7 @@ func (m *Match) GroupByNumber(num int) *Group {
 
 	m.populateOtherGroups()
 
-	return &m.otherGroups[num]
+	return &m.otherGroups[num-1]
 }
 
 // Groups returns all the capture groups, starting with group 0 (the full match)
@@ -241,7 +245,7 @@ func (m *Match) populateOtherGroups() {
 	if m.otherGroups == nil {
 		m.otherGroups = make([]Group, len(m.matchcount)-1)
 		for i := 0; i < len(m.otherGroups); i++ {
-			m.otherGroups[i] = newGroup(m.regex.GroupNameFromNumber(i), m.text, m.matches[i+1], m.matchcount[i+1])
+			m.otherGroups[i] = newGroup(m.regex.GroupNameFromNumber(i+1), m.text, m.matches[i+1], m.matchcount[i+1])
 		}
 	}
 }
@@ -255,45 +259,49 @@ func newGroup(name, text string, caps []int, capcount int) Group {
 	}
 	g.Name = name
 	g.Captures = make([]Capture, capcount)
-	for i := 0; i < capcount-1; i++ {
+	for i := 0; i < capcount; i++ {
 		g.Captures[i] = Capture{
 			text:   text,
 			Index:  caps[i*2],
 			Length: caps[i*2+1],
 		}
 	}
+	//log.Printf("newGroup! capcount %v, %+v", capcount, g)
 
 	return g
 }
 
 func (m *Match) dump() string {
 	buf := &bytes.Buffer{}
+	buf.WriteRune('\n')
 	if len(m.sparseCaps) > 0 {
 		for k, v := range m.sparseCaps {
-			fmt.Fprintf(buf, "\nSlot %v -> %v\n", k, v)
+			fmt.Fprintf(buf, "Slot %v -> %v\n", k, v)
 		}
 	}
 
-	gps := m.Groups()
+	for i, g := range m.Groups() {
+		fmt.Fprintf(buf, "Group %v (%v), %v caps:\n", i, g.Name, len(g.Captures))
 
-	for i, g := range gps {
-		fmt.Fprintf(buf, "\nGroup %v (%v):\n", i, g.Name)
-
+		for _, c := range g.Captures {
+			fmt.Fprintf(buf, "  (%v, %v) %v\n", c.Index, c.Length, c.String())
+		}
 	}
+	/*
+		for i := 0; i < len(m.matchcount); i++ {
+			fmt.Fprintf(buf, "\nGroup %v (%v):\n", i, m.regex.GroupNameFromNumber(i))
 
-	for i := 0; i < len(m.matchcount); i++ {
-		fmt.Fprintf(buf, "\nGroup %v (%v):\n", i, m.regex.GroupNameFromNumber(i))
+			for j := 0; j < m.matchcount[i]; j++ {
+				text := ""
 
-		for j := 0; j < m.matchcount[i]; j++ {
-			text := m.text
+				if m.matches[i][j*2] >= 0 {
+					start := m.matches[i][j*2]
+					text = m.text[start : start+m.matches[i][j*2+1]]
+				}
 
-			if m.matches[i][j*2] >= 0 {
-				start := m.matches[i][j*2]
-				text = m.text[start : start+m.matches[i][j*2+1]]
+				fmt.Fprintf(buf, "  (%v, %v) %v\n", m.matches[i][j*2], m.matches[i][j*2+1], text)
 			}
-
-			fmt.Fprintf(buf, "  (%v, %v) %v\n", m.matches[i][j*2], m.matches[i][j*2+1], text)
 		}
-	}
+	*/
 	return buf.String()
 }

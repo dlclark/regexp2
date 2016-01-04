@@ -85,6 +85,10 @@ func Escape(input string) string {
 	return syntax.Escape(input)
 }
 
+func Unescape(input string) (string, error) {
+	return syntax.Unescape(input)
+}
+
 // String returns the source text used to compile the regular expression.
 func (re *Regexp) String() string {
 	return re.pattern

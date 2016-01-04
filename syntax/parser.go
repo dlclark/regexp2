@@ -87,7 +87,14 @@ const (
 	ErrAlternationCantCapture     = "alternation conditions do not capture and cannot be named"
 	ErrAlternationCantHaveComment = "alternation conditions cannot be comments"
 	ErrMalformedReference         = "(?(%v) ) malformed"
-	ErrUndefinedReference         = "(?(%v) ) reference to undefined group."
+	ErrUndefinedReference         = "(?(%v) ) reference to undefined group"
+	ErrIllegalEndEscape           = "illegal \\ at end of pattern"
+	ErrMalformedSlashP            = "malformed \\p{X} character escape"
+	ErrIncompleteSlashP           = "incomplete \\p{X} character escape"
+	ErrUnrecognizedEscape         = "unrecognized escape sequence \\%v"
+	ErrMissingControl             = "missing control character"
+	ErrUnrecognizedControl        = "unrecognized control character"
+	ErrTooFewHex                  = "insufficient hexadecimal digits"
 )
 
 func (e ErrorCode) String() string {
@@ -131,16 +138,10 @@ const (
 // Parse converts a regex string into a parse tree
 func Parse(re string, op RegexOptions) (*RegexTree, error) {
 	p := parser{
-		patternRaw: re,
-		options:    op,
-		caps:       make(map[int]int),
+		options: op,
+		caps:    make(map[int]int),
 	}
-	p.pattern = make([]rune, 0, len(re))
-
-	//populate our rune array to handle utf8 encoding
-	for _, r := range re {
-		p.pattern = append(p.pattern, r)
-	}
+	p.setPattern(re)
 
 	if err := p.countCaptures(); err != nil {
 		return nil, err
@@ -163,6 +164,15 @@ func Parse(re string, op RegexOptions) (*RegexTree, error) {
 	}, nil
 }
 
+func (p *parser) setPattern(pattern string) {
+	p.patternRaw = pattern
+	p.pattern = make([]rune, 0, len(pattern))
+
+	//populate our rune array to handle utf8 encoding
+	for _, r := range pattern {
+		p.pattern = append(p.pattern, r)
+	}
+}
 func (p *parser) getErr(code ErrorCode, args ...interface{}) error {
 	return &Error{Code: code, Expr: p.patternRaw, Args: args}
 }
@@ -875,9 +885,134 @@ BreakRecognize:
 	return nil, p.getErr(ErrUnrecognizedGrouping)
 }
 
+// scans backslash specials and basics
 func (p *parser) scanBackslash() (*regexNode, error) {
+
+	if p.charsRight() == 0 {
+		return nil, p.getErr(ErrIllegalEndEscape)
+	}
+
+	switch ch := p.rightChar(0); ch {
+	case 'b', 'B', 'A', 'G', 'Z', 'z':
+		p.moveRight(1)
+		return newRegexNode(p.typeFromCode(ch), p.options), nil
+
+	case 'w':
+		p.moveRight(1)
+		if p.useOptionE() {
+			return newRegexNodeStr(ntSet, p.options, ECMAWordClass), nil
+		}
+		return newRegexNodeStr(ntSet, p.options, WordClass), nil
+
+	case 'W':
+		p.moveRight(1)
+		if p.useOptionE() {
+			return newRegexNodeStr(ntSet, p.options, NotECMAWordClass), nil
+		}
+		return newRegexNodeStr(ntSet, p.options, NotWordClass), nil
+
+	case 's':
+		p.moveRight(1)
+		if p.useOptionE() {
+			return newRegexNodeStr(ntSet, p.options, ECMASpaceClass), nil
+		}
+		return newRegexNodeStr(ntSet, p.options, SpaceClass), nil
+
+	case 'S':
+		p.moveRight(1)
+		if p.useOptionE() {
+			return newRegexNodeStr(ntSet, p.options, NotECMASpaceClass), nil
+		}
+		return newRegexNodeStr(ntSet, p.options, NotSpaceClass), nil
+
+	case 'd':
+		p.moveRight(1)
+		if p.useOptionE() {
+			return newRegexNodeStr(ntSet, p.options, ECMADigitClass), nil
+		}
+		return newRegexNodeStr(ntSet, p.options, DigitClass), nil
+
+	case 'D':
+		p.moveRight(1)
+		if p.useOptionE() {
+			return newRegexNodeStr(ntSet, p.options, NotECMADigitClass), nil
+		}
+		return newRegexNodeStr(ntSet, p.options, NotDigitClass), nil
+
+	case 'p', 'P':
+		p.moveRight(1)
+		cc := newCharClass()
+		prop, err := p.parseProperty()
+		if err != nil {
+			return nil, err
+		}
+		cc.addCategoryFromName(prop, (ch != 'p'), p.useOptionI(), p.patternRaw)
+		if p.useOptionI() {
+			cc.addLowercase()
+		}
+
+		return newRegexNodeStr(ntSet, p.options, cc.toStringClass()), nil
+
+	default:
+		return p.scanBasicBackslash()
+	}
+}
+
+func (p *parser) scanBasicBackslash() (*regexNode, error) {
 	panic("not implemented")
-	//TODO: this
+}
+
+// Scans X for \p{X} or \P{X}
+func (p *parser) parseProperty() (string, error) {
+	if p.charsRight() < 3 {
+		return "", p.getErr(ErrIncompleteSlashP)
+	}
+	ch := p.moveRightGetChar()
+	if ch != '{' {
+		return "", p.getErr(ErrMalformedSlashP)
+	}
+
+	startpos := p.textpos()
+	for p.charsRight() > 0 {
+		ch = p.moveRightGetChar()
+		if !(IsWordChar(ch) || ch == '-') {
+			p.moveLeft()
+			break
+		}
+	}
+	capname := string(p.pattern[startpos:p.textpos()])
+
+	if p.charsRight() == 0 || p.moveRightGetChar() != '}' {
+		return "", p.getErr(ErrIncompleteSlashP)
+	}
+
+	return capname, nil
+}
+
+// Returns ReNode type for zero-length assertions with a \ code.
+func (p *parser) typeFromCode(ch rune) nodeType {
+	switch ch {
+	case 'b':
+		if p.useOptionE() {
+			return ntECMABoundary
+		}
+		return ntBoundary
+	case 'B':
+		if p.useOptionE() {
+			return ntNonECMABoundary
+		}
+		return ntNonboundary
+	case 'A':
+		return ntBeginning
+	case 'G':
+		return ntStart
+	case 'Z':
+		return ntEndZ
+	case 'z':
+		return ntEnd
+	default:
+		return ntNothing
+	}
 }
 
 // Scans whitespace or x-mode comments.
@@ -1000,6 +1135,137 @@ func (p *parser) scanOptions() {
 	}
 }
 
+// Scans \ code for escape codes that map to single unicode chars.
+func (p *parser) scanCharEscape() (rune, error) {
+
+	ch := p.moveRightGetChar()
+
+	if ch >= '0' && ch <= '7' {
+		p.moveLeft()
+		return p.scanOctal(), nil
+	}
+
+	switch ch {
+	case 'x':
+		return p.scanHex(2)
+	case 'u':
+		return p.scanHex(4)
+	case 'a':
+		return '\u0007', nil
+	case 'b':
+		return '\b', nil
+	case 'e':
+		return '\u001B', nil
+	case 'f':
+		return '\f', nil
+	case 'n':
+		return '\n', nil
+	case 'r':
+		return '\r', nil
+	case 't':
+		return '\t', nil
+	case 'v':
+		return '\u000B', nil
+	case 'c':
+		return p.scanControl()
+	default:
+		if !p.useOptionE() && IsWordChar(ch) {
+			return 0, p.getErr(ErrUnrecognizedEscape, ch)
+		}
+		return ch, nil
+	}
+}
+
+// Grabs and converts an ascii control character
+func (p *parser) scanControl() (rune, error) {
+	if p.charsRight() <= 0 {
+		return 0, p.getErr(ErrMissingControl)
+	}
+
+	ch := p.moveRightGetChar()
+
+	// \ca interpreted as \cA
+
+	if ch >= 'a' && ch <= 'z' {
+		ch = (ch - ('a' - 'A'))
+	}
+	ch = (ch - '@')
+	if ch < ' ' {
+		return ch, nil
+	}
+
+	return 0, p.getErr(ErrUnrecognizedControl)
+
+}
+
+// Scans exactly c hex digits (c=2 for \xFF, c=4 for \uFFFF)
+func (p *parser) scanHex(c int) (rune, error) {
+
+	i := 0
+
+	if p.charsRight() >= c {
+		d := hexDigit(p.moveRightGetChar())
+		for ; c > 0 && d >= 0; c -= 1 {
+			i *= 0x10
+			i += d
+			d = hexDigit(p.moveRightGetChar())
+		}
+	}
+
+	if c > 0 {
+		return 0, p.getErr(ErrTooFewHex)
+	}
+
+	return rune(i), nil
+}
+
+// Returns n <= 0xF for a hex digit.
+func hexDigit(ch rune) int {
+
+	if d := int(ch - '0'); d <= 9 {
+		return d
+	}
+
+	if d := int(ch - 'a'); d <= 5 {
+		return d + 0xa
+	}
+
+	if d := int(ch - 'A'); d <= 5 {
+		return d + 0xa
+	}
+
+	return -1
+}
+
+// Scans up to three octal digits (stops before exceeding 0377).
+func (p *parser) scanOctal() rune {
+	// Consume octal chars only up to 3 digits and value 0377
+
+	c := 3
+
+	if c > p.charsRight() {
+		c = p.charsRight()
+	}
+
+	i := 0
+	d := int(p.rightChar(0) - '0')
+	for ; c > 0 && d <= 7; c -= 1 {
+		p.moveRight(1)
+		i *= 8
+		i += d
+		if p.useOptionE() && i >= 0x20 {
+			break
+		}
+		d = int(p.rightChar(0) - '0')
+	}
+
+	// Octal codes only go up to 255.  Any larger and the behavior that Perl follows
+	// is simply to truncate the high bits.
+	i &= 0xFF
+
+	return rune(i)
+}
+
 // Returns the current parsing position.
 func (p *parser) textpos() int {
 	return p.currentPos
@@ -1019,6 +1285,7 @@ func (p *parser) moveRightGetChar() rune {
 
 // Moves the current position to the right.
 func (p *parser) moveRight(i int) {
+	// default would be 1
 	p.currentPos += i
 }
 
@@ -1034,12 +1301,17 @@ func (p *parser) charAt(i int) rune {
 
 // Returns the char i chars right of the current parsing position.
 func (p *parser) rightChar(i int) rune {
+	// default would be 0
 	return p.pattern[p.currentPos+i]
 }
 
 // Number of characters to the right of the current parsing position.
 func (p *parser) charsRight() int {
 	return len(p.pattern) - p.currentPos
+}
+
+func (p *parser) rightMost() bool {
+	return p.currentPos == len(p.pattern)
 }
 
 // Looks up the slot number for a given name
@@ -1092,6 +1364,11 @@ func (p *parser) useOptionS() bool {
 // True if X option enabling whitespace/comment mode is on.
 func (p *parser) useOptionX() bool {
 	return (p.options & IgnorePatternWhitespace) != 0
+}
+
+// True if E option enabling ECMAScript behavior on.
+func (p *parser) useOptionE() bool {
+	return (p.options & ECMAScript) != 0
 }
 
 // True if options stack is empty.
