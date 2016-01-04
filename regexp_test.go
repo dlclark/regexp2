@@ -6,7 +6,7 @@ import (
 )
 
 func TestRegexp_Basic(t *testing.T) {
-	r, err := Compile("test(?<named>ing)?", 0)
+	r, err := Compile("test(?<named>ing)?", Debug)
 	//t.Logf("code dump: %v", r.code.Dump())
 
 	if err != nil {

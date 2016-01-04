@@ -103,6 +103,10 @@ func (re *Regexp) run(quick bool, prevlen int, input string) (*Match, error) {
 // any characters that we know can't match.
 func (r *runner) scan(input string, textstart, prevlen int, quick bool, timeout time.Duration) (*Match, error) {
 
+	if r.re.Debug() {
+		log.Printf("code dump:\n%v", r.code.Dump())
+	}
+
 	r.timeout = timeout
 	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
 	r.runtextraw = input
@@ -196,7 +200,7 @@ func (r *runner) execute() error {
 	for {
 
 		if r.re.Debug() {
-			//TODO: r.dumpState()
+			r.dumpState()
 		}
 
 		r.checkTimeout()

@@ -253,7 +253,7 @@ func IsECMAWordChar(r rune) bool {
 	return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_'
 }
 
-// this whole stack is ripe for re-writing with a real data structure -- the string as a struct thing is super hacky
+// TODO: this whole stack is ripe for re-writing with a real data structure -- the string as a struct thing is super hacky
 func CharInClass(ch rune, set string) bool {
 	return CharInClassRecursive(ch, set, 0)
 }

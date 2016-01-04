@@ -104,7 +104,8 @@ func quote(s string) string {
 type RegexOptions int32
 
 const (
-	IgnoreCase              RegexOptions = 0x0001 // "i"
+	None                    RegexOptions = 0x0
+	IgnoreCase                           = 0x0001 // "i"
 	Multiline                            = 0x0002 // "m"
 	ExplicitCapture                      = 0x0004 // "n"
 	Compiled                             = 0x0008 // "c"

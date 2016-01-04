@@ -95,6 +95,7 @@ const (
 	ErrMissingControl             = "missing control character"
 	ErrUnrecognizedControl        = "unrecognized control character"
 	ErrTooFewHex                  = "insufficient hexadecimal digits"
+	ErrMalformedNameRef           = "malformed \\k<...> named back reference"
 )
 
 func (e ErrorCode) String() string {
@@ -958,8 +959,123 @@ func (p *parser) scanBackslash() (*regexNode, error) {
 	}
 }
 
+// Scans \-style backreferences and character escapes
 func (p *parser) scanBasicBackslash() (*regexNode, error) {
-	panic("not implemented")
+	if p.charsRight() == 0 {
+		return nil, p.getErr(ErrIllegalEndEscape)
+	}
+	angled := false
+	close := '\x00'
+
+	backpos := p.textpos()
+	ch := p.rightChar(0)
+
+	// allow \k<foo> instead of \<foo>, which is now deprecated
+
+	if ch == 'k' {
+		if p.charsRight() >= 2 {
+			p.moveRight(1)
+			ch = p.moveRightGetChar()
+
+			if ch == '<' || ch == '\'' {
+				angled = true
+				if ch == '\'' {
+					close = '\''
+				} else {
+					close = '>'
+				}
+			}
+		}
+
+		if !angled || p.charsRight() <= 0 {
+			return nil, p.getErr(ErrMalformedNameRef)
+		}
+
+		ch = p.rightChar(0)
+
+	} else if (ch == '<' || ch == '\'') && p.charsRight() > 1 { // Note angle without \g
+		angled = true
+		if ch == '\'' {
+			close = '\''
+		} else {
+			close = '>'
+		}
+
+		p.moveRight(1)
+		ch = p.rightChar(0)
+	}
+
+	// Try to parse backreference: \<1> or \<cap>
+
+	if angled && ch >= '0' && ch <= '9' {
+		capnum, err := p.scanDecimal()
+		if err != nil {
+			return nil, err
+		}
+
+		if p.charsRight() > 0 && p.moveRightGetChar() == close {
+			if p.isCaptureSlot(capnum) {
+				return newRegexNodeM(ntRef, p.options, capnum), nil
+			} else {
+				return nil, p.getErr(ErrUndefinedBackRef, capnum)
+			}
+		}
+	} else if !angled && ch >= '1' && ch <= '9' { // Try to parse backreference or octal: \1
+		if p.useOptionE() {
+			capnum := -1
+			newcapnum := int(ch - '0')
+			pos := p.textpos() - 1
+			for newcapnum <= p.captop {
+				if p.isCaptureSlot(newcapnum) && (p.caps == nil || p.caps[newcapnum] < pos) {
+					capnum = newcapnum
+				}
+				p.moveRight(1)
+				if p.charsRight() == 0 {
+					break
+				}
+				if ch = p.rightChar(0); ch < '0' || ch > '9' {
+					break
+				}
+				newcapnum = newcapnum*10 + int(ch-'0')
+			}
+			if capnum >= 0 {
+				return newRegexNodeM(ntRef, p.options, capnum), nil
+			}
+		} else {
+			capnum, err := p.scanDecimal()
+			if err != nil {
+				return nil, err
+			}
+			if p.isCaptureSlot(capnum) {
+				return newRegexNodeM(ntRef, p.options, capnum), nil
+			} else if capnum <= 9 {
+				return nil, p.getErr(ErrUndefinedBackRef, capnum)
+			}
+		}
+	} else if angled && IsWordChar(ch) {
+		capname := p.scanCapname()
+
+		if p.charsRight() > 0 && p.moveRightGetChar() == close {
+			if p.isCaptureName(capname) {
+				return newRegexNodeM(ntRef, p.options, p.captureSlotFromName(capname)), nil
+			}
+			return nil, p.getErr(ErrUndefinedNameRef, capname)
+		}
+	}
+
+	// Not backreference: must be char code
+
+	p.textto(backpos)
+	ch, err := p.scanCharEscape()
+	if err != nil {
+		return nil, err
+	}
+
+	if p.useOptionI() {
+		ch = unicode.ToLower(ch)
+	}
+
+	return newRegexNodeCh(ntOne, p.options, ch), nil
 }
 
 // Scans X for \p{X} or \P{X}
