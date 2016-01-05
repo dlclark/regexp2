@@ -55,6 +55,7 @@ type regexNode struct {
 	t        nodeType
 	children []*regexNode
 	str      string
+	set      *CharSet
 	ch       rune
 	m        int
 	n        int
@@ -133,6 +134,14 @@ func newRegexNodeStr(t nodeType, opt RegexOptions, str string) *regexNode {
 		t:       t,
 		options: opt,
 		str:     str,
+	}
+}
+
+func newRegexNodeSet(t nodeType, opt RegexOptions, set *CharSet) *regexNode {
+	return &regexNode{
+		t:       t,
+		options: opt,
+		set:     set,
 	}
 }
 
@@ -227,9 +236,9 @@ func (n *regexNode) reduceAlternation() *regexNode {
 				optionsAt := at.options & (RightToLeft | IgnoreCase)
 
 				if at.t == ntSet {
-					if !wasLastSet || optionsLast != optionsAt || lastNodeCannotMerge || !IsMergeable(at.str) {
+					if !wasLastSet || optionsLast != optionsAt || lastNodeCannotMerge || !at.set.IsMergeable() {
 						wasLastSet = true
-						lastNodeCannotMerge = !IsMergeable(at.str)
+						lastNodeCannotMerge = !at.set.IsMergeable()
 						optionsLast = optionsAt
 						break
 					}
@@ -245,23 +254,22 @@ func (n *regexNode) reduceAlternation() *regexNode {
 				j--
 				prev := n.children[j]
 
-				var prevCharClass charClass
+				var prevCharClass *CharSet
 				if prev.t == ntOne {
-					prevCharClass = newCharClass()
+					prevCharClass = &CharSet{}
 					prevCharClass.addChar(prev.ch)
 				} else {
-					prevCharClass = parseCharClass(prev.str)
+					prevCharClass = prev.set
 				}
 
 				if at.t == ntOne {
 					prevCharClass.addChar(at.ch)
 				} else {
-					atCharClass := parseCharClass(at.str)
-					prevCharClass.addCharClass(atCharClass)
+					prevCharClass.addSet(at.set)
 				}
 
 				prev.t = ntSet
-				prev.str = prevCharClass.toStringClass()
+				prev.set = prevCharClass
 			} else if at.t == ntNothing {
 				j--
 			} else {
@@ -445,16 +453,15 @@ func (n *regexNode) reduceGroup() *regexNode {
 func (n *regexNode) reduceSet() *regexNode {
 	// Extract empty-set, one and not-one case as special
 
-	if IsEmpty(n.str) {
+	if n.set == nil {
 		n.t = ntNothing
-		n.str = ""
-	} else if IsSingleton(n.str) {
-		n.ch = SingletonChar(n.str)
-		n.str = ""
+	} else if n.set.IsSingleton() {
+		n.ch = n.set.SingletonChar()
+		n.set = nil
 		n.t += (ntOne - ntSet)
-	} else if IsSingletonInverse(n.str) {
-		n.ch = SingletonChar(n.str)
-		n.str = ""
+	} else if n.set.IsSingletonInverse() {
+		n.ch = n.set.SingletonChar()
+		n.set = nil
 		n.t += (ntNotone - ntSet)
 	}
 
@@ -561,7 +568,7 @@ func (n *regexNode) description() string {
 		buf.WriteString("(String = " + n.str + ")")
 		break
 	case ntSet, ntSetloop, ntSetlazy:
-		buf.WriteString("(Set = " + setDescription(n.str) + ")")
+		buf.WriteString("(Set = " + n.set.String() + ")")
 		break
 	}
 

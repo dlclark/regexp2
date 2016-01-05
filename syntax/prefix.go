@@ -6,7 +6,7 @@ import (
 )
 
 type Prefix struct {
-	Prefix          string
+	PrefixStr       string
 	CaseInsensitive bool
 }
 
@@ -18,7 +18,7 @@ func getFirstCharsPrefix(tree *RegexTree) (*Prefix, error) {
 }
 
 // This is a related computation: it takes a RegexTree and computes the
-// leading substring if it see one. It's quite trivial and gives up easily.
+// leading substring if it sees one. It's quite trivial and gives up easily.
 func getPrefix(tree *RegexTree) Prefix {
 	var concatNode *regexNode
 	nextChild := 0
@@ -40,7 +40,7 @@ func getPrefix(tree *RegexTree) Prefix {
 		case ntOneloop, ntOnelazy:
 			if curNode.m > 0 {
 				return Prefix{
-					Prefix:          strings.Repeat(string(curNode.ch), curNode.m),
+					PrefixStr:       strings.Repeat(string(curNode.ch), curNode.m),
 					CaseInsensitive: (curNode.options & IgnoreCase) != 0,
 				}
 			}
@@ -48,13 +48,13 @@ func getPrefix(tree *RegexTree) Prefix {
 
 		case ntOne:
 			return Prefix{
-				Prefix:          string(curNode.ch),
+				PrefixStr:       string(curNode.ch),
 				CaseInsensitive: (curNode.options & IgnoreCase) != 0,
 			}
 
 		case ntMulti:
 			return Prefix{
-				Prefix:          curNode.str,
+				PrefixStr:       curNode.str,
 				CaseInsensitive: (curNode.options & IgnoreCase) != 0,
 			}
 
@@ -178,7 +178,7 @@ func anchorFromType(t nodeType) AnchorLoc {
 }
 
 // anchorDescription returns a human-readable description of the anchors
-func anchorDescription(anchors AnchorLoc) string {
+func (anchors AnchorLoc) String() string {
 	buf := &bytes.Buffer{}
 
 	if 0 != (anchors & AnchorBeginning) {

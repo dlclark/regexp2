@@ -92,6 +92,7 @@ const (
 type Code struct {
 	Codes       []int       // the code
 	Strings     []string    // string table
+	Sets        []*CharSet  //character set table
 	TrackCount  int         // how many instructions use backtracking
 	Caps        map[int]int // mapping of user group numbers -> impl group slots
 	Capsize     int         // number of impl group slots
@@ -192,7 +193,7 @@ func (c *Code) opcodeDescription(offset int) string {
 
 	case Set, Setrep, Setloop, Setlazy:
 		buf.WriteString("Set = ")
-		buf.WriteString(setDescription(c.Strings[c.Codes[offset+1]]))
+		buf.WriteString(c.Sets[c.Codes[offset+1]].String())
 
 	case Multi:
 		fmt.Fprintf(buf, "String = %v", c.Strings[c.Codes[offset+1]])
@@ -248,7 +249,7 @@ func (c *Code) Dump() string {
 	if c.FcPrefix == nil {
 		fmt.Fprintln(buf, "Firstchars: n/a")
 	} else {
-		fmt.Fprintf(buf, "Firstchars: %v\n", setDescription(c.FcPrefix.Prefix))
+		fmt.Fprintf(buf, "Firstchars: %v\n", c.FcPrefix.PrefixStr)
 	}
 
 	if c.BmPrefix == nil {
@@ -257,7 +258,7 @@ func (c *Code) Dump() string {
 		fmt.Fprintf(buf, "Prefix:     %v\n", Escape(c.BmPrefix.String()))
 	}
 
-	fmt.Fprintf(buf, "Anchors:    %v\n", anchorDescription(c.Anchors))
+	fmt.Fprintf(buf, "Anchors:    %v\n", c.Anchors)
 	fmt.Fprintln(buf)
 
 	if c.BmPrefix != nil {

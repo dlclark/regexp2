@@ -1,6 +1,7 @@
 package syntax
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 )
@@ -10,6 +11,7 @@ func Write(tree *RegexTree) (*Code, error) {
 		intStack:   make([]int, 0, 32),
 		emitted:    make([]int, 2),
 		stringhash: make(map[string]int),
+		sethash:    make(map[string]int),
 	}
 	return w.codeFromTree(tree)
 }
@@ -21,6 +23,8 @@ type writer struct {
 	curpos      int
 	stringhash  map[string]int
 	stringtable []string
+	sethash     map[string]int
+	settable    []*CharSet
 	counting    bool
 	count       int
 	trackcount  int
@@ -115,7 +119,7 @@ func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 	rtl := (tree.options & RightToLeft) != 0
 
 	var bmPrefix *BmPrefix
-	if len(prefix.Prefix) > 0 {
+	if len(prefix.PrefixStr) > 0 {
 		//TODO: bmPrefix = newRegexBoyerMoore(prefix.prefix, prefix.caseInsensitive, rtl)
 	} else {
 		bmPrefix = nil
@@ -124,6 +128,7 @@ func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 	return &Code{
 		Codes:       w.emitted,
 		Strings:     w.stringtable,
+		Sets:        w.settable,
 		TrackCount:  w.trackcount,
 		Caps:        w.caps,
 		Capsize:     capsize,
@@ -320,13 +325,13 @@ func (w *writer) emitFragment(nodetype nodeType, node *regexNode, curIndex int) 
 
 	case ntSetloop, ntSetlazy:
 		if node.m > 0 {
-			w.emit2(Setrep|bits, w.stringCode(node.str), node.m)
+			w.emit2(Setrep|bits, w.setCode(node.set), node.m)
 		}
 		if node.n > node.m {
 			if node.n == math.MaxInt32 {
-				w.emit2(InstOp(node.t|ntBits), w.stringCode(node.str), math.MaxInt32)
+				w.emit2(InstOp(node.t|ntBits), w.setCode(node.set), math.MaxInt32)
 			} else {
-				w.emit2(InstOp(node.t|ntBits), w.stringCode(node.str), node.n-node.m)
+				w.emit2(InstOp(node.t|ntBits), w.setCode(node.set), node.n-node.m)
 			}
 		}
 
@@ -334,7 +339,7 @@ func (w *writer) emitFragment(nodetype nodeType, node *regexNode, curIndex int) 
 		w.emit1(InstOp(node.t|ntBits), w.stringCode(node.str))
 
 	case ntSet:
-		w.emit1(InstOp(node.t|ntBits), w.stringCode(node.str))
+		w.emit1(InstOp(node.t|ntBits), w.setCode(node.set))
 
 	case ntRef:
 		w.emit1(InstOp(node.t|ntBits), w.mapCapnum(node.m))
@@ -381,8 +386,28 @@ func (w *writer) patchJump(offset, jumpDest int) {
 	w.emitted[offset+1] = jumpDest
 }
 
-// Returns an index in the string table for a string;
-// uses a hashtable to eliminate duplicates.
+// Returns an index in the set table for a charset
+// uses a map to eliminate duplicates.
+func (w *writer) setCode(set *CharSet) int {
+	if w.counting {
+		return 0
+	}
+
+	buf := &bytes.Buffer{}
+
+	set.mapHashFill(buf)
+	hash := buf.String()
+	i, ok := w.sethash[hash]
+	if !ok {
+		i = len(w.sethash)
+		w.sethash[hash] = i
+		w.settable = append(w.settable, set)
+	}
+	return i
+}
+
+// Returns an index in the string table for a string.
+// uses a map to eliminate duplicates.
 func (w *writer) stringCode(str string) int {
 	if w.counting {
 		return 0

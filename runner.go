@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/dlclark/regexp2/syntax"
 )
@@ -616,7 +617,7 @@ func (r *runner) execute() error {
 
 		case syntax.Set:
 
-			if r.forwardchars() < 1 || !syntax.CharInClass(r.forwardcharnext(), r.code.Strings[r.operand(0)]) {
+			if r.forwardchars() < 1 || !r.code.Sets[r.operand(0)].CharIn(r.forwardcharnext()) {
 				break
 			}
 
@@ -693,10 +694,10 @@ func (r *runner) execute() error {
 				break
 			}
 
-			set := r.code.Strings[r.operand(0)]
+			set := r.code.Sets[r.operand(0)]
 
 			for c--; c > 0; c-- {
-				if !syntax.CharInClass(r.forwardcharnext(), set) {
+				if !set.CharIn(r.forwardcharnext()) {
 					goto BreakBackward
 				}
 			}
@@ -762,11 +763,11 @@ func (r *runner) execute() error {
 				c = r.forwardchars()
 			}
 
-			set := r.code.Strings[r.operand(0)]
+			set := r.code.Sets[r.operand(0)]
 			i := c
 
 			for ; i > 0; i-- {
-				if !syntax.CharInClass(r.forwardcharnext(), set) {
+				if !set.CharIn(r.forwardcharnext()) {
 					r.backwardnext()
 					break
 				}
@@ -883,7 +884,7 @@ func (r *runner) execute() error {
 			pos := r.trackPeekN(1)
 			r.textto(pos)
 
-			if !syntax.CharInClass(r.forwardcharnext(), r.code.Strings[r.operand(0)]) {
+			if !r.code.Sets[r.operand(0)].CharIn(r.forwardcharnext()) {
 				break
 			}
 
@@ -1332,10 +1333,20 @@ func (r *runner) findFirstChar() bool {
 
 	r.rightToLeft = r.code.RightToLeft
 	r.caseInsensitive = r.code.FcPrefix.CaseInsensitive
-	set := r.code.FcPrefix.Prefix
 
-	if syntax.IsSingleton(set) {
-		ch := syntax.SingletonChar(set)
+	if len(r.code.FcPrefix.PrefixStr) > 0 {
+		ch, _ := utf8.DecodeRuneInString(r.code.FcPrefix.PrefixStr)
+
+		for i := r.forwardchars(); i > 0; i-- {
+			if ch == r.forwardcharnext() {
+				r.backwardnext()
+				return true
+			}
+		}
+	}
+
+	/*if set.IsSingleton() {
+		ch := set.SingletonChar()
 
 		for i := r.forwardchars(); i > 0; i-- {
 			if ch == r.forwardcharnext() {
@@ -1345,12 +1356,13 @@ func (r *runner) findFirstChar() bool {
 		}
 	} else {
 		for i := r.forwardchars(); i > 0; i-- {
-			if syntax.CharInClass(r.forwardcharnext(), set) {
+			if set.CharIn(r.forwardcharnext()) {
 				r.backwardnext()
 				return true
 			}
 		}
-	}
+	}*/
+
 	return false
 }
 

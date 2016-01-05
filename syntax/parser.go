@@ -306,7 +306,7 @@ func (p *parser) countCaptures() error {
 			}
 
 		case '[':
-			p.scanCharClass(false, true)
+			p.scanCharSet(false, true)
 
 		case ')':
 			if !p.emptyOptionsStack() {
@@ -464,11 +464,11 @@ func (p *parser) scanRegex() (*regexNode, error) {
 			goto ContinueOuterScan
 
 		case '[':
-			cc, err := p.scanCharClass(p.useOptionI(), false)
+			cc, err := p.scanCharSet(p.useOptionI(), false)
 			if err != nil {
 				return nil, err
 			}
-			p.addUnitSet(cc.toStringClass())
+			p.addUnitSet(cc)
 
 		case '(':
 			p.pushOptions()
@@ -901,58 +901,58 @@ func (p *parser) scanBackslash() (*regexNode, error) {
 	case 'w':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeStr(ntSet, p.options, ECMAWordClass), nil
+			return newRegexNodeSet(ntSet, p.options, ECMAWordClass), nil
 		}
-		return newRegexNodeStr(ntSet, p.options, WordClass), nil
+		return newRegexNodeSet(ntSet, p.options, WordClass), nil
 
 	case 'W':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeStr(ntSet, p.options, NotECMAWordClass), nil
+			return newRegexNodeSet(ntSet, p.options, NotECMAWordClass), nil
 		}
-		return newRegexNodeStr(ntSet, p.options, NotWordClass), nil
+		return newRegexNodeSet(ntSet, p.options, NotWordClass), nil
 
 	case 's':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeStr(ntSet, p.options, ECMASpaceClass), nil
+			return newRegexNodeSet(ntSet, p.options, ECMASpaceClass), nil
 		}
-		return newRegexNodeStr(ntSet, p.options, SpaceClass), nil
+		return newRegexNodeSet(ntSet, p.options, SpaceClass), nil
 
 	case 'S':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeStr(ntSet, p.options, NotECMASpaceClass), nil
+			return newRegexNodeSet(ntSet, p.options, NotECMASpaceClass), nil
 		}
-		return newRegexNodeStr(ntSet, p.options, NotSpaceClass), nil
+		return newRegexNodeSet(ntSet, p.options, NotSpaceClass), nil
 
 	case 'd':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeStr(ntSet, p.options, ECMADigitClass), nil
+			return newRegexNodeSet(ntSet, p.options, ECMADigitClass), nil
 		}
-		return newRegexNodeStr(ntSet, p.options, DigitClass), nil
+		return newRegexNodeSet(ntSet, p.options, DigitClass), nil
 
 	case 'D':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeStr(ntSet, p.options, NotECMADigitClass), nil
+			return newRegexNodeSet(ntSet, p.options, NotECMADigitClass), nil
 		}
-		return newRegexNodeStr(ntSet, p.options, NotDigitClass), nil
+		return newRegexNodeSet(ntSet, p.options, NotDigitClass), nil
 
 	case 'p', 'P':
 		p.moveRight(1)
-		cc := newCharClass()
 		prop, err := p.parseProperty()
 		if err != nil {
 			return nil, err
 		}
-		cc.addCategoryFromName(prop, (ch != 'p'), p.useOptionI(), p.patternRaw)
+		cc := &CharSet{}
+		cc.addCategory(prop, (ch != 'p'), p.useOptionI(), p.patternRaw)
 		if p.useOptionI() {
 			cc.addLowercase()
 		}
 
-		return newRegexNodeStr(ntSet, p.options, cc.toStringClass()), nil
+		return newRegexNodeSet(ntSet, p.options, cc), nil
 
 	default:
 		return p.scanBasicBackslash()
@@ -1192,8 +1192,8 @@ func (p *parser) scanCapname() string {
 	return string(p.pattern[startpos:p.textpos()])
 }
 
-//Scans contents of [] (not including []'s), and converts to a charClass.
-func (p *parser) scanCharClass(caseInsensitive, scanOnly bool) (*charClass, error) {
+//Scans contents of [] (not including []'s), and converts to a set.
+func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 	//TOOD: scanCharClass
 	return nil, nil
 }
@@ -1524,8 +1524,8 @@ func (p *parser) addUnitNotone(ch rune) {
 }
 
 // Sets the current unit to a single set node
-func (p *parser) addUnitSet(cc string) {
-	p.unit = newRegexNodeStr(ntSet, p.options, cc)
+func (p *parser) addUnitSet(set *CharSet) {
+	p.unit = newRegexNodeSet(ntSet, p.options, set)
 }
 
 // Sets the current unit to a subtree
