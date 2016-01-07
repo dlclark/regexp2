@@ -69,7 +69,7 @@ func TestCapture_Basic(t *testing.T) {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 	// group 0's capture is always the match
-	if want, got := m.Captures[0], g[0].Captures[0]; want != got {
+	if want, got := m.Captures[0].String(), g[0].Captures[0].String(); want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 

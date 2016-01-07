@@ -91,7 +91,7 @@ const (
 
 type Code struct {
 	Codes       []int       // the code
-	Strings     []string    // string table
+	Strings     [][]rune    // string table
 	Sets        []*CharSet  //character set table
 	TrackCount  int         // how many instructions use backtracking
 	Caps        map[int]int // mapping of user group numbers -> impl group slots
@@ -196,7 +196,7 @@ func (c *Code) opcodeDescription(offset int) string {
 		buf.WriteString(c.Sets[c.Codes[offset+1]].String())
 
 	case Multi:
-		fmt.Fprintf(buf, "String = %v", c.Strings[c.Codes[offset+1]])
+		fmt.Fprintf(buf, "String = %v", string(c.Strings[c.Codes[offset+1]]))
 
 	case Ref, Testref:
 		fmt.Fprintf(buf, "Index = %d", c.Codes[offset+1])

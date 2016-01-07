@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/dlclark/regexp2/syntax"
 )
@@ -21,7 +20,6 @@ type runner struct {
 
 	runtextstart int // starting point for search
 
-	runtextraw string
 	runtext    []rune // text to search
 	runtextpos int    // current position in text
 	runtextend int
@@ -78,7 +76,7 @@ type runner struct {
 // prevlen is -1 if there's no previous match involved, otherwise it's the length of the previous match
 // input is the string to search for our regex pattern
 // beginning, length, startat are a bit confusing
-func (re *Regexp) run(quick bool, prevlen int, input string) (*Match, error) {
+func (re *Regexp) run(quick bool, prevlen int, input []rune) (*Match, error) {
 
 	// get a cached runner
 	runner := re.getRunner()
@@ -102,7 +100,7 @@ func (re *Regexp) run(quick bool, prevlen int, input string) (*Match, error) {
 // The optimizer can compute a set of candidate starting characters,
 // and we could use a separate method Skip() that will quickly scan past
 // any characters that we know can't match.
-func (r *runner) scan(input string, textstart, prevlen int, quick bool, timeout time.Duration) (*Match, error) {
+func (r *runner) scan(rt []rune, textstart, prevlen int, quick bool, timeout time.Duration) (*Match, error) {
 
 	if r.re.Debug() {
 		log.Printf("code dump:\n%v", r.code.Dump())
@@ -110,13 +108,7 @@ func (r *runner) scan(input string, textstart, prevlen int, quick bool, timeout 
 
 	r.timeout = timeout
 	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
-	r.runtextraw = input
 	r.runtextstart = textstart
-
-	var rt []rune
-	for _, rn := range input {
-		rt = append(rt, rn)
-	}
 	r.runtext = rt
 	r.runtextend = len(rt)
 
@@ -145,7 +137,7 @@ func (r *runner) scan(input string, textstart, prevlen int, quick bool, timeout 
 	r.startTimeoutWatch()
 	for {
 		if r.re.Debug() {
-			log.Printf("Search content: %v\n", r.runtextraw)
+			log.Printf("Search content: %v\n", string(r.runtext))
 			log.Printf("Firstchar search starting at %v stopping at %v", r.runtextpos, stoppos)
 		}
 
@@ -625,7 +617,7 @@ func (r *runner) execute() error {
 			continue
 
 		case syntax.Multi:
-			if !r.stringmatch(r.code.Strings[r.operand(0)]) {
+			if !r.runematch(r.code.Strings[r.operand(0)]) {
 				break
 			}
 
@@ -1165,15 +1157,6 @@ func (r *runner) forwardcharnext() rune {
 	return ch
 }
 
-//TODO: runes instead of bytes?
-func (r *runner) stringmatch(str string) bool {
-	runes := make([]rune, 0, len(str))
-	for _, ru := range str {
-		runes = append(runes, ru)
-	}
-	return r.runematch(runes)
-}
-
 func (r *runner) runematch(str []rune) bool {
 	var pos int
 
@@ -1310,12 +1293,12 @@ func (r *runner) findFirstChar() bool {
 		}
 
 		if r.code.BmPrefix != nil {
-			return r.code.BmPrefix.IsMatch(r.runtext, r.runtextpos)
+			return r.code.BmPrefix.IsMatch(r.runtext, r.runtextpos, 0, r.runtextend)
 		}
 
 		return true // found a valid start or end anchor
 	} else if r.code.BmPrefix != nil {
-		r.runtextpos = r.code.BmPrefix.Scan(r.runtext, r.runtextpos)
+		r.runtextpos = r.code.BmPrefix.Scan(r.runtext, r.runtextpos, 0, r.runtextend)
 
 		if r.runtextpos == -1 {
 			if r.code.RightToLeft {
@@ -1335,7 +1318,7 @@ func (r *runner) findFirstChar() bool {
 	r.caseInsensitive = r.code.FcPrefix.CaseInsensitive
 
 	if len(r.code.FcPrefix.PrefixStr) > 0 {
-		ch, _ := utf8.DecodeRuneInString(r.code.FcPrefix.PrefixStr)
+		ch := r.code.FcPrefix.PrefixStr[0]
 
 		for i := r.forwardchars(); i > 0; i-- {
 			if ch == r.forwardcharnext() {
@@ -1345,24 +1328,6 @@ func (r *runner) findFirstChar() bool {
 		}
 	}
 
-	/*if set.IsSingleton() {
-		ch := set.SingletonChar()
-
-		for i := r.forwardchars(); i > 0; i-- {
-			if ch == r.forwardcharnext() {
-				r.backwardnext()
-				return true
-			}
-		}
-	} else {
-		for i := r.forwardchars(); i > 0; i-- {
-			if set.CharIn(r.forwardcharnext()) {
-				r.backwardnext()
-				return true
-			}
-		}
-	}*/
-
 	return false
 }
 
@@ -1371,12 +1336,12 @@ func (r *runner) initMatch() {
 
 	if r.runmatch == nil {
 		if r.re.caps != nil {
-			r.runmatch = newMatchSparse(r.re, r.re.caps, r.re.capsize, r.runtextraw, r.runtextstart)
+			r.runmatch = newMatchSparse(r.re, r.re.caps, r.re.capsize, r.runtext, r.runtextstart)
 		} else {
-			r.runmatch = newMatch(r.re, r.re.capsize, r.runtextraw, r.runtextstart)
+			r.runmatch = newMatch(r.re, r.re.capsize, r.runtext, r.runtextstart)
 		}
 	} else {
-		r.runmatch.reset(r.runtextraw, r.runtextstart)
+		r.runmatch.reset(r.runtext, r.runtextstart)
 	}
 
 	// note we test runcrawl, because it is the last one to be allocated
@@ -1421,12 +1386,11 @@ func (r *runner) tidyMatch(quick bool) *Match {
 
 		match.tidy(r.runtextpos)
 		return match
+	} else {
+		// send back our match -- it's not leaving the package, so it's safe to not clean it up
+		// this reduces allocs for frequent calls to the "IsMatch" bool-only functions
+		return r.runmatch
 	}
-
-	// in quick mode, a successful match returns nil, and
-	// the allocated match object is left in the cache
-
-	return nil
 }
 
 // capture captures a subexpression. Note that the

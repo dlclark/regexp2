@@ -87,15 +87,15 @@ func getCharSetFromOldString(setText string, negate bool) *CharSet {
 }
 
 // gets a human-readable description for a set string
-func (set CharSet) String() string {
+func (c CharSet) String() string {
 	buf := &bytes.Buffer{}
 	buf.WriteRune('[')
 
-	if set.IsNegated() {
+	if c.IsNegated() {
 		buf.WriteRune('^')
 	}
 
-	for _, r := range set.ranges {
+	for _, r := range c.ranges {
 
 		buf.WriteString(CharDescription(r.first))
 		if r.first != r.last {
@@ -104,13 +104,13 @@ func (set CharSet) String() string {
 		}
 	}
 
-	for _, c := range set.categories {
+	for _, c := range c.categories {
 		buf.WriteString(c.String())
 	}
 
-	if set.sub != nil {
+	if c.sub != nil {
 		buf.WriteRune('-')
-		buf.WriteString(set.sub.String())
+		buf.WriteString(c.sub.String())
 	}
 
 	buf.WriteRune(']')
@@ -249,59 +249,105 @@ func IsECMAWordChar(r rune) bool {
 
 // SingletonChar will return the char from the first range without validation.
 // It assumes you have checked for IsSingleton or IsSingletonInverse and will panic given bad input
-func (set CharSet) SingletonChar() rune {
-	return set.ranges[0].first
+func (c CharSet) SingletonChar() rune {
+	return c.ranges[0].first
 }
 
-func (set CharSet) IsSingleton() bool {
-	return !set.negate && //negated is multiple chars
-		len(set.categories) == 0 && len(set.ranges) == 1 && // multiple ranges and unicode classes represent multiple chars
-		set.sub == nil && // subtraction means we've got multiple chars
-		set.ranges[0].first == set.ranges[0].last // first and last equal means we're just 1 char
+func (c CharSet) IsSingleton() bool {
+	return !c.negate && //negated is multiple chars
+		len(c.categories) == 0 && len(c.ranges) == 1 && // multiple ranges and unicode classes represent multiple chars
+		c.sub == nil && // subtraction means we've got multiple chars
+		c.ranges[0].first == c.ranges[0].last // first and last equal means we're just 1 char
 }
 
-func (set CharSet) IsSingletonInverse() bool {
-	return set.negate && //same as above, but requires negated
-		len(set.categories) == 0 && len(set.ranges) == 1 && // multiple ranges and unicode classes represent multiple chars
-		set.sub == nil && // subtraction means we've got multiple chars
-		set.ranges[0].first == set.ranges[0].last // first and last equal means we're just 1 char
+func (c CharSet) IsSingletonInverse() bool {
+	return c.negate && //same as above, but requires negated
+		len(c.categories) == 0 && len(c.ranges) == 1 && // multiple ranges and unicode classes represent multiple chars
+		c.sub == nil && // subtraction means we've got multiple chars
+		c.ranges[0].first == c.ranges[0].last // first and last equal means we're just 1 char
 }
 
-func (set CharSet) IsMergeable() bool {
-	return !set.IsNegated() && !set.HasSubtraction()
+func (c CharSet) IsMergeable() bool {
+	return !c.IsNegated() && !c.HasSubtraction()
 }
 
-func (set CharSet) IsNegated() bool {
-	return set.negate
+func (c CharSet) IsNegated() bool {
+	return c.negate
 }
 
-func (set CharSet) HasSubtraction() bool {
-	return set.sub != nil
+func (c CharSet) HasSubtraction() bool {
+	return c.sub != nil
+}
+
+func (c *CharSet) addDigit(ecma, negate bool, pattern string) {
+	if ecma {
+		//TODO: Bug?  the ranges are the same regardless of negate
+		if negate {
+			c.addRanges(NotECMADigitClass.ranges)
+		} else {
+			c.addRanges(ECMADigitClass.ranges)
+		}
+	} else {
+		c.categories = append(c.categories, category{cat: "Nd", negate: negate})
+	}
 }
 
 func (c *CharSet) addChar(ch rune) {
-	panic("not implemented")
+	c.addRange(ch, ch)
 }
 
-func (c *CharSet) addSet(set *CharSet) {
-	panic("not implemented")
+func (c *CharSet) addSpace(ecma, negate bool) {
+	if ecma {
+		if negate {
+			c.addRanges(NotECMASpaceClass.ranges)
+		} else {
+			c.addRanges(ECMASpaceClass.ranges)
+		}
+	} else {
+		c.categories = append(c.categories, category{cat: spaceCategoryText, negate: negate})
+	}
 }
 
-func (c *CharSet) addCategory(categoryName string, invert, caseInsensitive bool, pattern string) {
+func (c *CharSet) addWord(ecma, negate bool) {
+	if ecma {
+		if negate {
+			c.addRanges(NotECMAWordClass.ranges)
+		} else {
+			c.addRanges(ECMAWordClass.ranges)
+		}
+	} else {
+		c.categories = append(c.categories, category{cat: wordCategoryText, negate: negate})
+	}
+}
+
+// Merges new ranges to our own
+func (c *CharSet) addRanges(ranges []singleRange) {
+	c.ranges = append(c.ranges, ranges...)
+}
+
+func (c *CharSet) addCategory(categoryName string, negate, caseInsensitive bool, pattern string) {
 
 	if _, ok := unicode.Categories[categoryName]; ok {
 		if caseInsensitive && (categoryName == "Ll" || categoryName == "Lu" || categoryName == "Lt") {
 			// when RegexOptions.IgnoreCase is specified then {Ll} {Lu} and {Lt} cases should all match
 			c.categories = append(c.categories,
-				category{cat: "Ll", negate: invert},
-				category{cat: "Lu", negate: invert},
-				category{cat: "Lt", negate: invert})
+				category{cat: "Ll", negate: negate},
+				category{cat: "Lu", negate: negate},
+				category{cat: "Lt", negate: negate})
 		}
 
-		c.categories = append(c.categories, category{cat: categoryName, negate: invert})
+		c.categories = append(c.categories, category{cat: categoryName, negate: negate})
 	} else {
-		c.addSet(setFromProperty(categoryName, invert, pattern))
+		c.addRanges(setFromProperty(categoryName, negate, pattern).ranges)
 	}
+}
+
+func (c *CharSet) addSubtraction(sub *CharSet) {
+	c.sub = sub
+}
+
+func (c *CharSet) addRange(chMin, chMax rune) {
+	c.ranges = append(c.ranges, singleRange{first: chMin, last: chMax})
 }
 
 // Adds to the class any lowercase versions of characters already
@@ -318,10 +364,197 @@ func (c *CharSet) addLowercase() {
 	}
 }
 
-func (c *CharSet) addLowercaseRange(chMin, chMax rune) {
-	panic("not implemented")
+/**************************************************************************
+    Let U be the set of Unicode character values and let L be the lowercase
+    function, mapping from U to U. To perform case insensitive matching of
+    character sets, we need to be able to map an interval I in U, say
+
+        I = [chMin, chMax] = { ch : chMin <= ch <= chMax }
+
+    to a set A such that A contains L(I) and A is contained in the union of
+    I and L(I).
+
+    The table below partitions U into intervals on which L is non-decreasing.
+    Thus, for any interval J = [a, b] contained in one of these intervals,
+    L(J) is contained in [L(a), L(b)].
+
+    It is also true that for any such J, [L(a), L(b)] is contained in the
+    union of J and L(J). This does not follow from L being non-decreasing on
+    these intervals. It follows from the nature of the L on each interval.
+    On each interval, L has one of the following forms:
+
+        (1) L(ch) = constant            (LowercaseSet)
+        (2) L(ch) = ch + offset         (LowercaseAdd)
+        (3) L(ch) = ch | 1              (LowercaseBor)
+        (4) L(ch) = ch + (ch & 1)       (LowercaseBad)
+
+    It is easy to verify that for any of these forms [L(a), L(b)] is
+    contained in the union of [a, b] and L([a, b]).
+***************************************************************************/
+
+const (
+	LowercaseSet = 0 // Set to arg.
+	LowercaseAdd = 1 // Add arg.
+	LowercaseBor = 2 // Bitwise or with 1.
+	LowercaseBad = 3 // Bitwise and with 1 and add original.
+)
+
+type lcMap struct {
+	chMin, chMax rune
+	op, data     int32
 }
 
-func setFromProperty(capname string, invert bool, pattern string) *CharSet {
+var lcTable = []lcMap{
+	lcMap{'\u0041', '\u005A', LowercaseAdd, 32},
+	lcMap{'\u00C0', '\u00DE', LowercaseAdd, 32},
+	lcMap{'\u0100', '\u012E', LowercaseBor, 0},
+	lcMap{'\u0130', '\u0130', LowercaseSet, 0x0069},
+	lcMap{'\u0132', '\u0136', LowercaseBor, 0},
+	lcMap{'\u0139', '\u0147', LowercaseBad, 0},
+	lcMap{'\u014A', '\u0176', LowercaseBor, 0},
+	lcMap{'\u0178', '\u0178', LowercaseSet, 0x00FF},
+	lcMap{'\u0179', '\u017D', LowercaseBad, 0},
+	lcMap{'\u0181', '\u0181', LowercaseSet, 0x0253},
+	lcMap{'\u0182', '\u0184', LowercaseBor, 0},
+	lcMap{'\u0186', '\u0186', LowercaseSet, 0x0254},
+	lcMap{'\u0187', '\u0187', LowercaseSet, 0x0188},
+	lcMap{'\u0189', '\u018A', LowercaseAdd, 205},
+	lcMap{'\u018B', '\u018B', LowercaseSet, 0x018C},
+	lcMap{'\u018E', '\u018E', LowercaseSet, 0x01DD},
+	lcMap{'\u018F', '\u018F', LowercaseSet, 0x0259},
+	lcMap{'\u0190', '\u0190', LowercaseSet, 0x025B},
+	lcMap{'\u0191', '\u0191', LowercaseSet, 0x0192},
+	lcMap{'\u0193', '\u0193', LowercaseSet, 0x0260},
+	lcMap{'\u0194', '\u0194', LowercaseSet, 0x0263},
+	lcMap{'\u0196', '\u0196', LowercaseSet, 0x0269},
+	lcMap{'\u0197', '\u0197', LowercaseSet, 0x0268},
+	lcMap{'\u0198', '\u0198', LowercaseSet, 0x0199},
+	lcMap{'\u019C', '\u019C', LowercaseSet, 0x026F},
+	lcMap{'\u019D', '\u019D', LowercaseSet, 0x0272},
+	lcMap{'\u019F', '\u019F', LowercaseSet, 0x0275},
+	lcMap{'\u01A0', '\u01A4', LowercaseBor, 0},
+	lcMap{'\u01A7', '\u01A7', LowercaseSet, 0x01A8},
+	lcMap{'\u01A9', '\u01A9', LowercaseSet, 0x0283},
+	lcMap{'\u01AC', '\u01AC', LowercaseSet, 0x01AD},
+	lcMap{'\u01AE', '\u01AE', LowercaseSet, 0x0288},
+	lcMap{'\u01AF', '\u01AF', LowercaseSet, 0x01B0},
+	lcMap{'\u01B1', '\u01B2', LowercaseAdd, 217},
+	lcMap{'\u01B3', '\u01B5', LowercaseBad, 0},
+	lcMap{'\u01B7', '\u01B7', LowercaseSet, 0x0292},
+	lcMap{'\u01B8', '\u01B8', LowercaseSet, 0x01B9},
+	lcMap{'\u01BC', '\u01BC', LowercaseSet, 0x01BD},
+	lcMap{'\u01C4', '\u01C5', LowercaseSet, 0x01C6},
+	lcMap{'\u01C7', '\u01C8', LowercaseSet, 0x01C9},
+	lcMap{'\u01CA', '\u01CB', LowercaseSet, 0x01CC},
+	lcMap{'\u01CD', '\u01DB', LowercaseBad, 0},
+	lcMap{'\u01DE', '\u01EE', LowercaseBor, 0},
+	lcMap{'\u01F1', '\u01F2', LowercaseSet, 0x01F3},
+	lcMap{'\u01F4', '\u01F4', LowercaseSet, 0x01F5},
+	lcMap{'\u01FA', '\u0216', LowercaseBor, 0},
+	lcMap{'\u0386', '\u0386', LowercaseSet, 0x03AC},
+	lcMap{'\u0388', '\u038A', LowercaseAdd, 37},
+	lcMap{'\u038C', '\u038C', LowercaseSet, 0x03CC},
+	lcMap{'\u038E', '\u038F', LowercaseAdd, 63},
+	lcMap{'\u0391', '\u03AB', LowercaseAdd, 32},
+	lcMap{'\u03E2', '\u03EE', LowercaseBor, 0},
+	lcMap{'\u0401', '\u040F', LowercaseAdd, 80},
+	lcMap{'\u0410', '\u042F', LowercaseAdd, 32},
+	lcMap{'\u0460', '\u0480', LowercaseBor, 0},
+	lcMap{'\u0490', '\u04BE', LowercaseBor, 0},
+	lcMap{'\u04C1', '\u04C3', LowercaseBad, 0},
+	lcMap{'\u04C7', '\u04C7', LowercaseSet, 0x04C8},
+	lcMap{'\u04CB', '\u04CB', LowercaseSet, 0x04CC},
+	lcMap{'\u04D0', '\u04EA', LowercaseBor, 0},
+	lcMap{'\u04EE', '\u04F4', LowercaseBor, 0},
+	lcMap{'\u04F8', '\u04F8', LowercaseSet, 0x04F9},
+	lcMap{'\u0531', '\u0556', LowercaseAdd, 48},
+	lcMap{'\u10A0', '\u10C5', LowercaseAdd, 48},
+	lcMap{'\u1E00', '\u1EF8', LowercaseBor, 0},
+	lcMap{'\u1F08', '\u1F0F', LowercaseAdd, -8},
+	lcMap{'\u1F18', '\u1F1F', LowercaseAdd, -8},
+	lcMap{'\u1F28', '\u1F2F', LowercaseAdd, -8},
+	lcMap{'\u1F38', '\u1F3F', LowercaseAdd, -8},
+	lcMap{'\u1F48', '\u1F4D', LowercaseAdd, -8},
+	lcMap{'\u1F59', '\u1F59', LowercaseSet, 0x1F51},
+	lcMap{'\u1F5B', '\u1F5B', LowercaseSet, 0x1F53},
+	lcMap{'\u1F5D', '\u1F5D', LowercaseSet, 0x1F55},
+	lcMap{'\u1F5F', '\u1F5F', LowercaseSet, 0x1F57},
+	lcMap{'\u1F68', '\u1F6F', LowercaseAdd, -8},
+	lcMap{'\u1F88', '\u1F8F', LowercaseAdd, -8},
+	lcMap{'\u1F98', '\u1F9F', LowercaseAdd, -8},
+	lcMap{'\u1FA8', '\u1FAF', LowercaseAdd, -8},
+	lcMap{'\u1FB8', '\u1FB9', LowercaseAdd, -8},
+	lcMap{'\u1FBA', '\u1FBB', LowercaseAdd, -74},
+	lcMap{'\u1FBC', '\u1FBC', LowercaseSet, 0x1FB3},
+	lcMap{'\u1FC8', '\u1FCB', LowercaseAdd, -86},
+	lcMap{'\u1FCC', '\u1FCC', LowercaseSet, 0x1FC3},
+	lcMap{'\u1FD8', '\u1FD9', LowercaseAdd, -8},
+	lcMap{'\u1FDA', '\u1FDB', LowercaseAdd, -100},
+	lcMap{'\u1FE8', '\u1FE9', LowercaseAdd, -8},
+	lcMap{'\u1FEA', '\u1FEB', LowercaseAdd, -112},
+	lcMap{'\u1FEC', '\u1FEC', LowercaseSet, 0x1FE5},
+	lcMap{'\u1FF8', '\u1FF9', LowercaseAdd, -128},
+	lcMap{'\u1FFA', '\u1FFB', LowercaseAdd, -126},
+	lcMap{'\u1FFC', '\u1FFC', LowercaseSet, 0x1FF3},
+	lcMap{'\u2160', '\u216F', LowercaseAdd, 16},
+	lcMap{'\u24B6', '\u24D0', LowercaseAdd, 26},
+	lcMap{'\uFF21', '\uFF3A', LowercaseAdd, 32},
+}
+
+func (c *CharSet) addLowercaseRange(chMin, chMax rune) {
+	var i, iMax, iMid int
+	var chMinT, chMaxT rune
+	var lc lcMap
+
+	for i, iMax = 0, len(lcTable); i < iMax; {
+		iMid = (i + iMax) / 2
+		if lcTable[iMid].chMax < chMin {
+			i = iMid + 1
+		} else {
+			iMax = iMid
+		}
+	}
+
+	for ; i < len(lcTable); i++ {
+		lc = lcTable[i]
+		if lc.chMin <= chMax {
+			break
+		}
+		chMinT = lc.chMin
+		if chMinT < chMin {
+			chMinT = chMin
+		}
+
+		chMaxT = lc.chMax
+		if chMaxT > chMax {
+			chMaxT = chMax
+		}
+
+		switch lc.op {
+		case LowercaseSet:
+			chMinT = rune(lc.data)
+			chMaxT = rune(lc.data)
+			break
+		case LowercaseAdd:
+			chMinT += lc.data
+			chMaxT += lc.data
+			break
+		case LowercaseBor:
+			chMinT |= 1
+			chMaxT |= 1
+			break
+		case LowercaseBad:
+			chMinT += (chMinT & 1)
+			chMaxT += (chMaxT & 1)
+			break
+		}
+
+		if chMinT < chMin || chMaxT > chMax {
+			c.addRange(chMinT, chMaxT)
+		}
+	}
+}
+
+func setFromProperty(capname string, negate bool, pattern string) *CharSet {
 	panic("not impelemented")
 }

@@ -40,7 +40,7 @@ type Group struct {
 
 type Capture struct {
 	// the original string
-	text string
+	text []rune
 	// the position in the original string where the first character of
 	// captured substring was found.
 	Index int
@@ -49,10 +49,10 @@ type Capture struct {
 }
 
 func (c *Capture) String() string {
-	return c.text[c.Index : c.Index+c.Length]
+	return string(c.text[c.Index : c.Index+c.Length])
 }
 
-func newMatch(regex *Regexp, capcount int, text string, startpos int) *Match {
+func newMatch(regex *Regexp, capcount int, text []rune, startpos int) *Match {
 	m := Match{
 		regex:      regex,
 		matchcount: make([]int, capcount),
@@ -66,13 +66,13 @@ func newMatch(regex *Regexp, capcount int, text string, startpos int) *Match {
 	return &m
 }
 
-func newMatchSparse(regex *Regexp, caps map[int]int, capcount int, text string, startpos int) *Match {
+func newMatchSparse(regex *Regexp, caps map[int]int, capcount int, text []rune, startpos int) *Match {
 	m := newMatch(regex, capcount, text, startpos)
 	m.sparseCaps = caps
 	return m
 }
 
-func (m *Match) reset(text string, textstart int) {
+func (m *Match) reset(text []rune, textstart int) {
 	m.text = text
 	m.textstart = textstart
 	for i := 0; i < len(m.matchcount); i++ {
@@ -263,7 +263,7 @@ func (m *Match) populateOtherGroups() {
 	}
 }
 
-func newGroup(name, text string, caps []int, capcount int) Group {
+func newGroup(name string, text []rune, caps []int, capcount int) Group {
 	g := Group{}
 	g.text = text
 	if capcount > 0 {

@@ -22,7 +22,7 @@ type writer struct {
 	intStack    []int
 	curpos      int
 	stringhash  map[string]int
-	stringtable []string
+	stringtable [][]rune
 	sethash     map[string]int
 	settable    []*CharSet
 	counting    bool
@@ -119,8 +119,8 @@ func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 	rtl := (tree.options & RightToLeft) != 0
 
 	var bmPrefix *BmPrefix
-	if len(prefix.PrefixStr) > 0 {
-		//TODO: bmPrefix = newRegexBoyerMoore(prefix.prefix, prefix.caseInsensitive, rtl)
+	if prefix != nil && len(prefix.PrefixStr) > 0 {
+		bmPrefix = newBmPrefix(prefix.PrefixStr, prefix.CaseInsensitive, rtl)
 	} else {
 		bmPrefix = nil
 	}
@@ -408,15 +408,16 @@ func (w *writer) setCode(set *CharSet) int {
 
 // Returns an index in the string table for a string.
 // uses a map to eliminate duplicates.
-func (w *writer) stringCode(str string) int {
+func (w *writer) stringCode(str []rune) int {
 	if w.counting {
 		return 0
 	}
 
-	i, ok := w.stringhash[str]
+	hash := string(str)
+	i, ok := w.stringhash[hash]
 	if !ok {
 		i = len(w.stringhash)
-		w.stringhash[str] = i
+		w.stringhash[hash] = i
 		w.stringtable = append(w.stringtable, str)
 	}
 

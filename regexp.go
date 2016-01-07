@@ -9,6 +9,7 @@ need to write very complex patterns or require compatibility with .NET.
 package regexp2
 
 import (
+	"log"
 	"math"
 	"strconv"
 	"sync"
@@ -49,6 +50,10 @@ func Compile(expr string, opt RegexOptions) (*Regexp, error) {
 	tree, err := syntax.Parse(expr, syntax.RegexOptions(opt))
 	if err != nil {
 		return nil, err
+	}
+
+	if opt&Debug != 0 {
+		log.Printf("parse tree:\n%v", tree.Dump())
 	}
 
 	// translate it to code
@@ -125,7 +130,40 @@ func (re *Regexp) Debug() bool {
 }
 
 func (re *Regexp) FindStringMatch(s string) (*Match, error) {
-	return re.run(false, -1, s)
+	// convert string to runes
+	return re.run(false, -1, getRunes(s))
+}
+
+func (re *Regexp) FindRunesMatch(r []rune) (*Match, error) {
+	return re.run(false, -1, r)
+}
+
+// MatchString return true if the string matches the regex
+// error will be set if a timeout occurs
+func (re *Regexp) MatchString(s string) (bool, error) {
+	m, err := re.run(true, -1, getRunes(s))
+	if err != nil {
+		return false, err
+	}
+	return m != nil, nil
+}
+
+func getRunes(s string) []rune {
+	ret := make([]rune, len(s))
+	i := 0
+	for _, r := range s {
+		ret[i] = r
+		i++
+	}
+	return ret[:i]
+}
+
+func (re *Regexp) MatchRunes(r []rune) (bool, error) {
+	m, err := re.run(true, -1, r)
+	if err != nil {
+		return false, err
+	}
+	return m != nil, nil
 }
 
 // GetGroupNames Returns the set of strings used to name capturing groups in the expression.

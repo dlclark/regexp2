@@ -96,6 +96,10 @@ const (
 	ErrUnrecognizedControl        = "unrecognized control character"
 	ErrTooFewHex                  = "insufficient hexadecimal digits"
 	ErrMalformedNameRef           = "malformed \\k<...> named back reference"
+	ErrBadClassInCharRange        = "cannot include class \\%v in character range"
+	ErrUnterminatedBracket        = "unterminated [] set"
+	ErrSubtractionMustBeLast      = "a subtraction must be the last element in a character class"
+	ErrReversedCharRange          = "[x-y] range in reverse order"
 )
 
 func (e ErrorCode) String() string {
@@ -1194,8 +1198,177 @@ func (p *parser) scanCapname() string {
 
 //Scans contents of [] (not including []'s), and converts to a set.
 func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
-	//TOOD: scanCharClass
-	return nil, nil
+	ch := '\x00'
+	chPrev := '\x00'
+	inRange := false
+	firstChar := true
+	closed := false
+
+	var cc *CharSet
+	if !scanOnly {
+		cc = &CharSet{}
+	}
+
+	if p.charsRight() > 0 && p.rightChar(0) == '^' {
+		p.moveRight(1)
+		if !scanOnly {
+			cc.negate = true
+		}
+	}
+
+	for ; p.charsRight() > 0; firstChar = false {
+		fTranslatedChar := false
+		ch = p.moveRightGetChar()
+		if ch == ']' {
+			if !firstChar {
+				closed = true
+				break
+			}
+		} else if ch == '\\' && p.charsRight() > 0 {
+			switch ch = p.moveRightGetChar(); ch {
+			case 'D':
+			case 'd':
+				if !scanOnly {
+					if inRange {
+						return nil, p.getErr(ErrBadClassInCharRange, ch)
+					}
+					cc.addDigit(p.useOptionE(), ch == 'D', p.patternRaw)
+				}
+				continue
+
+			case 'S':
+			case 's':
+				if !scanOnly {
+					if inRange {
+						return nil, p.getErr(ErrBadClassInCharRange, ch)
+					}
+					cc.addSpace(p.useOptionE(), ch == 'S')
+				}
+				continue
+
+			case 'W':
+			case 'w':
+				if !scanOnly {
+					if inRange {
+						return nil, p.getErr(ErrBadClassInCharRange, ch)
+					}
+
+					cc.addWord(p.useOptionE(), ch == 'W')
+				}
+				continue
+
+			case 'p':
+			case 'P':
+				if !scanOnly {
+					if inRange {
+						return nil, p.getErr(ErrBadClassInCharRange, ch)
+					}
+					prop, err := p.parseProperty()
+					if err != nil {
+						return nil, err
+					}
+					cc.addCategory(prop, (ch != 'p'), caseInsensitive, p.patternRaw)
+				} else {
+					p.parseProperty()
+				}
+
+				continue
+
+			case '-':
+				if !scanOnly {
+					cc.addRange(ch, ch)
+				}
+				continue
+
+			default:
+				p.moveLeft()
+				var err error
+				ch, err = p.scanCharEscape() // non-literal character
+				if err != nil {
+					return nil, err
+				}
+				fTranslatedChar = true
+				break // this break will only break out of the switch
+			}
+		} else if ch == '[' {
+			// This is code for Posix style properties - [:Ll:] or [:IsTibetan:].
+			// It currently doesn't do anything other than skip the whole thing!
+			if p.charsRight() > 0 && p.rightChar(0) == ':' && !inRange {
+				savePos := p.textpos()
+
+				p.moveRight(1)
+				p.scanCapname() // throwaway the name
+				if p.charsRight() < 2 || p.moveRightGetChar() != ':' || p.moveRightGetChar() != ']' {
+					p.textto(savePos)
+				}
+				// else lookup name (nyi)
+			}
+		}
+
+		if inRange {
+			inRange = false
+			if !scanOnly {
+				if ch == '[' && !fTranslatedChar && !firstChar {
+					// We thought we were in a range, but we're actually starting a subtraction.
+					// In that case, we'll add chPrev to our char class, skip the opening [, and
+					// scan the new character class recursively.
+					cc.addChar(chPrev)
+					sub, err := p.scanCharSet(caseInsensitive, false)
+					if err != nil {
+						return nil, err
+					}
+					cc.addSubtraction(sub)
+
+					if p.charsRight() > 0 && p.rightChar(0) != ']' {
+						return nil, p.getErr(ErrSubtractionMustBeLast)
+					}
+				} else {
+					// a regular range, like a-z
+					if chPrev > ch {
+						return nil, p.getErr(ErrReversedCharRange)
+					}
+					cc.addRange(chPrev, ch)
+				}
+			}
+		} else if p.charsRight() >= 2 && p.rightChar(0) == '-' && p.rightChar(1) != ']' {
+			// this could be the start of a range
+			chPrev = ch
+			inRange = true
+			p.moveRight(1)
+		} else if p.charsRight() >= 1 && ch == '-' && !fTranslatedChar && p.rightChar(0) == '[' && !firstChar {
+			// we aren't in a range, and now there is a subtraction.  Usually this happens
+			// only when a subtraction follows a range, like [a-z-[b]]
+			if !scanOnly {
+				p.moveRight(1)
+				sub, err := p.scanCharSet(caseInsensitive, false)
+				if err != nil {
+					return nil, err
+				}
+				cc.addSubtraction(sub)
+
+				if p.charsRight() > 0 && p.rightChar(0) != ']' {
+					return nil, p.getErr(ErrSubtractionMustBeLast)
+				}
+			} else {
+				p.moveRight(1)
+				p.scanCharSet(caseInsensitive, true)
+			}
+		} else {
+			if !scanOnly {
+				cc.addRange(ch, ch)
+			}
+		}
+	}
+
+	if !closed {
+		return nil, p.getErr(ErrUnterminatedBracket)
+	}
+
+	if !scanOnly && caseInsensitive {
+		cc.addLowercase()
+	}
+
+	return cc, nil
 }
 
 // Scans any number of decimal digits (pegs value at 2^31-1 if too large)
@@ -1595,7 +1768,7 @@ func (p *parser) addToConcatenate(pos, cch int, isReplacement bool) {
 			}
 		}
 
-		node = newRegexNodeStr(ntMulti, p.options, string(str))
+		node = newRegexNodeStr(ntMulti, p.options, str)
 	} else {
 		ch := p.charAt(pos)
 

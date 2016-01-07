@@ -54,7 +54,7 @@ type RegexTree struct {
 type regexNode struct {
 	t        nodeType
 	children []*regexNode
-	str      string
+	str      []rune
 	set      *CharSet
 	ch       rune
 	m        int
@@ -129,7 +129,7 @@ func newRegexNodeCh(t nodeType, opt RegexOptions, ch rune) *regexNode {
 	}
 }
 
-func newRegexNodeStr(t nodeType, opt RegexOptions, str string) *regexNode {
+func newRegexNodeStr(t nodeType, opt RegexOptions, str []rune) *regexNode {
 	return &regexNode{
 		t:       t,
 		options: opt,
@@ -265,7 +265,7 @@ func (n *regexNode) reduceAlternation() *regexNode {
 				if at.t == ntOne {
 					prevCharClass.addChar(at.ch)
 				} else {
-					prevCharClass.addSet(at.set)
+					prevCharClass.addRanges(at.set.ranges)
 				}
 
 				prev.t = ntSet
@@ -337,20 +337,27 @@ func (n *regexNode) reduceConcatenation() *regexNode {
 
 			if prev.t == ntOne {
 				prev.t = ntMulti
-				prev.str = string(prev.ch)
+				prev.str = []rune{prev.ch}
 			}
 
 			if (optionsAt & RightToLeft) == 0 {
 				if at.t == ntOne {
-					prev.str += string(at.ch)
+					prev.str = append(prev.str, at.ch)
 				} else {
-					prev.str += at.str
+					prev.str = append(prev.str, at.str...)
 				}
 			} else {
 				if at.t == ntOne {
-					prev.str = string(at.ch) + prev.str
+					// insert at the front by expanding our slice, copying the data over, and then setting the value
+					prev.str = append(prev.str, 0)
+					copy(prev.str[1:], prev.str)
+					prev.str[0] = at.ch
 				} else {
-					prev.str = at.str + prev.str
+					//insert at the front...this one we'll make a new slice and copy both into it
+					merge := make([]rune, len(prev.str)+len(at.str))
+					copy(merge, at.str)
+					copy(merge[len(at.str):], prev.str)
+					prev.str = merge
 				}
 			}
 		} else if at.t == ntEmpty {
@@ -519,13 +526,16 @@ var typeStr = []string{
 	"One", "Notone", "Set",
 	"Multi", "Ref",
 	"Bol", "Eol", "Boundary", "Nonboundary",
-	"ECMABoundary", "NonECMABoundary",
 	"Beginning", "Start", "EndZ", "End",
 	"Nothing", "Empty",
 	"Alternate", "Concatenate",
 	"Loop", "Lazyloop",
 	"Capture", "Group", "Require", "Prevent", "Greedy",
-	"Testref", "Testgroup"}
+	"Testref", "Testgroup",
+	"Unknown", "Unknown", "Unknown",
+	"Unknown", "Unknown", "Uknown",
+	"ECMABoundary", "NonECMABoundary",
+}
 
 func (n *regexNode) description() string {
 	buf := &bytes.Buffer{}
@@ -565,7 +575,7 @@ func (n *regexNode) description() string {
 		buf.WriteString("(index = " + strconv.Itoa(n.m) + ")")
 		break
 	case ntMulti:
-		buf.WriteString("(String = " + n.str + ")")
+		buf.WriteString("(String = " + string(n.str) + ")")
 		break
 	case ntSet, ntSetloop, ntSetlazy:
 		buf.WriteString("(Set = " + n.set.String() + ")")
@@ -615,6 +625,7 @@ func (n *regexNode) dump() string {
 			}
 			buf.Write(padSpace[:Depth])
 			buf.WriteString(CurNode.description())
+			buf.WriteRune('\n')
 		} else {
 			if len(stack) == 0 {
 				break
