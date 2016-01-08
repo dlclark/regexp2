@@ -1,7 +1,6 @@
 package regexp2
 
 import (
-	"bytes"
 	"strings"
 	"testing"
 )
@@ -83,16 +82,18 @@ func BenchmarkAnchoredLiteralShortNonMatch(b *testing.B) {
 func BenchmarkAnchoredLiteralLongNonMatch(b *testing.B) {
 	b.StopTimer()
 
-	x := "abcdefghijklmnopqrstuvwxyz"
-	buf := bytes.NewBufferString(x)
+	data := "abcdefghijklmnopqrstuvwxyz"
+	x := make([]rune, 32768*len(data))
 	for i := 0; i < 32768; /*(2^15)*/ i++ {
-		buf.WriteString(x)
+		for j := 0; j < len(data); j++ {
+			x[i*len(data)+j] = rune(data[j])
+		}
 	}
-	x = buf.String()
+
 	re := MustCompile("^zbc(d|e)", 0)
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		if m, err := re.MatchString(x); m || err != nil {
+		if m, err := re.MatchRunes(x); m || err != nil {
 			b.Fatalf("unexpected match or error! %v", err)
 		}
 	}
@@ -112,17 +113,18 @@ func BenchmarkAnchoredShortMatch(b *testing.B) {
 
 func BenchmarkAnchoredLongMatch(b *testing.B) {
 	b.StopTimer()
-	x := "abcdefghijklmnopqrstuvwxyz"
-	buf := bytes.NewBufferString(x)
+	data := "abcdefghijklmnopqrstuvwxyz"
+	x := make([]rune, 32768*len(data))
 	for i := 0; i < 32768; /*(2^15)*/ i++ {
-		buf.WriteString(x)
+		for j := 0; j < len(data); j++ {
+			x[i*len(data)+j] = rune(data[j])
+		}
 	}
-	x = buf.String()
 
 	re := MustCompile("^.bc(d|e)", 0)
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		if m, err := re.MatchString(x); !m || err != nil {
+		if m, err := re.MatchRunes(x); !m || err != nil {
 			b.Fatalf("no match or error! %v", err)
 		}
 	}

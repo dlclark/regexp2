@@ -249,7 +249,7 @@ func (c *Code) Dump() string {
 	if c.FcPrefix == nil {
 		fmt.Fprintln(buf, "Firstchars: n/a")
 	} else {
-		fmt.Fprintf(buf, "Firstchars: %v\n", c.FcPrefix.PrefixStr)
+		fmt.Fprintf(buf, "Firstchars: %v\n", c.FcPrefix.PrefixSet.String())
 	}
 
 	if c.BmPrefix == nil {

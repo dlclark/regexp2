@@ -110,11 +110,7 @@ func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 		w.counting = false
 	}
 
-	fcPrefix, err := getFirstCharsPrefix(tree)
-	if err != nil {
-		return nil, err
-	}
-
+	fcPrefix := getFirstCharsPrefix(tree)
 	prefix := getPrefix(tree)
 	rtl := (tree.options & RightToLeft) != 0
 

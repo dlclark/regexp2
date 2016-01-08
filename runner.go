@@ -1317,11 +1317,18 @@ func (r *runner) findFirstChar() bool {
 	r.rightToLeft = r.code.RightToLeft
 	r.caseInsensitive = r.code.FcPrefix.CaseInsensitive
 
-	if len(r.code.FcPrefix.PrefixStr) > 0 {
-		ch := r.code.FcPrefix.PrefixStr[0]
-
+	set := r.code.FcPrefix.PrefixSet
+	if set.IsSingleton() {
+		ch := set.SingletonChar()
 		for i := r.forwardchars(); i > 0; i-- {
 			if ch == r.forwardcharnext() {
+				r.backwardnext()
+				return true
+			}
+		}
+	} else {
+		for i := r.forwardchars(); i > 0; i-- {
+			if set.CharIn(r.forwardcharnext()) {
 				r.backwardnext()
 				return true
 			}

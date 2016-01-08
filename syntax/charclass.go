@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"sort"
 	"unicode"
 )
 
@@ -320,9 +321,17 @@ func (c *CharSet) addWord(ecma, negate bool) {
 	}
 }
 
+// Add set ranges and categories into ours -- no deduping or anything
+func (c *CharSet) addSet(set CharSet) {
+	c.addRanges(set.ranges)
+	c.categories = append(c.categories, set.categories...)
+	c.canonicalize()
+}
+
 // Merges new ranges to our own
 func (c *CharSet) addRanges(ranges []singleRange) {
 	c.ranges = append(c.ranges, ranges...)
+	c.canonicalize()
 }
 
 func (c *CharSet) addCategory(categoryName string, negate, caseInsensitive bool, pattern string) {
@@ -348,6 +357,61 @@ func (c *CharSet) addSubtraction(sub *CharSet) {
 
 func (c *CharSet) addRange(chMin, chMax rune) {
 	c.ranges = append(c.ranges, singleRange{first: chMin, last: chMax})
+	c.canonicalize()
+}
+
+type singleRangeSorter []singleRange
+
+func (p singleRangeSorter) Len() int           { return len(p) }
+func (p singleRangeSorter) Less(i, j int) bool { return p[i].first < p[j].first }
+func (p singleRangeSorter) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+
+// Logic to reduce a character class to a unique, sorted form.
+func (c *CharSet) canonicalize() {
+	var i, j int
+	var last rune
+
+	//
+	// Find and eliminate overlapping or abutting ranges
+	//
+
+	if len(c.ranges) > 1 {
+		sort.Sort(singleRangeSorter(c.ranges))
+
+		done := false
+
+		for i, j = 1, 0; ; i++ {
+			for last = c.ranges[j].last; ; i++ {
+				if i == len(c.ranges) || last == '\uFFFF' {
+					done = true
+					break
+				}
+
+				CurrentRange := c.ranges[i]
+				if CurrentRange.first > last+1 {
+					break
+				}
+
+				if last < CurrentRange.last {
+					last = CurrentRange.last
+				}
+			}
+
+			c.ranges[j] = singleRange{first: c.ranges[j].first, last: last}
+
+			j++
+
+			if done {
+				break
+			}
+
+			if j < i {
+				c.ranges[j] = c.ranges[i]
+			}
+		}
+
+		c.ranges = append(c.ranges[:j], c.ranges[len(c.ranges):]...)
+	}
 }
 
 // Adds to the class any lowercase versions of characters already

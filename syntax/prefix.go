@@ -2,19 +2,332 @@ package syntax
 
 import (
 	"bytes"
+	"fmt"
 	"unicode"
 )
 
 type Prefix struct {
 	PrefixStr       []rune
+	PrefixSet       CharSet
 	CaseInsensitive bool
 }
 
 // It takes a RegexTree and computes the set of chars that can start it.
-func getFirstCharsPrefix(tree *RegexTree) (*Prefix, error) {
-	return nil, nil
-	//TODO: this
-	//panic("not implemented")
+func getFirstCharsPrefix(tree *RegexTree) *Prefix {
+	s := regexFcd{
+		fcStack:  make([]regexFc, 32),
+		intStack: make([]int, 32),
+	}
+	fc := s.regexFCFromRegexTree(tree)
+
+	if fc == nil || fc.nullable {
+		return nil
+	}
+	fcSet := fc.getFirstChars()
+	return &Prefix{PrefixSet: *fcSet, CaseInsensitive: fc.caseInsensitive}
+}
+
+type regexFcd struct {
+	intStack        []int
+	intDepth        int
+	fcStack         []regexFc
+	fcDepth         int
+	skipAllChildren bool // don't process any more children at the current level
+	skipchild       bool // don't process the current child.
+	failed          bool
+}
+
+/*
+ * The main FC computation. It does a shortcutted depth-first walk
+ * through the tree and calls CalculateFC to emits code before
+ * and after each child of an interior node, and at each leaf.
+ */
+func (s *regexFcd) regexFCFromRegexTree(tree *RegexTree) *regexFc {
+	curNode := tree.root
+	curChild := 0
+
+	for {
+		if len(curNode.children) == 0 {
+			// This is a leaf node
+			s.calculateFC(curNode.t, curNode, 0)
+		} else if curChild < len(curNode.children) && !s.skipAllChildren {
+			// This is an interior node, and we have more children to analyze
+			s.calculateFC(curNode.t|beforeChild, curNode, curChild)
+
+			if !s.skipchild {
+				curNode = curNode.children[curChild]
+				// this stack is how we get a depth first walk of the tree.
+				s.pushInt(curChild)
+				curChild = 0
+			} else {
+				curChild++
+				s.skipchild = false
+			}
+			continue
+		}
+
+		// This is an interior node where we've finished analyzing all the children, or
+		// the end of a leaf node.
+		s.skipAllChildren = false
+
+		if s.intIsEmpty() {
+			break
+		}
+
+		curChild = s.popInt()
+		curNode = curNode.next
+
+		s.calculateFC(curNode.t|afterChild, curNode, curChild)
+		if s.failed {
+			return nil
+		}
+
+		curChild++
+	}
+
+	if s.fcIsEmpty() {
+		return nil
+	}
+
+	fc := s.popFC()
+	return &fc
+}
+
+// To avoid recursion, we use a simple integer stack.
+// This is the push.
+func (s *regexFcd) pushInt(I int) {
+	if s.intDepth >= len(s.intStack) {
+		expanded := make([]int, s.intDepth*2)
+		copy(expanded, s.intStack)
+		s.intStack = expanded
+	}
+
+	s.intStack[s.intDepth] = I
+	s.intDepth++
+}
+
+// True if the stack is empty.
+func (s *regexFcd) intIsEmpty() bool {
+	return s.intDepth == 0
+}
+
+// This is the pop.
+func (s *regexFcd) popInt() int {
+	s.intDepth--
+	return s.intStack[s.intDepth]
+}
+
+// We also use a stack of RegexFC objects.
+// This is the push.
+func (s *regexFcd) pushFC(fc regexFc) {
+	if s.fcDepth >= len(s.fcStack) {
+		expanded := make([]regexFc, s.fcDepth*2)
+		copy(expanded, s.fcStack)
+		s.fcStack = expanded
+	}
+
+	s.fcStack[s.fcDepth] = fc
+	s.fcDepth++
+}
+
+// True if the stack is empty.
+func (s *regexFcd) fcIsEmpty() bool {
+	return s.fcDepth == 0
+}
+
+// This is the pop.
+func (s *regexFcd) popFC() regexFc {
+	s.fcDepth--
+	return s.fcStack[s.fcDepth]
+}
+
+// This is the top.
+func (s *regexFcd) topFC() regexFc {
+	return s.fcStack[s.fcDepth-1]
+}
+
+// Called in Beforechild to prevent further processing of the current child
+func (s *regexFcd) skipChild() {
+	s.skipchild = true
+}
+
+// FC computation and shortcut cases for each node type
+func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
+	ci := false
+	rtl := false
+
+	if nt <= ntRef {
+		if (node.options & IgnoreCase) != 0 {
+			ci = true
+		}
+		if (node.options & RightToLeft) != 0 {
+			rtl = true
+		}
+	}
+
+	switch nt {
+	case ntConcatenate | beforeChild, ntAlternate | beforeChild, ntTestref | beforeChild, ntLoop | beforeChild, ntLazyloop | beforeChild:
+		break
+
+	case ntTestgroup | beforeChild:
+		if CurIndex == 0 {
+			s.skipChild()
+		}
+		break
+
+	case ntEmpty:
+		s.pushFC(regexFc{nullable: true, cc: &CharSet{}})
+		break
+
+	case ntConcatenate | afterChild:
+		if CurIndex != 0 {
+			child := s.popFC()
+			cumul := s.topFC()
+
+			s.failed = !cumul.addFC(child, true)
+		}
+
+		fc := s.topFC()
+		if !fc.nullable {
+			s.skipAllChildren = true
+		}
+		break
+
+	case ntTestgroup | afterChild:
+		if CurIndex > 1 {
+			child := s.popFC()
+			cumul := s.topFC()
+
+			s.failed = !cumul.addFC(child, false)
+		}
+		break
+
+	case ntAlternate | afterChild, ntTestref | afterChild:
+		if CurIndex != 0 {
+			child := s.popFC()
+			cumul := s.topFC()
+
+			s.failed = !cumul.addFC(child, false)
+		}
+		break
+
+	case ntLoop | afterChild, ntLazyloop | afterChild:
+		if node.m == 0 {
+			fc := s.topFC()
+			fc.nullable = true
+		}
+		break
+
+	case ntGroup | beforeChild, ntGroup | afterChild, ntCapture | beforeChild, ntCapture | afterChild, ntGreedy | beforeChild, ntGreedy | afterChild:
+		break
+
+	case ntRequire | beforeChild, ntPrevent | beforeChild:
+		s.skipChild()
+		s.pushFC(regexFc{nullable: true, cc: &CharSet{}})
+		break
+
+	case ntRequire | afterChild, ntPrevent | afterChild:
+		break
+
+	case ntOne, ntNotone:
+		s.pushFC(newRegexFc(node.ch, nt == ntNotone, false, ci))
+		break
+
+	case ntOneloop, ntOnelazy:
+		s.pushFC(newRegexFc(node.ch, false, node.m == 0, ci))
+		break
+
+	case ntNotoneloop, ntNotonelazy:
+		s.pushFC(newRegexFc(node.ch, true, node.m == 0, ci))
+		break
+
+	case ntMulti:
+		if len(node.str) == 0 {
+			s.pushFC(regexFc{nullable: true, cc: &CharSet{}})
+		} else if !rtl {
+			s.pushFC(newRegexFc(node.str[0], false, false, ci))
+		} else {
+			s.pushFC(newRegexFc(node.str[len(node.str)-1], false, false, ci))
+		}
+		break
+
+	case ntSet:
+		s.pushFC(regexFc{cc: node.set, nullable: false, caseInsensitive: ci})
+		break
+
+	case ntSetloop, ntSetlazy:
+		s.pushFC(regexFc{cc: node.set, nullable: node.m == 0, caseInsensitive: ci})
+		break
+
+	case ntRef:
+		s.pushFC(regexFc{cc: AnyClass, nullable: true, caseInsensitive: false})
+		break
+
+	case ntNothing, ntBol, ntEol, ntBoundary, ntNonboundary, ntECMABoundary, ntNonECMABoundary, ntBeginning, ntStart, ntEndZ, ntEnd:
+		s.pushFC(regexFc{nullable: true, cc: &CharSet{}})
+		break
+
+	default:
+		panic(fmt.Sprintf("unexpected op code: %v", nt))
+	}
+}
+
+type regexFc struct {
+	cc              *CharSet
+	nullable        bool
+	caseInsensitive bool
+}
+
+func newRegexFc(ch rune, not, nullable, caseInsensitive bool) regexFc {
+	r := regexFc{
+		caseInsensitive: caseInsensitive,
+		nullable:        nullable,
+		cc:              &CharSet{},
+	}
+	if not {
+		if ch > 0 {
+			r.cc.addRange('\x00', ch-1)
+		}
+		if ch < 0xFFFF {
+			r.cc.addRange(ch+1, '\uFFFF')
+		}
+	} else {
+		r.cc.addRange(ch, ch)
+	}
+	return r
+}
+
+func (r *regexFc) getFirstChars() *CharSet {
+	if r.caseInsensitive {
+		r.cc.addLowercase()
+	}
+
+	return r.cc
+}
+
+func (r *regexFc) addFC(fc regexFc, concatenate bool) bool {
+	if !r.cc.IsMergeable() || !fc.cc.IsMergeable() {
+		return false
+	}
+
+	if concatenate {
+		if !r.nullable {
+			return true
+		}
+
+		if !fc.nullable {
+			r.nullable = false
+		}
+	} else {
+		if fc.nullable {
+			r.nullable = true
+		}
+	}
+
+	r.caseInsensitive = r.caseInsensitive || fc.caseInsensitive
+	r.cc.addSet(*fc.cc)
+
+	return true
 }
 
 // This is a related computation: it takes a RegexTree and computes the
