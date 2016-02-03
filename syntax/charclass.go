@@ -120,41 +120,41 @@ func (c CharSet) String() string {
 }
 
 // mapHashFill converts a charset into a buffer for use in maps
-func (s CharSet) mapHashFill(buf *bytes.Buffer) {
-	if s.negate {
+func (c CharSet) mapHashFill(buf *bytes.Buffer) {
+	if c.negate {
 		buf.WriteByte(0)
 	} else {
 		buf.WriteByte(1)
 	}
 
-	binary.Write(buf, binary.LittleEndian, len(s.ranges))
-	binary.Write(buf, binary.LittleEndian, len(s.categories))
-	for _, r := range s.ranges {
+	binary.Write(buf, binary.LittleEndian, len(c.ranges))
+	binary.Write(buf, binary.LittleEndian, len(c.categories))
+	for _, r := range c.ranges {
 		buf.WriteRune(r.first)
 		buf.WriteRune(r.last)
 	}
-	for _, c := range s.categories {
-		buf.WriteString(c.cat)
-		if c.negate {
+	for _, ct := range c.categories {
+		buf.WriteString(ct.cat)
+		if ct.negate {
 			buf.WriteByte(1)
 		} else {
 			buf.WriteByte(0)
 		}
 	}
 
-	if s.sub != nil {
-		s.sub.mapHashFill(buf)
+	if c.sub != nil {
+		c.sub.mapHashFill(buf)
 	}
 }
 
 // CharIn returns true if the rune is in our character set (either ranges or categories).
 // It handles negations and subtracted sub-charsets.
-func (s CharSet) CharIn(ch rune) bool {
+func (c CharSet) CharIn(ch rune) bool {
 	val := false
 	// in s && !s.subtracted
 
 	//check ranges
-	for _, r := range s.ranges {
+	for _, r := range c.ranges {
 		if ch < r.first {
 			continue
 		}
@@ -165,17 +165,17 @@ func (s CharSet) CharIn(ch rune) bool {
 	}
 
 	//check categories if we haven't already found a range
-	if !val && len(s.categories) > 0 {
-		for _, c := range s.categories {
+	if !val && len(c.categories) > 0 {
+		for _, ct := range c.categories {
 			// special categories...then unicode
-			if c.cat == spaceCategoryText {
+			if ct.cat == spaceCategoryText {
 				if unicode.IsSpace(ch) {
 					// we found a space so we're done
 					// negate means this is a "bad" thing
-					val = !c.negate
+					val = !ct.negate
 					break
 				}
-			} else if unicode.Is(unicode.Categories[c.cat], ch) {
+			} else if unicode.Is(unicode.Categories[ct.cat], ch) {
 				// if we're in this unicode category then we're done
 				// if negate=true on this category then we "failed" our test
 				// otherwise we're good that we found it
@@ -186,15 +186,16 @@ func (s CharSet) CharIn(ch rune) bool {
 	}
 
 	// negate the whole char set
-	if s.negate {
+	if c.negate {
 		val = !val
 	}
 
 	// get subtracted recurse
-	if val && s.sub != nil {
-		val = !s.sub.CharIn(ch)
+	if val && c.sub != nil {
+		val = !c.sub.CharIn(ch)
 	}
 
+	//log.Printf("Char '%v' in %v == %v", string(ch), c.String(), val)
 	return val
 }
 

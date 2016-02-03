@@ -196,7 +196,9 @@ func (r *runner) execute() error {
 			r.dumpState()
 		}
 
-		r.checkTimeout()
+		if err := r.checkTimeout(); err != nil {
+			return err
+		}
 
 		switch r.operator {
 		case syntax.Stop:
@@ -688,10 +690,11 @@ func (r *runner) execute() error {
 
 			set := r.code.Sets[r.operand(0)]
 
-			for c--; c > 0; c-- {
+			for c > 0 {
 				if !set.CharIn(r.forwardcharnext()) {
 					goto BreakBackward
 				}
+				c--
 			}
 
 			r.advance(2)
@@ -1566,7 +1569,6 @@ func (r *runner) checkTimeout() error {
 }
 
 func (r *runner) doCheckTimeout() error {
-
 	current := time.Now()
 
 	if current.Before(r.timeoutAt) {
