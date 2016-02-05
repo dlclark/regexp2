@@ -285,3 +285,17 @@ func TestProgramTooLongForBacktrack(t *testing.T) {
 		t.Errorf("Error: %v", err)
 	}
 }
+
+func BenchmarkLeading(b *testing.B) {
+	b.StopTimer()
+	r := MustCompile("[a-q][^u-z]{13}x", 0)
+	inp := makeText(1000000)
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		if m, err := r.MatchRunes(inp); !m {
+			b.Errorf("Expected match")
+		} else if err != nil {
+			b.Errorf("Error: %v", err)
+		}
+	}
+}

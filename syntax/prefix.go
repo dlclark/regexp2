@@ -24,7 +24,7 @@ func getFirstCharsPrefix(tree *RegexTree) *Prefix {
 		return nil
 	}
 	fcSet := fc.getFirstChars()
-	return &Prefix{PrefixSet: *fcSet, CaseInsensitive: fc.caseInsensitive}
+	return &Prefix{PrefixSet: fcSet, CaseInsensitive: fc.caseInsensitive}
 }
 
 type regexFcd struct {
@@ -89,8 +89,7 @@ func (s *regexFcd) regexFCFromRegexTree(tree *RegexTree) *regexFc {
 		return nil
 	}
 
-	fc := s.popFC()
-	return &fc
+	return s.popFC()
 }
 
 // To avoid recursion, we use a simple integer stack.
@@ -136,14 +135,14 @@ func (s *regexFcd) fcIsEmpty() bool {
 }
 
 // This is the pop.
-func (s *regexFcd) popFC() regexFc {
+func (s *regexFcd) popFC() *regexFc {
 	s.fcDepth--
-	return s.fcStack[s.fcDepth]
+	return &s.fcStack[s.fcDepth]
 }
 
 // This is the top.
-func (s *regexFcd) topFC() regexFc {
-	return s.fcStack[s.fcDepth-1]
+func (s *regexFcd) topFC() *regexFc {
+	return &s.fcStack[s.fcDepth-1]
 }
 
 // Called in Beforechild to prevent further processing of the current child
@@ -176,7 +175,7 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 		break
 
 	case ntEmpty:
-		s.pushFC(regexFc{nullable: true, cc: &CharSet{}})
+		s.pushFC(regexFc{nullable: true})
 		break
 
 	case ntConcatenate | afterChild:
@@ -184,7 +183,7 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 			child := s.popFC()
 			cumul := s.topFC()
 
-			s.failed = !cumul.addFC(child, true)
+			s.failed = !cumul.addFC(*child, true)
 		}
 
 		fc := s.topFC()
@@ -198,7 +197,7 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 			child := s.popFC()
 			cumul := s.topFC()
 
-			s.failed = !cumul.addFC(child, false)
+			s.failed = !cumul.addFC(*child, false)
 		}
 		break
 
@@ -207,7 +206,7 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 			child := s.popFC()
 			cumul := s.topFC()
 
-			s.failed = !cumul.addFC(child, false)
+			s.failed = !cumul.addFC(*child, false)
 		}
 		break
 
@@ -223,7 +222,7 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 
 	case ntRequire | beforeChild, ntPrevent | beforeChild:
 		s.skipChild()
-		s.pushFC(regexFc{nullable: true, cc: &CharSet{}})
+		s.pushFC(regexFc{nullable: true})
 		break
 
 	case ntRequire | afterChild, ntPrevent | afterChild:
@@ -243,7 +242,7 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 
 	case ntMulti:
 		if len(node.str) == 0 {
-			s.pushFC(regexFc{nullable: true, cc: &CharSet{}})
+			s.pushFC(regexFc{nullable: true})
 		} else if !rtl {
 			s.pushFC(newRegexFc(node.str[0], false, false, ci))
 		} else {
@@ -252,19 +251,19 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 		break
 
 	case ntSet:
-		s.pushFC(regexFc{cc: node.set, nullable: false, caseInsensitive: ci})
+		s.pushFC(regexFc{cc: *node.set, nullable: false, caseInsensitive: ci})
 		break
 
 	case ntSetloop, ntSetlazy:
-		s.pushFC(regexFc{cc: node.set, nullable: node.m == 0, caseInsensitive: ci})
+		s.pushFC(regexFc{cc: *node.set, nullable: node.m == 0, caseInsensitive: ci})
 		break
 
 	case ntRef:
-		s.pushFC(regexFc{cc: AnyClass, nullable: true, caseInsensitive: false})
+		s.pushFC(regexFc{cc: *AnyClass, nullable: true, caseInsensitive: false})
 		break
 
 	case ntNothing, ntBol, ntEol, ntBoundary, ntNonboundary, ntECMABoundary, ntNonECMABoundary, ntBeginning, ntStart, ntEndZ, ntEnd:
-		s.pushFC(regexFc{nullable: true, cc: &CharSet{}})
+		s.pushFC(regexFc{nullable: true})
 		break
 
 	default:
@@ -273,7 +272,7 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 }
 
 type regexFc struct {
-	cc              *CharSet
+	cc              CharSet
 	nullable        bool
 	caseInsensitive bool
 }
@@ -282,7 +281,6 @@ func newRegexFc(ch rune, not, nullable, caseInsensitive bool) regexFc {
 	r := regexFc{
 		caseInsensitive: caseInsensitive,
 		nullable:        nullable,
-		cc:              &CharSet{},
 	}
 	if not {
 		if ch > 0 {
@@ -297,7 +295,7 @@ func newRegexFc(ch rune, not, nullable, caseInsensitive bool) regexFc {
 	return r
 }
 
-func (r *regexFc) getFirstChars() *CharSet {
+func (r *regexFc) getFirstChars() CharSet {
 	if r.caseInsensitive {
 		r.cc.addLowercase()
 	}
@@ -325,7 +323,7 @@ func (r *regexFc) addFC(fc regexFc, concatenate bool) bool {
 	}
 
 	r.caseInsensitive = r.caseInsensitive || fc.caseInsensitive
-	r.cc.addSet(*fc.cc)
+	r.cc.addSet(fc.cc)
 
 	return true
 }

@@ -533,7 +533,7 @@ var typeStr = []string{
 	"Capture", "Group", "Require", "Prevent", "Greedy",
 	"Testref", "Testgroup",
 	"Unknown", "Unknown", "Unknown",
-	"Unknown", "Unknown", "Uknown",
+	"Unknown", "Unknown", "Unknown",
 	"ECMABoundary", "NonECMABoundary",
 }
 
@@ -612,6 +612,7 @@ func (n *regexNode) dump() string {
 	CurChild := 0
 
 	buf := bytes.NewBufferString(CurNode.description())
+	buf.WriteRune('\n')
 
 	for {
 		if CurNode.children != nil && CurChild < len(CurNode.children) {

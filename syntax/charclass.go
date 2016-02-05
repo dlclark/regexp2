@@ -3,7 +3,6 @@ package syntax
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"sort"
 	"unicode"
 )
@@ -179,7 +178,7 @@ func (c CharSet) CharIn(ch rune) bool {
 				// if we're in this unicode category then we're done
 				// if negate=true on this category then we "failed" our test
 				// otherwise we're good that we found it
-				val = !c.negate
+				val = !ct.negate
 				break
 			}
 		}
@@ -228,11 +227,17 @@ func CharDescription(ch rune) string {
 		return "\\\\"
 	}
 
-	if ch >= ' ' && ch <= '~' {
+	if ch > ' ' && ch <= '~' {
 		return string(ch)
+	} else if ch == '\n' {
+		return "\\n"
+	} else if ch == ' ' {
+		return "\\ "
 	}
 
-	return fmt.Sprintf("%U", ch)
+	b := &bytes.Buffer{}
+	escape(b, ch, false) //fmt.Sprintf("%U", ch)
+	return b.String()
 }
 
 // According to UTS#18 Unicode Regular Expressions (http://www.unicode.org/reports/tr18/)

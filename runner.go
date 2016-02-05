@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"strconv"
 	"strings"
@@ -103,7 +102,7 @@ func (re *Regexp) run(quick bool, prevlen int, input []rune) (*Match, error) {
 func (r *runner) scan(rt []rune, textstart, prevlen int, quick bool, timeout time.Duration) (*Match, error) {
 
 	if r.re.Debug() {
-		log.Printf("code dump:\n%v", r.code.Dump())
+		fmt.Print(r.code.Dump())
 	}
 
 	r.timeout = timeout
@@ -137,8 +136,8 @@ func (r *runner) scan(rt []rune, textstart, prevlen int, quick bool, timeout tim
 	r.startTimeoutWatch()
 	for {
 		if r.re.Debug() {
-			log.Printf("Search content: %v\n", string(r.runtext))
-			log.Printf("Firstchar search starting at %v stopping at %v", r.runtextpos, stoppos)
+			fmt.Printf("\n\nSearch content: %v\n", string(r.runtext))
+			fmt.Printf("Firstchar search starting at %v stopping at %v\n", r.runtextpos, stoppos)
 		}
 
 		if r.findFirstChar() {
@@ -152,7 +151,7 @@ func (r *runner) scan(rt []rune, textstart, prevlen int, quick bool, timeout tim
 			}
 
 			if r.re.Debug() {
-				log.Printf("Executing engine starting at %v\n\n", r.runtextpos)
+				fmt.Printf("Executing engine starting at %v\n\n", r.runtextpos)
 			}
 
 			if err := r.execute(); err != nil {
@@ -653,10 +652,11 @@ func (r *runner) execute() error {
 
 			ch := rune(r.operand(0))
 
-			for c--; c > 0; c-- {
+			for c > 0 {
 				if r.forwardcharnext() != ch {
 					goto BreakBackward
 				}
+				c--
 			}
 
 			r.advance(2)
@@ -671,10 +671,11 @@ func (r *runner) execute() error {
 			}
 			ch := rune(r.operand(0))
 
-			for c--; c > 0; c-- {
+			for c > 0 {
 				if r.forwardcharnext() == ch {
 					goto BreakBackward
 				}
+				c--
 			}
 
 			r.advance(2)
@@ -1034,9 +1035,9 @@ func (r *runner) backtrack() {
 
 	if r.re.Debug() {
 		if newpos < 0 {
-			log.Printf("       Backtracking (back2) to code position %v", -newpos)
+			fmt.Printf("       Backtracking (back2) to code position %v\n", -newpos)
 		} else {
-			log.Printf("       Backtracking to code position %v", newpos)
+			fmt.Printf("       Backtracking to code position %v\n", newpos)
 		}
 	}
 
@@ -1468,10 +1469,19 @@ func (r *runner) uncapture() {
 //debug
 
 func (r *runner) dumpState() {
-	log.Printf("Text: %v\nTrack: %v\nStack: %v\n",
+	back := ""
+	if r.operator&syntax.Back != 0 {
+		back = " Back"
+	}
+	if r.operator&syntax.Back2 != 0 {
+		back += "Back2"
+	}
+	fmt.Printf("Text:  %v\nTrack: %v\nStack: %v\n       %s%s\n\n",
 		r.textposDescription(),
 		r.stackDescription(r.runtrack, r.runtrackpos),
-		r.stackDescription(r.runstack, r.runstackpos))
+		r.stackDescription(r.runstack, r.runstackpos),
+		r.code.OpcodeDescription(r.codepos),
+		back)
 }
 
 func (r *runner) stackDescription(a []int, index int) string {

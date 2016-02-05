@@ -171,11 +171,12 @@ func operatorDescription(op InstOp) string {
 	return desc
 }
 
-func (c *Code) opcodeDescription(offset int) string {
+// OpcodeDescription is a humman readable string of the specific offset
+func (c *Code) OpcodeDescription(offset int) string {
 	buf := &bytes.Buffer{}
 
 	op := InstOp(c.Codes[offset])
-	fmt.Fprintf(buf, "%06d", offset)
+	fmt.Fprintf(buf, "%06d ", offset)
 
 	if opcodeBacktracks(op & Mask) {
 		buf.WriteString("*")
@@ -266,7 +267,7 @@ func (c *Code) Dump() string {
 		fmt.Fprintln(buf, c.BmPrefix.Dump("    "))
 	}
 	for i := 0; i < len(c.Codes); i += opcodeSize(InstOp(c.Codes[i])) {
-		fmt.Fprintln(buf, c.opcodeDescription(i))
+		fmt.Fprintln(buf, c.OpcodeDescription(i))
 	}
 
 	return buf.String()

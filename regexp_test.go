@@ -3,7 +3,42 @@ package regexp2
 import (
 	"reflect"
 	"testing"
+	"time"
 )
+
+func TestBacktrack_CatastrophicTimeout(t *testing.T) {
+	r, err := Compile("(.+)*\\?", 0)
+	r.MatchTimeout = time.Millisecond * 1
+	t.Logf("code dump: %v", r.code.Dump())
+	m, err := r.FindStringMatch("Do you think you found the problem string!")
+	if err == nil {
+		t.Errorf("expected timeout err")
+	}
+	if m != nil {
+		t.Errorf("Expected no match")
+	}
+}
+
+func TestSetPrefix(t *testing.T) {
+	r := MustCompile(`^\s*-TEST`, 0)
+	if r.code.FcPrefix == nil {
+		t.Fatalf("Expected prefix set [-\\s] but was nil")
+	}
+	if r.code.FcPrefix.PrefixSet.String() != "[-\\s]" {
+		t.Fatalf("Expected prefix set [\\s-] but was %v", r.code.FcPrefix.PrefixSet.String())
+	}
+}
+
+func TestSetInCode(t *testing.T) {
+	r := MustCompile(`(?<body>\s*(?<name>.+))`, 0)
+	t.Logf("code dump: %v", r.code.Dump())
+	if want, got := 1, len(r.code.Sets); want != got {
+		t.Fatalf("r.code.Sets wanted %v, got %v", want, got)
+	}
+	if want, got := "[\\s]", r.code.Sets[0].String(); want != got {
+		t.Fatalf("first set wanted %v, got %v", want, got)
+	}
+}
 
 func TestRegexp_Basic(t *testing.T) {
 	r, err := Compile("test(?<named>ing)?", 0)
