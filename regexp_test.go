@@ -316,3 +316,18 @@ func TestErr_GroupName(t *testing.T) {
 	}
 
 }
+
+func TestConstantUneffected(t *testing.T) {
+	// had a bug where "constant" sets would get modified with alternations and be broken in memory until restart
+	// this meant that if you used a known-set (like \s) in a larger set it would "poison" \s for the process
+	re := MustCompile(`(\s|\*)test\s`, 0)
+	if want, got := 2, len(re.code.Sets); want != got {
+		t.Fatalf("wanted %v sets, got %v", want, got)
+	}
+	if want, got := "[*\\s]", re.code.Sets[0].String(); want != got {
+		t.Fatalf("wanted set 0 %v, got %v", want, got)
+	}
+	if want, got := "[\\s]", re.code.Sets[1].String(); want != got {
+		t.Fatalf("wanted set 1 %v, got %v", want, got)
+	}
+}

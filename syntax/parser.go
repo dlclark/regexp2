@@ -532,7 +532,7 @@ func (p *parser) scanRegex() (*regexNode, error) {
 
 		case '.':
 			if p.useOptionS() {
-				p.addUnitSet(AnyClass)
+				p.addUnitSet(AnyClass())
 			} else {
 				p.addUnitNotone('\n')
 			}
@@ -905,44 +905,44 @@ func (p *parser) scanBackslash() (*regexNode, error) {
 	case 'w':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeSet(ntSet, p.options, ECMAWordClass), nil
+			return newRegexNodeSet(ntSet, p.options, ECMAWordClass()), nil
 		}
-		return newRegexNodeSet(ntSet, p.options, WordClass), nil
+		return newRegexNodeSet(ntSet, p.options, WordClass()), nil
 
 	case 'W':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeSet(ntSet, p.options, NotECMAWordClass), nil
+			return newRegexNodeSet(ntSet, p.options, NotECMAWordClass()), nil
 		}
-		return newRegexNodeSet(ntSet, p.options, NotWordClass), nil
+		return newRegexNodeSet(ntSet, p.options, NotWordClass()), nil
 
 	case 's':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeSet(ntSet, p.options, ECMASpaceClass), nil
+			return newRegexNodeSet(ntSet, p.options, ECMASpaceClass()), nil
 		}
-		return newRegexNodeSet(ntSet, p.options, SpaceClass), nil
+		return newRegexNodeSet(ntSet, p.options, SpaceClass()), nil
 
 	case 'S':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeSet(ntSet, p.options, NotECMASpaceClass), nil
+			return newRegexNodeSet(ntSet, p.options, NotECMASpaceClass()), nil
 		}
-		return newRegexNodeSet(ntSet, p.options, NotSpaceClass), nil
+		return newRegexNodeSet(ntSet, p.options, NotSpaceClass()), nil
 
 	case 'd':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeSet(ntSet, p.options, ECMADigitClass), nil
+			return newRegexNodeSet(ntSet, p.options, ECMADigitClass()), nil
 		}
-		return newRegexNodeSet(ntSet, p.options, DigitClass), nil
+		return newRegexNodeSet(ntSet, p.options, DigitClass()), nil
 
 	case 'D':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeSet(ntSet, p.options, NotECMADigitClass), nil
+			return newRegexNodeSet(ntSet, p.options, NotECMADigitClass()), nil
 		}
-		return newRegexNodeSet(ntSet, p.options, NotDigitClass), nil
+		return newRegexNodeSet(ntSet, p.options, NotDigitClass()), nil
 
 	case 'p', 'P':
 		p.moveRight(1)

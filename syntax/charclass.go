@@ -39,26 +39,31 @@ var (
 	ECMADigitClass    = getCharSetFromOldString("\u0030\u003A", false)
 	NotECMADigitClass = getCharSetFromOldString("\u0030\u003A", true)
 
-	WordClass     = getCharSetFromCategoryString(false, "L", "Mn", "Nd", "Pc")
-	NotWordClass  = getCharSetFromCategoryString(true, "L", "Mn", "Nd", "Pc")
+	WordClass     = getCharSetFromCategoryString(false, wordCategoryText)
+	NotWordClass  = getCharSetFromCategoryString(true, wordCategoryText)
 	SpaceClass    = getCharSetFromCategoryString(false, spaceCategoryText)
 	NotSpaceClass = getCharSetFromCategoryString(true, spaceCategoryText)
 	DigitClass    = getCharSetFromCategoryString(false, "Nd")
 	NotDigitClass = getCharSetFromCategoryString(true, "Nd")
 )
 
-func getCharSetFromCategoryString(negate bool, cats ...string) *CharSet {
-	c := &CharSet{negate: negate}
+func getCharSetFromCategoryString(negate bool, cats ...string) func() *CharSet {
+	c := CharSet{negate: negate}
 
 	c.categories = make([]category, len(cats))
 	for i, cat := range cats {
 		c.categories[i] = category{cat: cat}
 	}
-	return c
+	return func() *CharSet {
+		//make a copy each time
+		local := c
+		//return that address
+		return &local
+	}
 }
 
-func getCharSetFromOldString(setText string, negate bool) *CharSet {
-	c := &CharSet{negate: negate}
+func getCharSetFromOldString(setText string, negate bool) func() *CharSet {
+	c := CharSet{negate: negate}
 
 	if len(setText)%2 == 0 {
 		c.ranges = make([]singleRange, len(setText)/2)
@@ -83,7 +88,10 @@ func getCharSetFromOldString(setText string, negate bool) *CharSet {
 		c.ranges[i].last = '\uFFFF'
 	}
 
-	return c
+	return func() *CharSet {
+		local := c
+		return &local
+	}
 }
 
 // gets a human-readable description for a set string
@@ -290,9 +298,9 @@ func (c *CharSet) addDigit(ecma, negate bool, pattern string) {
 	if ecma {
 		//TODO: Bug?  the ranges are the same regardless of negate
 		if negate {
-			c.addRanges(NotECMADigitClass.ranges)
+			c.addRanges(NotECMADigitClass().ranges)
 		} else {
-			c.addRanges(ECMADigitClass.ranges)
+			c.addRanges(ECMADigitClass().ranges)
 		}
 	} else {
 		c.categories = append(c.categories, category{cat: "Nd", negate: negate})
@@ -306,9 +314,9 @@ func (c *CharSet) addChar(ch rune) {
 func (c *CharSet) addSpace(ecma, negate bool) {
 	if ecma {
 		if negate {
-			c.addRanges(NotECMASpaceClass.ranges)
+			c.addRanges(NotECMASpaceClass().ranges)
 		} else {
-			c.addRanges(ECMASpaceClass.ranges)
+			c.addRanges(ECMASpaceClass().ranges)
 		}
 	} else {
 		c.categories = append(c.categories, category{cat: spaceCategoryText, negate: negate})
@@ -318,9 +326,9 @@ func (c *CharSet) addSpace(ecma, negate bool) {
 func (c *CharSet) addWord(ecma, negate bool) {
 	if ecma {
 		if negate {
-			c.addRanges(NotECMAWordClass.ranges)
+			c.addRanges(NotECMAWordClass().ranges)
 		} else {
-			c.addRanges(ECMAWordClass.ranges)
+			c.addRanges(ECMAWordClass().ranges)
 		}
 	} else {
 		c.categories = append(c.categories, category{cat: wordCategoryText, negate: negate})

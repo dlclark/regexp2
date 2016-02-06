@@ -259,7 +259,7 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 		break
 
 	case ntRef:
-		s.pushFC(regexFc{cc: *AnyClass, nullable: true, caseInsensitive: false})
+		s.pushFC(regexFc{cc: *AnyClass(), nullable: true, caseInsensitive: false})
 		break
 
 	case ntNothing, ntBol, ntEol, ntBoundary, ntNonboundary, ntECMABoundary, ntNonECMABoundary, ntBeginning, ntStart, ntEndZ, ntEnd:
