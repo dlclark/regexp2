@@ -1493,11 +1493,14 @@ func (p *parser) scanHex(c int) (rune, error) {
 	i := 0
 
 	if p.charsRight() >= c {
-		d := hexDigit(p.moveRightGetChar())
-		for ; c > 0 && d >= 0; c -= 1 {
+		for c > 0 {
+			d := hexDigit(p.moveRightGetChar())
+			if d < 0 {
+				break
+			}
 			i *= 0x10
 			i += d
-			d = hexDigit(p.moveRightGetChar())
+			c--
 		}
 	}
 
@@ -1511,16 +1514,16 @@ func (p *parser) scanHex(c int) (rune, error) {
 // Returns n <= 0xF for a hex digit.
 func hexDigit(ch rune) int {
 
-	if d := int(ch - '0'); d <= 9 {
-		return d
+	if d := uint(ch - '0'); d <= 9 {
+		return int(d)
 	}
 
-	if d := int(ch - 'a'); d <= 5 {
-		return d + 0xa
+	if d := uint(ch - 'a'); d <= 5 {
+		return int(d + 0xa)
 	}
 
-	if d := int(ch - 'A'); d <= 5 {
-		return d + 0xa
+	if d := uint(ch - 'A'); d <= 5 {
+		return int(d + 0xa)
 	}
 
 	return -1

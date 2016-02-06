@@ -423,14 +423,19 @@ func (c *CharSet) canonicalize() {
 // Adds to the class any lowercase versions of characters already
 // in the class. Used for case-insensitivity.
 func (c *CharSet) addLowercase() {
+	toAdd := []singleRange{}
 	for i := 0; i < len(c.ranges); i++ {
 		r := c.ranges[i]
 		if r.first == r.last {
 			lower := unicode.ToLower(r.first)
 			c.ranges[i] = singleRange{first: lower, last: lower}
 		} else {
-			c.addLowercaseRange(r.first, r.last)
+			toAdd = append(toAdd, r)
 		}
+	}
+
+	for _, r := range toAdd {
+		c.addLowercaseRange(r.first, r.last)
 	}
 }
 
@@ -587,8 +592,8 @@ func (c *CharSet) addLowercaseRange(chMin, chMax rune) {
 
 	for ; i < len(lcTable); i++ {
 		lc = lcTable[i]
-		if lc.chMin <= chMax {
-			break
+		if lc.chMin > chMax {
+			return
 		}
 		chMinT = lc.chMin
 		if chMinT < chMin {
