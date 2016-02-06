@@ -49,9 +49,8 @@ func escape(b *bytes.Buffer, r rune, force bool) {
 			b.WriteString(s)
 			break
 		}
-		b.WriteString(`\x{`)
+		b.WriteString(`\u`)
 		b.WriteString(strconv.FormatInt(int64(r), 16))
-		b.WriteString(`}`)
 	}
 }
 

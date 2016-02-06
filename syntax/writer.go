@@ -13,7 +13,16 @@ func Write(tree *RegexTree) (*Code, error) {
 		stringhash: make(map[string]int),
 		sethash:    make(map[string]int),
 	}
-	return w.codeFromTree(tree)
+
+	code, err := w.codeFromTree(tree)
+	if tree.options&Debug > 0 {
+		fmt.Println(tree.Dump())
+
+		if code != nil {
+			fmt.Println(code.Dump())
+		}
+	}
+	return code, err
 }
 
 type writer struct {
