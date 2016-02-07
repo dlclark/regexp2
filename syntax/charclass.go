@@ -206,6 +206,9 @@ func (c CharSet) CharIn(ch rune) bool {
 				// otherwise we're good that we found it
 				val = !ct.negate
 				break
+			} else if ct.negate {
+				val = true
+				break
 			}
 		}
 	}

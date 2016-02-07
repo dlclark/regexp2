@@ -100,11 +100,6 @@ func (re *Regexp) run(quick bool, prevlen int, input []rune) (*Match, error) {
 // and we could use a separate method Skip() that will quickly scan past
 // any characters that we know can't match.
 func (r *runner) scan(rt []rune, textstart, prevlen int, quick bool, timeout time.Duration) (*Match, error) {
-
-	if r.re.Debug() {
-		fmt.Print(r.code.Dump())
-	}
-
 	r.timeout = timeout
 	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
 	r.runtextstart = textstart
@@ -136,7 +131,8 @@ func (r *runner) scan(rt []rune, textstart, prevlen int, quick bool, timeout tim
 	r.startTimeoutWatch()
 	for {
 		if r.re.Debug() {
-			fmt.Printf("\n\nSearch content: %v\n", string(r.runtext))
+			//fmt.Printf("\nSearch content: %v\n", string(r.runtext))
+			fmt.Printf("\nSearch range: from 0 to %v\n", r.runtextend)
 			fmt.Printf("Firstchar search starting at %v stopping at %v\n", r.runtextpos, stoppos)
 		}
 
@@ -1476,7 +1472,7 @@ func (r *runner) dumpState() {
 		back = " Back"
 	}
 	if r.operator&syntax.Back2 != 0 {
-		back += "Back2"
+		back += " Back2"
 	}
 	fmt.Printf("Text:  %v\nTrack: %v\nStack: %v\n       %s%s\n\n",
 		r.textposDescription(),

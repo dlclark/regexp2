@@ -373,3 +373,14 @@ func TestParseNegativeDigit(t *testing.T) {
 		t.Fatalf("wanted set 0 %v, got %v", want, got)
 	}
 }
+
+func TestRunNegativeDigit(t *testing.T) {
+	re := MustCompile(`\D`, 0)
+	m, err := re.MatchString("this is a test")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if !m {
+		t.Fatalf("Expected match")
+	}
+}
