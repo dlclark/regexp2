@@ -1226,8 +1226,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 			}
 		} else if ch == '\\' && p.charsRight() > 0 {
 			switch ch = p.moveRightGetChar(); ch {
-			case 'D':
-			case 'd':
+			case 'D', 'd':
 				if !scanOnly {
 					if inRange {
 						return nil, p.getErr(ErrBadClassInCharRange, ch)
@@ -1236,8 +1235,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 				}
 				continue
 
-			case 'S':
-			case 's':
+			case 'S', 's':
 				if !scanOnly {
 					if inRange {
 						return nil, p.getErr(ErrBadClassInCharRange, ch)
@@ -1246,8 +1244,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 				}
 				continue
 
-			case 'W':
-			case 'w':
+			case 'W', 'w':
 				if !scanOnly {
 					if inRange {
 						return nil, p.getErr(ErrBadClassInCharRange, ch)
@@ -1257,8 +1254,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 				}
 				continue
 
-			case 'p':
-			case 'P':
+			case 'p', 'P':
 				if !scanOnly {
 					if inRange {
 						return nil, p.getErr(ErrBadClassInCharRange, ch)
