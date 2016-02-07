@@ -48,11 +48,11 @@ var (
 )
 
 func getCharSetFromCategoryString(negate bool, cats ...string) func() *CharSet {
-	c := CharSet{negate: negate}
+	c := CharSet{}
 
 	c.categories = make([]category, len(cats))
 	for i, cat := range cats {
-		c.categories[i] = category{cat: cat}
+		c.categories[i] = category{cat: cat, negate: negate}
 	}
 	return func() *CharSet {
 		//make a copy each time
@@ -107,7 +107,10 @@ func (c CharSet) String() string {
 
 		buf.WriteString(CharDescription(r.first))
 		if r.first != r.last {
-			buf.WriteRune('-')
+			if r.last-r.first != 1 {
+				//groups that are 1 char apart skip the dash
+				buf.WriteRune('-')
+			}
 			buf.WriteString(CharDescription(r.last))
 		}
 	}
@@ -181,6 +184,17 @@ func (c CharSet) CharIn(ch rune) bool {
 					// negate means this is a "bad" thing
 					val = !ct.negate
 					break
+				} else if ct.negate {
+					val = true
+					break
+				}
+			} else if ct.cat == wordCategoryText {
+				if IsWordChar(ch) {
+					val = !ct.negate
+					break
+				} else if ct.negate {
+					val = true
+					break
 				}
 			} else if unicode.Is(unicode.Categories[ct.cat], ch) {
 				// if we're in this unicode category then we're done
@@ -231,7 +245,7 @@ func (c category) String() string {
 
 // CharDescription Produces a human-readable description for a single character.
 func CharDescription(ch rune) string {
-	if ch == '\\' {
+	/*if ch == '\\' {
 		return "\\\\"
 	}
 
@@ -241,7 +255,7 @@ func CharDescription(ch rune) string {
 		return "\\n"
 	} else if ch == ' ' {
 		return "\\ "
-	}
+	}*/
 
 	b := &bytes.Buffer{}
 	escape(b, ch, false) //fmt.Sprintf("%U", ch)
@@ -253,13 +267,19 @@ func CharDescription(ch rune) string {
 // values from the Unicode character database, from UnicodeData.txt [UData], plus the U+200C
 // ZERO WIDTH NON-JOINER and U+200D ZERO WIDTH JOINER.
 func IsWordChar(r rune) bool {
-	//TODO: unicode IsWordChar
-	return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_'
+	//"L", "Mn", "Nd", "Pc"
+	return unicode.In(r,
+		unicode.Categories["L"], unicode.Categories["Mn"],
+		unicode.Categories["Nd"], unicode.Categories["Pc"]) || r == '\u200D' || r == '\u200C'
+	//return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_'
 }
 
 func IsECMAWordChar(r rune) bool {
-	//TODO: unicode IsWordChar
-	return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_'
+	return unicode.In(r,
+		unicode.Categories["L"], unicode.Categories["Mn"],
+		unicode.Categories["Nd"], unicode.Categories["Pc"])
+
+	//return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_'
 }
 
 // SingletonChar will return the char from the first range without validation.

@@ -555,11 +555,11 @@ func (p *parser) scanRegex() (*regexNode, error) {
 			return nil, err
 		}
 
-		if p.charsRight() == 0 || !p.isTrueQuantifier() {
+		if p.charsRight() > 0 {
+			isQuant = p.isTrueQuantifier()
+		}
+		if p.charsRight() == 0 || !isQuant {
 			//maintain odd C# assignment order -- not sure if required, could clean up?
-			if p.charsRight() != 0 {
-				isQuant = p.isTrueQuantifier()
-			}
 			p.addConcatenate()
 			goto ContinueOuterScan
 		}
@@ -1718,7 +1718,6 @@ func (p *parser) addUnitType(t nodeType) {
 func (p *parser) addGroup() error {
 	if p.group.t == ntTestgroup || p.group.t == ntTestref {
 		p.group.addChild(p.concatenation.reverseLeft())
-
 		if (p.group.t == ntTestref && len(p.group.children) > 2) || len(p.group.children) > 3 {
 			return p.getErr(ErrTooManyAlternates)
 		}

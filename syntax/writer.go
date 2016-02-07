@@ -16,7 +16,7 @@ func Write(tree *RegexTree) (*Code, error) {
 
 	code, err := w.codeFromTree(tree)
 	if tree.options&Debug > 0 {
-		fmt.Println(tree.Dump())
+		fmt.Printf(tree.Dump())
 
 		if code != nil {
 			fmt.Println(code.Dump())

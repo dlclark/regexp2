@@ -206,6 +206,12 @@ func (n *regexNode) reduce() *regexNode {
 	}
 }
 
+// Basic optimization. Single-letter alternations can be replaced
+// by faster set specifications, and nested alternations with no
+// intervening operators can be flattened:
+//
+// a|b|c|def|g|h -> [a-c]|def|[gh]
+// apple|(?:orange|pear)|grape -> apple|orange|pear|grape
 func (n *regexNode) reduceAlternation() *regexNode {
 	if len(n.children) == 0 {
 		return newRegexNode(ntNothing, n.options)
@@ -265,7 +271,7 @@ func (n *regexNode) reduceAlternation() *regexNode {
 				if at.t == ntOne {
 					prevCharClass.addChar(at.ch)
 				} else {
-					prevCharClass.addRanges(at.set.ranges)
+					prevCharClass.addSet(*at.set)
 				}
 
 				prev.t = ntSet

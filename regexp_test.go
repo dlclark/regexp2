@@ -253,6 +253,9 @@ func TestGroups_Basic(t *testing.T) {
 		if err != nil {
 			fatalf(re, v, "Unexpected error in match: %v", err)
 		}
+		if m == nil {
+			fatalf(re, v, "Match is nil")
+		}
 		if want, got := len(v.strs), m.GroupCount(); want != got {
 			fatalf(re, v, "GroupCount() Wanted '%v'\nGot '%v'", want, got)
 		}
@@ -324,10 +327,20 @@ func TestConstantUneffected(t *testing.T) {
 	if want, got := 2, len(re.code.Sets); want != got {
 		t.Fatalf("wanted %v sets, got %v", want, got)
 	}
-	if want, got := "[*\\s]", re.code.Sets[0].String(); want != got {
+	if want, got := "[\\*\\s]", re.code.Sets[0].String(); want != got {
 		t.Fatalf("wanted set 0 %v, got %v", want, got)
 	}
 	if want, got := "[\\s]", re.code.Sets[1].String(); want != got {
 		t.Fatalf("wanted set 1 %v, got %v", want, got)
+	}
+}
+
+func TestAlternationConstAndEscape(t *testing.T) {
+	re := MustCompile(`\:|\s`, 0)
+	if want, got := 1, len(re.code.Sets); want != got {
+		t.Fatalf("wanted %v sets, got %v", want, got)
+	}
+	if want, got := "[:\\s]", re.code.Sets[0].String(); want != got {
+		t.Fatalf("wanted set 0 %v, got %v", want, got)
 	}
 }

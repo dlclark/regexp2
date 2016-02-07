@@ -3,6 +3,7 @@ package syntax
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"unicode"
 )
 
@@ -589,8 +590,28 @@ func (b *BmPrefix) String() string {
 	return string(b.pattern)
 }
 
+// Dump returns the contents of the filter as a human readable string
 func (b *BmPrefix) Dump(indent string) string {
-	return ""
+	buf := &bytes.Buffer{}
+
+	fmt.Fprintf(buf, "%sBM Pattern: %s\n%sPositive: ", indent, string(b.pattern), indent)
+	for i := 0; i < len(b.positive); i++ {
+		buf.WriteString(strconv.Itoa(b.positive[i]))
+		buf.WriteRune(' ')
+	}
+	buf.WriteRune('\n')
+
+	if b.negativeASCII != nil {
+		buf.WriteString(indent)
+		buf.WriteString("Negative table\n")
+		for i := 0; i < len(b.negativeASCII); i++ {
+			if b.negativeASCII[i] != len(b.pattern) {
+				fmt.Fprintf(buf, "%s %s %s\n", indent, Escape(string(rune(i))), strconv.Itoa(b.negativeASCII[i]))
+			}
+		}
+	}
+
+	return buf.String()
 }
 
 // Scan uses the Boyer-Moore algorithm to find the first occurrence

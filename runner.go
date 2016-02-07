@@ -1332,7 +1332,9 @@ func (r *runner) findFirstChar() bool {
 		}
 	} else {
 		for i := r.forwardchars(); i > 0; i-- {
-			if set.CharIn(r.forwardcharnext()) {
+			n := r.forwardcharnext()
+			//fmt.Printf("%v in %v: %v\n", string(n), set.String(), set.CharIn(n))
+			if set.CharIn(n) {
 				r.backwardnext()
 				return true
 			}
