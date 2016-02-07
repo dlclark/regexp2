@@ -344,3 +344,32 @@ func TestAlternationConstAndEscape(t *testing.T) {
 		t.Fatalf("wanted set 0 %v, got %v", want, got)
 	}
 }
+
+func TestStartingCharsOptionalNegate(t *testing.T) {
+	// to maintain matching with the corefx we've made the negative char classes be negative and the
+	// categories they contain positive.  This means they're not combinable or suitable for prefixes.
+	// In general this could be a fine thing since negatives are extremely wide groups and not
+	// missing much on prefix optimizations.
+
+	// the below expression *could* have a prefix of [\S\d] but
+	// this requires a change in charclass.go when setting
+	// NotSpaceClass = getCharSetFromCategoryString()
+	// to negate the individual categories rather than the CharSet itself
+	// this would deviate from corefx
+
+	re := MustCompile(`(^(\S{2} )?\S{2}(\d+|/) *\S{3}\S{3} ?\d{2,4}[A-Z] ?\d{2}[A-Z]{3}|(\S{2} )?\d{2,4})`, 0)
+	if re.code.FcPrefix != nil {
+		t.Fatalf("FcPrefix wanted nil, got %v", re.code.FcPrefix)
+	}
+}
+
+func TestParseNegativeDigit(t *testing.T) {
+	re := MustCompile(`\D`, 0)
+	if want, got := 1, len(re.code.Sets); want != got {
+		t.Fatalf("wanted %v sets, got %v", want, got)
+	}
+
+	if want, got := "[\\P{Nd}]", re.code.Sets[0].String(); want != got {
+		t.Fatalf("wanted set 0 %v, got %v", want, got)
+	}
+}

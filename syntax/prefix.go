@@ -21,7 +21,7 @@ func getFirstCharsPrefix(tree *RegexTree) *Prefix {
 	}
 	fc := s.regexFCFromRegexTree(tree)
 
-	if fc == nil || fc.nullable {
+	if fc == nil || fc.nullable || fc.cc.IsEmpty() {
 		return nil
 	}
 	fcSet := fc.getFirstChars()
@@ -153,6 +153,7 @@ func (s *regexFcd) skipChild() {
 
 // FC computation and shortcut cases for each node type
 func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
+	//fmt.Printf("NodeType: %v, CurIndex: %v, Desc: %v\n", nt, CurIndex, node.description())
 	ci := false
 	rtl := false
 
@@ -606,7 +607,7 @@ func (b *BmPrefix) Dump(indent string) string {
 		buf.WriteString("Negative table\n")
 		for i := 0; i < len(b.negativeASCII); i++ {
 			if b.negativeASCII[i] != len(b.pattern) {
-				fmt.Fprintf(buf, "%s %s %s\n", indent, Escape(string(rune(i))), strconv.Itoa(b.negativeASCII[i]))
+				fmt.Fprintf(buf, "%s  %s %s\n", indent, Escape(string(rune(i))), strconv.Itoa(b.negativeASCII[i]))
 			}
 		}
 	}

@@ -39,20 +39,24 @@ var (
 	ECMADigitClass    = getCharSetFromOldString("\u0030\u003A", false)
 	NotECMADigitClass = getCharSetFromOldString("\u0030\u003A", true)
 
-	WordClass     = getCharSetFromCategoryString(false, wordCategoryText)
-	NotWordClass  = getCharSetFromCategoryString(true, wordCategoryText)
-	SpaceClass    = getCharSetFromCategoryString(false, spaceCategoryText)
-	NotSpaceClass = getCharSetFromCategoryString(true, spaceCategoryText)
-	DigitClass    = getCharSetFromCategoryString(false, "Nd")
-	NotDigitClass = getCharSetFromCategoryString(true, "Nd")
+	WordClass     = getCharSetFromCategoryString(false, false, wordCategoryText)
+	NotWordClass  = getCharSetFromCategoryString(true, false, wordCategoryText)
+	SpaceClass    = getCharSetFromCategoryString(false, false, spaceCategoryText)
+	NotSpaceClass = getCharSetFromCategoryString(true, false, spaceCategoryText)
+	DigitClass    = getCharSetFromCategoryString(false, false, "Nd")
+	NotDigitClass = getCharSetFromCategoryString(false, true, "Nd")
 )
 
-func getCharSetFromCategoryString(negate bool, cats ...string) func() *CharSet {
-	c := CharSet{}
+func getCharSetFromCategoryString(negateSet bool, negateCat bool, cats ...string) func() *CharSet {
+	if negateCat && negateSet {
+		panic("BUG!  You should only negate the set OR the category in a constant setup, but not both")
+	}
+
+	c := CharSet{negate: negateSet}
 
 	c.categories = make([]category, len(cats))
 	for i, cat := range cats {
-		c.categories[i] = category{cat: cat, negate: negate}
+		c.categories[i] = category{cat: cat, negate: negateCat}
 	}
 	return func() *CharSet {
 		//make a copy each time
@@ -314,6 +318,10 @@ func (c CharSet) HasSubtraction() bool {
 	return c.sub != nil
 }
 
+func (c CharSet) IsEmpty() bool {
+	return len(c.ranges) == 0 && len(c.categories) == 0 && c.sub == nil
+}
+
 func (c *CharSet) addDigit(ecma, negate bool, pattern string) {
 	if ecma {
 		//TODO: Bug?  the ranges are the same regardless of negate
@@ -323,7 +331,7 @@ func (c *CharSet) addDigit(ecma, negate bool, pattern string) {
 			c.addRanges(ECMADigitClass().ranges)
 		}
 	} else {
-		c.categories = append(c.categories, category{cat: "Nd", negate: negate})
+		c.addCategories(category{cat: "Nd", negate: negate})
 	}
 }
 
@@ -339,7 +347,7 @@ func (c *CharSet) addSpace(ecma, negate bool) {
 			c.addRanges(ECMASpaceClass().ranges)
 		}
 	} else {
-		c.categories = append(c.categories, category{cat: spaceCategoryText, negate: negate})
+		c.addCategories(category{cat: spaceCategoryText, negate: negate})
 	}
 }
 
@@ -351,15 +359,40 @@ func (c *CharSet) addWord(ecma, negate bool) {
 			c.addRanges(ECMAWordClass().ranges)
 		}
 	} else {
-		c.categories = append(c.categories, category{cat: wordCategoryText, negate: negate})
+		c.addCategories(category{cat: wordCategoryText, negate: negate})
 	}
 }
 
 // Add set ranges and categories into ours -- no deduping or anything
 func (c *CharSet) addSet(set CharSet) {
 	c.addRanges(set.ranges)
-	c.categories = append(c.categories, set.categories...)
+	c.addCategories(set.categories...)
 	c.canonicalize()
+}
+
+func (c *CharSet) addCategories(cats ...category) {
+	// don't add dupes and remove positive+negative
+
+	for _, ct := range cats {
+		found := false
+		for i, ct2 := range c.categories {
+			if ct.cat == ct2.cat {
+				if ct.negate != ct2.negate {
+					// oposite negations...this mean we remove the original and don't add the new
+					// don't worry about preserving order with the remove
+					newLen := len(c.categories) - 1
+					c.categories[i] = c.categories[newLen]
+					c.categories = c.categories[:newLen]
+				}
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			c.categories = append(c.categories, ct)
+		}
+	}
 }
 
 // Merges new ranges to our own
@@ -373,13 +406,13 @@ func (c *CharSet) addCategory(categoryName string, negate, caseInsensitive bool,
 	if _, ok := unicode.Categories[categoryName]; ok {
 		if caseInsensitive && (categoryName == "Ll" || categoryName == "Lu" || categoryName == "Lt") {
 			// when RegexOptions.IgnoreCase is specified then {Ll} {Lu} and {Lt} cases should all match
-			c.categories = append(c.categories,
+			c.addCategories(
 				category{cat: "Ll", negate: negate},
 				category{cat: "Lu", negate: negate},
 				category{cat: "Lt", negate: negate})
 		}
 
-		c.categories = append(c.categories, category{cat: categoryName, negate: negate})
+		c.addCategories(category{cat: categoryName, negate: negate})
 	} else {
 		c.addRanges(setFromProperty(categoryName, negate, pattern).ranges)
 	}
