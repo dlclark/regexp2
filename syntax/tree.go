@@ -2,6 +2,7 @@ package syntax
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"strconv"
 )
@@ -581,7 +582,7 @@ func (n *regexNode) description() string {
 		buf.WriteString("(index = " + strconv.Itoa(n.m) + ")")
 		break
 	case ntMulti:
-		buf.WriteString("(String = " + string(n.str) + ")")
+		fmt.Fprintf(buf, "(String = %q)", string(n.str))
 		break
 	case ntSet, ntSetloop, ntSetlazy:
 		buf.WriteString("(Set = " + n.set.String() + ")")

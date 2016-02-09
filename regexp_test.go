@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/dlclark/regexp2/syntax"
 )
 
 func TestBacktrack_CatastrophicTimeout(t *testing.T) {
@@ -384,3 +386,34 @@ func TestRunNegativeDigit(t *testing.T) {
 		t.Fatalf("Expected match")
 	}
 }
+
+func TestCancellingClasses(t *testing.T) {
+	// [\w\W\s] should become "." because it means "anything"
+	re := MustCompile(`[\w\W\s]`, 0)
+	if want, got := 1, len(re.code.Sets); want != got {
+		t.Fatalf("wanted %v sets, got %v", want, got)
+	}
+	if want, got := syntax.AnyClass().String(), re.code.Sets[0].String(); want != got {
+		t.Fatalf("wanted set 0 %v, got %v", want, got)
+	}
+}
+
+/*
+func TestPcreStuff(t *testing.T) {
+	re := MustCompile(`(?(?=(a))a)`, Debug)
+	inp := unEscapeToMatch(`a`)
+	fmt.Printf("Inp %q\n", inp)
+	m, err := re.FindStringMatch(inp)
+
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if m == nil {
+		t.Fatalf("Expected match")
+	}
+
+	fmt.Printf("Match %s\n", m.dump())
+	fmt.Printf("Text: %v\n", unEscapeGroup(m.String()))
+
+}
+*/

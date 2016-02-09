@@ -9,10 +9,11 @@ import (
 
 // CharSet combines start-end rune ranges and unicode categories representing a set of characters
 type CharSet struct {
-	negate     bool
 	ranges     []singleRange
 	categories []category
 	sub        *CharSet //optional subtractor
+	negate     bool
+	anything   bool
 }
 
 type category struct {
@@ -368,24 +369,41 @@ func (c *CharSet) addWord(ecma, negate bool) {
 
 // Add set ranges and categories into ours -- no deduping or anything
 func (c *CharSet) addSet(set CharSet) {
+	if c.anything {
+		return
+	}
+	if set.anything {
+		c.makeAnything()
+		return
+	}
 	c.addRanges(set.ranges)
 	c.addCategories(set.categories...)
 	c.canonicalize()
 }
 
+func (c *CharSet) makeAnything() {
+	c.anything = true
+	c.categories = []category{}
+	c.ranges = AnyClass().ranges
+}
+
 func (c *CharSet) addCategories(cats ...category) {
 	// don't add dupes and remove positive+negative
+	if c.anything {
+		// if we've had a previous positive+negative group then
+		// just return, we're as broad as we can get
+		return
+	}
 
 	for _, ct := range cats {
 		found := false
-		for i, ct2 := range c.categories {
+		for _, ct2 := range c.categories {
 			if ct.cat == ct2.cat {
 				if ct.negate != ct2.negate {
-					// oposite negations...this mean we remove the original and don't add the new
-					// don't worry about preserving order with the remove
-					newLen := len(c.categories) - 1
-					c.categories[i] = c.categories[newLen]
-					c.categories = c.categories[:newLen]
+					// oposite negations...this mean we just
+					// take us as anything and move on
+					c.makeAnything()
+					return
 				}
 				found = true
 				break
@@ -400,6 +418,9 @@ func (c *CharSet) addCategories(cats ...category) {
 
 // Merges new ranges to our own
 func (c *CharSet) addRanges(ranges []singleRange) {
+	if c.anything {
+		return
+	}
 	c.ranges = append(c.ranges, ranges...)
 	c.canonicalize()
 }
@@ -487,6 +508,9 @@ func (c *CharSet) canonicalize() {
 // Adds to the class any lowercase versions of characters already
 // in the class. Used for case-insensitivity.
 func (c *CharSet) addLowercase() {
+	if c.anything {
+		return
+	}
 	toAdd := []singleRange{}
 	for i := 0; i < len(c.ranges); i++ {
 		r := c.ranges[i]

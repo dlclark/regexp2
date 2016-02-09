@@ -79,7 +79,7 @@ const (
 	ErrMissingRepeatArgument      = "missing argument to repetition operator"
 	ErrConditionalExpression      = "illegal conditional (?(...)) expression"
 	ErrTooManyAlternates          = "too many | in (?()|)"
-	ErrUnrecognizedGrouping       = "unrecognized grouping construct"
+	ErrUnrecognizedGrouping       = "unrecognized grouping construct: (%v"
 	ErrInvalidGroupName           = "invalid group name: group names must begin with a word character and have a matching terminator"
 	ErrCapNumNotZero              = "capture number cannot be zero"
 	ErrUndefinedBackRef           = "reference to undefined group number %v"
@@ -660,6 +660,7 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 	var nt nodeType
 	var err error
 	close := '>'
+	start := p.textpos()
 
 	// just return a RegexNode if we have:
 	// 1. "(" followed by nothing
@@ -887,7 +888,7 @@ BreakRecognize:
 
 	// break Recognize comes here
 
-	return nil, p.getErr(ErrUnrecognizedGrouping)
+	return nil, p.getErr(ErrUnrecognizedGrouping, string(p.pattern[start:p.textpos()]))
 }
 
 // scans backslash specials and basics
@@ -1455,7 +1456,7 @@ func (p *parser) scanCharEscape() (rune, error) {
 		return p.scanControl()
 	default:
 		if !p.useOptionE() && IsWordChar(ch) {
-			return 0, p.getErr(ErrUnrecognizedEscape, ch)
+			return 0, p.getErr(ErrUnrecognizedEscape, string(ch))
 		}
 		return ch, nil
 	}
@@ -1535,16 +1536,21 @@ func (p *parser) scanOctal() rune {
 		c = p.charsRight()
 	}
 
+	//we know the first char is good because the caller had to check
 	i := 0
 	d := int(p.rightChar(0) - '0')
-	for ; c > 0 && d <= 7; c -= 1 {
-		p.moveRight(1)
+	for c > 0 && d <= 7 {
 		i *= 8
 		i += d
 		if p.useOptionE() && i >= 0x20 {
 			break
 		}
-		d = int(p.rightChar(0) - '0')
+		c--
+
+		p.moveRight(1)
+		if !p.rightMost() {
+			d = int(p.rightChar(0) - '0')
+		}
 	}
 
 	// Octal codes only go up to 255.  Any larger and the behavior that Perl follows
@@ -1844,7 +1850,7 @@ const (
 
 var _category = []byte{
 	//01  2  3  4  5  6  7  8  9  A  B  C  D  E  F  0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
-	0, 0, 0, 0, 0, 0, 0, 0, 0, X, X, 0, X, X, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, X, X, X, X, X, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	// !  "  #  $  %  &  '  (  )  *  +  ,  -  .  /  0  1  2  3  4  5  6  7  8  9  :  ;  <  =  >  ?
 	X, 0, 0, Z, S, 0, 0, 0, S, S, Q, Q, 0, 0, S, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Q,
 	//@A  B  C  D  E  F  G  H  I  J  K  L  M  N  O  P  Q  R  S  T  U  V  W  X  Y  Z  [  \  ]  ^  _
