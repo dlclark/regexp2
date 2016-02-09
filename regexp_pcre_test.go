@@ -288,7 +288,7 @@ func unEscapeToMatch(line string) string {
 		if inEscape {
 			switch ch {
 			case 'x':
-				buf.WriteByte(scanHex(line, &i, buf))
+				buf.WriteByte(scanHex(line, &i))
 			case 'a':
 				buf.WriteByte(0x07)
 			case 'b':
@@ -307,7 +307,7 @@ func unEscapeToMatch(line string) string {
 				buf.WriteByte(0x0b)
 			default:
 				if ch >= '0' && ch <= '7' {
-					buf.WriteByte(scanOctal(line, &i, buf))
+					buf.WriteByte(scanOctal(line, &i))
 				} else {
 					buf.WriteByte(ch)
 					//panic(fmt.Sprintf("unexpected escape '%v' in %v", string(ch), line))
@@ -340,11 +340,10 @@ func unEscapeGroup(val string) string {
 	return buf.String()
 }
 
-func scanHex(line string, idx *int, b *bytes.Buffer) byte {
+func scanHex(line string, idx *int) byte {
 	if *idx >= len(line)-2 {
 		panic(fmt.Sprintf("not enough hex chars in %v at %v", line, *idx))
 	}
-	b.Bytes()
 	(*idx)++
 	d1 := hexDigit(line[*idx])
 	(*idx)++
@@ -375,7 +374,7 @@ func hexDigit(ch byte) int {
 }
 
 // Scans up to three octal digits (stops before exceeding 0377).
-func scanOctal(line string, idx *int, b *bytes.Buffer) byte {
+func scanOctal(line string, idx *int) byte {
 	// Consume octal chars only up to 3 digits and value 0377
 
 	// octals can be 3,2, or 1 digit

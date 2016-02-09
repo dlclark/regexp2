@@ -253,11 +253,11 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 		break
 
 	case ntSet:
-		s.pushFC(regexFc{cc: *node.set, nullable: false, caseInsensitive: ci})
+		s.pushFC(regexFc{cc: node.set.Copy(), nullable: false, caseInsensitive: ci})
 		break
 
 	case ntSetloop, ntSetlazy:
-		s.pushFC(regexFc{cc: *node.set, nullable: node.m == 0, caseInsensitive: ci})
+		s.pushFC(regexFc{cc: node.set.Copy(), nullable: node.m == 0, caseInsensitive: ci})
 		break
 
 	case ntRef:

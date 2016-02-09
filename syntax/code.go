@@ -197,7 +197,7 @@ func (c *Code) OpcodeDescription(offset int) string {
 		buf.WriteString(c.Sets[c.Codes[offset+1]].String())
 
 	case Multi:
-		fmt.Fprintf(buf, "String = %q", string(c.Strings[c.Codes[offset+1]]))
+		fmt.Fprintf(buf, "String = %s", string(c.Strings[c.Codes[offset+1]]))
 
 	case Ref, Testref:
 		fmt.Fprintf(buf, "Index = %d", c.Codes[offset+1])

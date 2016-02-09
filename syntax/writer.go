@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"os"
 )
 
 func Write(tree *RegexTree) (*Code, error) {
@@ -16,10 +17,11 @@ func Write(tree *RegexTree) (*Code, error) {
 
 	code, err := w.codeFromTree(tree)
 	if tree.options&Debug > 0 {
-		fmt.Printf(tree.Dump())
-
+		os.Stdout.WriteString(tree.Dump())
+		os.Stdout.WriteString("\n")
 		if code != nil {
-			fmt.Println(code.Dump())
+			os.Stdout.WriteString(code.Dump())
+			os.Stdout.WriteString("\n")
 		}
 	}
 	return code, err

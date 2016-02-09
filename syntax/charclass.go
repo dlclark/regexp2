@@ -99,6 +99,24 @@ func getCharSetFromOldString(setText string, negate bool) func() *CharSet {
 	}
 }
 
+// Copy makes a deep copy to prevent accidental mutation of a set
+func (c CharSet) Copy() CharSet {
+	ret := CharSet{
+		anything: c.anything,
+		negate:   c.negate,
+	}
+
+	ret.ranges = append(ret.ranges, c.ranges...)
+	ret.categories = append(ret.categories, c.categories...)
+
+	if c.sub != nil {
+		sub := c.sub.Copy()
+		ret.sub = &sub
+	}
+
+	return ret
+}
+
 // gets a human-readable description for a set string
 func (c CharSet) String() string {
 	buf := &bytes.Buffer{}

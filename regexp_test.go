@@ -398,6 +398,17 @@ func TestCancellingClasses(t *testing.T) {
 	}
 }
 
+func TestConcatLoopCaptureSet(t *testing.T) {
+	//(A|B)*?CD different Concat/Loop/Capture/Set ([AB] OR [A-C]) -- we're wrong for sure, should be [AB]
+	re := MustCompile(`(A|B)*CD`, 0)
+	if want, got := 1, len(re.code.Sets); want != got {
+		t.Fatalf("wanted %v sets, got %v", want, got)
+	}
+	if want, got := "[AB]", re.code.Sets[0].String(); want != got {
+		t.Fatalf("wanted set 0 %v, got %v", want, got)
+	}
+}
+
 /*
 func TestPcreStuff(t *testing.T) {
 	re := MustCompile(`(?(?=(a))a)`, Debug)
@@ -417,3 +428,7 @@ func TestPcreStuff(t *testing.T) {
 
 }
 */
+
+//(.*)(\d+) different FirstChars ([\x00-\t\v-\x08] OR [\x00-\t\v-\uffff\p{Nd}]
+
+//((?i)AB(?-i)C|D)E different Firstchars ([ad] OR [da]) -- why is the order different?  hashtable?  never seen it before
