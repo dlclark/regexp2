@@ -18,7 +18,6 @@ func Write(tree *RegexTree) (*Code, error) {
 	code, err := w.codeFromTree(tree)
 	if tree.options&Debug > 0 {
 		os.Stdout.WriteString(tree.Dump())
-		os.Stdout.WriteString("\n")
 		if code != nil {
 			os.Stdout.WriteString(code.Dump())
 			os.Stdout.WriteString("\n")

@@ -399,13 +399,33 @@ func TestCancellingClasses(t *testing.T) {
 }
 
 func TestConcatLoopCaptureSet(t *testing.T) {
-	//(A|B)*?CD different Concat/Loop/Capture/Set ([AB] OR [A-C]) -- we're wrong for sure, should be [AB]
+	//(A|B)*?CD different Concat/Loop/Capture/Set (had [A-Z] should be [AB])
+	// we were not copying the Sets in the prefix FC stack, so the underlying sets were unexpectedly mutating
+	// so set [AB] becomes [ABC] when we see the the static C in FC stack generation (which are the valid start chars),
+	// but that was mutating the tree node's original set [AB] because even though we copied the slie header,
+	// the two header's pointed to the same underlying byte array...which was mutated.
+
 	re := MustCompile(`(A|B)*CD`, 0)
 	if want, got := 1, len(re.code.Sets); want != got {
 		t.Fatalf("wanted %v sets, got %v", want, got)
 	}
 	if want, got := "[AB]", re.code.Sets[0].String(); want != got {
 		t.Fatalf("wanted set 0 %v, got %v", want, got)
+	}
+}
+
+func TestFirstcharsIgnoreCase(t *testing.T) {
+	//((?i)AB(?-i)C|D)E different Firstchars (had [da] should be [ad])
+	// we were not canonicalizing when converting the prefix set to lower case
+	// so our set's were potentially not searching properly
+	re := MustCompile(`((?i)AB(?-i)C|D)E`, 0)
+
+	if re.code.FcPrefix == nil {
+		t.Fatalf("wanted prefix, got nil")
+	}
+
+	if want, got := "[ad]", re.code.FcPrefix.PrefixSet.String(); want != got {
+		t.Fatalf("wanted prefix %v, got %v", want, got)
 	}
 }
 
@@ -430,5 +450,3 @@ func TestPcreStuff(t *testing.T) {
 */
 
 //(.*)(\d+) different FirstChars ([\x00-\t\v-\x08] OR [\x00-\t\v-\uffff\p{Nd}]
-
-//((?i)AB(?-i)C|D)E different Firstchars ([ad] OR [da]) -- why is the order different?  hashtable?  never seen it before

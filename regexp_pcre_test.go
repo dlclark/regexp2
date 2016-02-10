@@ -192,6 +192,9 @@ func validateMatch(t *testing.T, re *Regexp, m *Match, toMatch, value string, id
 func compileRawPattern(t *testing.T, pattern string) *Regexp {
 	// check our end for RegexOptions -trim them off
 	index := strings.LastIndexAny(pattern, "/\"")
+	//
+	// Append "= Debug" to compare details between corefx and regexp2 on the PCRE test suite
+	//
 	var opts RegexOptions
 
 	if index+1 < len(pattern) {

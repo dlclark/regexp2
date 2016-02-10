@@ -394,7 +394,8 @@ func (c *CharSet) addSet(set CharSet) {
 		c.makeAnything()
 		return
 	}
-	c.addRanges(set.ranges)
+	// just append here to prevent double-canon
+	c.ranges = append(c.ranges, set.ranges...)
 	c.addCategories(set.categories...)
 	c.canonicalize()
 }
@@ -543,6 +544,7 @@ func (c *CharSet) addLowercase() {
 	for _, r := range toAdd {
 		c.addLowercaseRange(r.first, r.last)
 	}
+	c.canonicalize()
 }
 
 /**************************************************************************
