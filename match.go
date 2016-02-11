@@ -31,6 +31,7 @@ type Match struct {
 	balancing bool
 }
 
+// Group is an explicit or implit (group 0) matched group within the pattern
 type Group struct {
 	Capture // the last capture of this group is embeded for ease of use
 
@@ -38,6 +39,7 @@ type Group struct {
 	Captures []Capture // captures of this group
 }
 
+// Capture is a single capture of text within the larger original string
 type Capture struct {
 	// the original string
 	text []rune
@@ -48,6 +50,7 @@ type Capture struct {
 	Length int
 }
 
+// String returns the captured text as a String
 func (c *Capture) String() string {
 	return string(c.text[c.Index : c.Index+c.Length])
 }
@@ -212,10 +215,12 @@ func (m *Match) removeMatch(c int) {
 	m.matchcount[c]--
 }
 
+// GroupCount returns the number of groups this match has matched
 func (m *Match) GroupCount() int {
 	return len(m.matchcount)
 }
 
+// GroupByName returns a group based on the name of the group, or nil if the group name does not exist
 func (m *Match) GroupByName(name string) *Group {
 	num := m.regex.GroupNumberFromName(name)
 	if num < 0 {
@@ -224,6 +229,7 @@ func (m *Match) GroupByName(name string) *Group {
 	return m.GroupByNumber(num)
 }
 
+// GroupByNumber returns a group based on the number of the group, or nil if the group number does not exist
 func (m *Match) GroupByNumber(num int) *Group {
 	// check our sparse map
 	if m.sparseCaps != nil {

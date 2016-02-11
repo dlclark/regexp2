@@ -429,6 +429,40 @@ func TestFirstcharsIgnoreCase(t *testing.T) {
 	}
 }
 
+func TestRepeatingGroup(t *testing.T) {
+	re := MustCompile(`(data?)+`, 0)
+
+	m, err := re.FindStringMatch("datadat")
+	if err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	}
+
+	if m == nil {
+		t.Fatalf("Expected match")
+	}
+
+	g := m.GroupByNumber(1)
+	if g == nil {
+		t.Fatalf("Expected group")
+	}
+
+	if want, got := 2, len(g.Captures); want != got {
+		t.Fatalf("wanted cap count %v, got %v", want, got)
+	}
+
+	if want, got := g.Captures[1].String(), g.Capture.String(); want != got {
+		t.Fatalf("expected last capture of the group to be embedded")
+	}
+
+	if want, got := "data", g.Captures[0].String(); want != got {
+		t.Fatalf("expected cap 0 to be %v, got %v", want, got)
+	}
+	if want, got := "dat", g.Captures[1].String(); want != got {
+		t.Fatalf("expected cap 1 to be %v, got %v", want, got)
+	}
+
+}
+
 /*
 func TestPcreStuff(t *testing.T) {
 	re := MustCompile(`(?(?=(a))a)`, Debug)

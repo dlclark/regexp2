@@ -1,8 +1,67 @@
 # What is it?
-Regexp2 is a more feature-rich RegExp engine for Go.  It does not have the same guarantees as the framework's re2-based engine, but it can backtrack and use most of the Perl5 regex features. 
+Regexp2 is a more feature-rich RegExp engine for Go.  It doesn't have constant time guarantees, but it allows backtracking and is compatible with Perl5 and .NET.  You'll likely be better off with the RE2 engine from the 'regexp' package and should only use this if you need to write very complex patterns or require compatibility with .NET.
 
 # Basis of the engine?
-The engine is ported from the .NET framework's System.Text.RegularExpressions.Regex engine.  It was open sourced in 2015 under the MIT license and is a nice foundation for this kind of project.  There are some fundamental differences between .NET strings and Go strings that require a bit of borrowing from the Go framework regex engine as well.  
+The engine is ported from the .NET framework's System.Text.RegularExpressions.Regex engine.  That engine was open sourced in 2015 under the MIT license and is a nice foundation for this kind of project.  There are some fundamental differences between .NET strings and Go strings that require a bit of borrowing from the Go framework regex engine as well.  
 
 # Lifecycle
-This thing is still in the foundational stages -- don't get too excited.
+I've run a battery of tests against regexp2 from various sources and found the debug output matches the .NET engine.
+
+# Installing
+This is a go-gettable library, so install is easy:
+
+    go get github.com/dlclark/regexp2/...
+
+# Usage
+Usage is relatively similar to the Go `regexp` package.  Just like in `regexp`, you start by converting a regex into a state machine via the `Compile` or `MustCompile` methods.  They ultimately do the same thing, but `MustCompile` will panic if the regex is invalid.  You can then use the provided Regexp struct to find matches repeatedly.  A `Regexp` struct is safe to use across goroutines.
+```go
+re := regexp2.MustCompile(`Your pattern`, 0)
+if isMatch, _ := re.MatchString(`Something to match`); isMatch {
+    //do something
+}
+```
+The only error that the `*Match*` methods *should* return is a Timeout if you set the `re.MatchTimeout` field.  Any other error is a bug in the `regexp2` package.  If you need more details about capture groups in a match then use the `FindStringMatch` method, like so:
+
+```go
+if m, _ := re.FindStringMatch(`Something to match`); m != nil {
+    // the whole match is always group 0
+    fmt.Printf("Group 0: %v\n", m.String())
+
+    // you can get all the groups too
+    gps := m.Groups()
+
+    // a group can be captured multiple times, so each cap is separately addressable
+    fmt.Printf("Group 1, first capture", gps[1].Captures[0].String())
+    fmt.Printf("Group 1, second capture", gps[1].Captures[1].String())
+}
+```
+
+Group 0 is embedded in the Match.  Group 0 is an automatically-assigned group that encompasses the whole pattern.  This means that `m.String()` is the same as `m.Group.String()` and `m.Groups()[0].String()`
+
+The __last__ capture is embedded in each group, so `g.String()` will return the same thing as `g.Capture.String()` and  `g.Captures[len(g.Captures)-1].String()`.
+
+# Compare `regexp` and `regexp2`
+| Category | regexp | regexp2 |
+| --- | --- | --- |
+| Catastrophic backtracking possible | no, constant execution time guarantees | yes, if your pattern is at risk you can use the `re.MatchTimeout` field |
+| Python-style capture groups `(P<name>re)` | yes | no |
+| .NET-style capture groups `(<name>re)` or `('name're)` | no | yes |
+| comments `(?#comment)` | no | yes |
+| branch numbering reset `(?\|a\|b)` | no | no |
+| possessive match `(?>re)` | no | yes |
+| positive lookahead `(?=re)` | no | yes |
+| negative lookahead `(?!re)` | no | yes |
+| positive lookbehind `(?<=re)` | no | yes |
+| negative lookbehind `(?<!re)` | no | yes |
+| back reference `\1` | no | yes |
+| named back reference `\k'name'` | no | yes |
+| named ascii character class `[[:foo:]]`| yes | no |
+| conditionals `((expr)yes\|no)` | no | yes |
+
+# Library features that I'm still working on
+- Regex replace
+- Regex split
+- Get Next Match
+
+# Find a bug?
+I'm open to new issues and pull requests with tests if you find something odd!
