@@ -1,11 +1,8 @@
-# What is it?
+
 Regexp2 is a more feature-rich RegExp engine for Go.  It doesn't have constant time guarantees, but it allows backtracking and is compatible with Perl5 and .NET.  You'll likely be better off with the RE2 engine from the 'regexp' package and should only use this if you need to write very complex patterns or require compatibility with .NET.
 
-# Basis of the engine?
-The engine is ported from the .NET framework's System.Text.RegularExpressions.Regex engine.  That engine was open sourced in 2015 under the MIT license and is a nice foundation for this kind of project.  There are some fundamental differences between .NET strings and Go strings that require a bit of borrowing from the Go framework regex engine as well.  
-
-# Lifecycle
-I've run a battery of tests against regexp2 from various sources and found the debug output matches the .NET engine.
+# Basis of the engine
+The engine is ported from the .NET framework's System.Text.RegularExpressions.Regex engine.  That engine was open sourced in 2015 under the MIT license.  There are some fundamental differences between .NET strings and Go strings that required a bit of borrowing from the Go framework regex engine as well.  I cleaned up a couple of the dirtier bits during the port (regexcharclass.cs was terrible), but the parse tree, code emmitted, and therefore patterns matched should be identical.
 
 # Installing
 This is a go-gettable library, so install is easy:
@@ -13,7 +10,7 @@ This is a go-gettable library, so install is easy:
     go get github.com/dlclark/regexp2/...
 
 # Usage
-Usage is relatively similar to the Go `regexp` package.  Just like in `regexp`, you start by converting a regex into a state machine via the `Compile` or `MustCompile` methods.  They ultimately do the same thing, but `MustCompile` will panic if the regex is invalid.  You can then use the provided Regexp struct to find matches repeatedly.  A `Regexp` struct is safe to use across goroutines.
+Usage is similar to the Go `regexp` package.  Just like in `regexp`, you start by converting a regex into a state machine via the `Compile` or `MustCompile` methods.  They ultimately do the same thing, but `MustCompile` will panic if the regex is invalid.  You can then use the provided Regexp struct to find matches repeatedly.  A `Regexp` struct is safe to use across goroutines.
 ```go
 re := regexp2.MustCompile(`Your pattern`, 0)
 if isMatch, _ := re.MatchString(`Something to match`); isMatch {
@@ -62,6 +59,10 @@ The __last__ capture is embedded in each group, so `g.String()` will return the 
 - Regex replace
 - Regex split
 - Get Next Match
+- Confirming four-byte unicode in regex string works properly
+
+# Potential bugs
+I've run a battery of tests against regexp2 from various sources and found the debug output matches the .NET engine, but .NET and Go handle strings very differently.  I've attempted to handle these differences, but most of my testing deals with basic ASCII with a little bit of multi-byte Unicode.  There's a good chance that there are bugs in the string handling related to four-byte Unicode chars.  
 
 # Find a bug?
 I'm open to new issues and pull requests with tests if you find something odd!
