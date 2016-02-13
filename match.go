@@ -55,6 +55,11 @@ func (c *Capture) String() string {
 	return string(c.text[c.Index : c.Index+c.Length])
 }
 
+// Runes returns the captured text as a rune slice
+func (c *Capture) Runes() []rune {
+	return c.text[c.Index : c.Index+c.Length]
+}
+
 func newMatch(regex *Regexp, capcount int, text []rune, startpos int) *Match {
 	m := Match{
 		regex:      regex,

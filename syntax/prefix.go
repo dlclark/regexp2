@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"unicode"
+	"unicode/utf8"
 )
 
 type Prefix struct {
@@ -289,7 +290,7 @@ func newRegexFc(ch rune, not, nullable, caseInsensitive bool) regexFc {
 			r.cc.addRange('\x00', ch-1)
 		}
 		if ch < 0xFFFF {
-			r.cc.addRange(ch+1, '\uFFFF')
+			r.cc.addRange(ch+1, utf8.MaxRune)
 		}
 	} else {
 		r.cc.addRange(ch, ch)

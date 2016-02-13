@@ -72,21 +72,23 @@ type runner struct {
 // run searches for matches and can continue from the previous match
 //
 // quick is usually false, but can be true to not return matches, just put it in caches
-// prevlen is -1 if there's no previous match involved, otherwise it's the length of the previous match
+// textstart is -1 to start at the "beginning" (depending on Right-To-Left), otherwise an index in input
 // input is the string to search for our regex pattern
-// beginning, length, startat are a bit confusing
-func (re *Regexp) run(quick bool, prevlen int, input []rune) (*Match, error) {
+func (re *Regexp) run(quick bool, textstart int, input []rune) (*Match, error) {
 
 	// get a cached runner
 	runner := re.getRunner()
 	defer re.putRunner(runner)
 
-	startAt := 0
-	if re.RightToLeft() {
-		startAt = len(input)
+	if textstart < 0 {
+		if re.RightToLeft() {
+			textstart = len(input)
+		} else {
+			textstart = 0
+		}
 	}
 
-	return runner.scan(input, startAt, prevlen, quick, re.MatchTimeout)
+	return runner.scan(input, textstart, quick, re.MatchTimeout)
 }
 
 // Scans the string to find the first match. Uses the Match object
@@ -99,7 +101,7 @@ func (re *Regexp) run(quick bool, prevlen int, input []rune) (*Match, error) {
 // The optimizer can compute a set of candidate starting characters,
 // and we could use a separate method Skip() that will quickly scan past
 // any characters that we know can't match.
-func (r *runner) scan(rt []rune, textstart, prevlen int, quick bool, timeout time.Duration) (*Match, error) {
+func (r *runner) scan(rt []rune, textstart int, quick bool, timeout time.Duration) (*Match, error) {
 	r.timeout = timeout
 	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
 	r.runtextstart = textstart
@@ -115,17 +117,6 @@ func (r *runner) scan(rt []rune, textstart, prevlen int, quick bool, timeout tim
 	}
 
 	r.runtextpos = textstart
-
-	// If previous match was empty or failed, advance by one before matching
-
-	if prevlen == 0 {
-		if r.runtextpos == stoppos {
-			return nil, nil
-		}
-
-		r.runtextpos += bump
-	}
-
 	initted := false
 
 	r.startTimeoutWatch()

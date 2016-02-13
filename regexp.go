@@ -81,10 +81,12 @@ func MustCompile(str string, opt RegexOptions) *Regexp {
 	return regexp
 }
 
+// Escape adds backslashes to any special characters in the input string
 func Escape(input string) string {
 	return syntax.Escape(input)
 }
 
+// Unescape removes any backslashes from previously-escaped special characters in the input string
 func Unescape(input string) (string, error) {
 	return syntax.Unescape(input)
 }
@@ -124,13 +126,39 @@ func (re *Regexp) Debug() bool {
 	return re.options&Debug != 0
 }
 
+// FindStringMatch searches the input string for a Regexp match
 func (re *Regexp) FindStringMatch(s string) (*Match, error) {
 	// convert string to runes
 	return re.run(false, -1, getRunes(s))
 }
 
+// FindRunesMatch searches the input rune slice for a Regexp match
 func (re *Regexp) FindRunesMatch(r []rune) (*Match, error) {
 	return re.run(false, -1, r)
+}
+
+// FindNextMatch returns the next match in the same input string as the match parameter.
+// Will return nil if there is no next match or if given a nil match.
+func (re *Regexp) FindNextMatch(m *Match) (*Match, error) {
+	if m == nil {
+		return nil, nil
+	}
+
+	// If previous match was empty, advance by one before matching to prevent
+	// infinite loop
+	startAt := m.textpos
+	if m.Length == 0 {
+		if m.textpos == len(m.text) {
+			return nil, nil
+		}
+
+		if re.RightToLeft() {
+			startAt--
+		} else {
+			startAt++
+		}
+	}
+	return re.run(false, startAt, m.text)
 }
 
 // MatchString return true if the string matches the regex
@@ -153,6 +181,8 @@ func getRunes(s string) []rune {
 	return ret[:i]
 }
 
+// MatchRunes return true if the runes matches the regex
+// error will be set if a timeout occurs
 func (re *Regexp) MatchRunes(r []rune) (bool, error) {
 	m, err := re.run(true, -1, r)
 	if err != nil {

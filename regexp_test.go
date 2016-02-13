@@ -463,6 +463,87 @@ func TestRepeatingGroup(t *testing.T) {
 
 }
 
+func TestFindNextMatch_Basic(t *testing.T) {
+	re := MustCompile(`(T|E)(?=h|E|S|$)`, 0)
+	m, err := re.FindStringMatch(`This is a TEST`)
+	if err != nil {
+		t.Fatalf("Unexpected err 0: %v", err)
+	}
+	if m == nil {
+		t.Fatalf("Expected match 0")
+	}
+	if want, got := 0, m.Index; want != got {
+		t.Fatalf("expected match 0 to start at %v, got %v", want, got)
+	}
+
+	m, err = re.FindNextMatch(m)
+	if err != nil {
+		t.Fatalf("Unexpected err 1: %v", err)
+	}
+	if m == nil {
+		t.Fatalf("Expected match 1")
+	}
+	if want, got := 10, m.Index; want != got {
+		t.Fatalf("expected match 1 to start at %v, got %v", want, got)
+	}
+
+	m, err = re.FindNextMatch(m)
+	if err != nil {
+		t.Fatalf("Unexpected err 2: %v", err)
+	}
+	if m == nil {
+		t.Fatalf("Expected match 2")
+	}
+	if want, got := 11, m.Index; want != got {
+		t.Fatalf("expected match 2 to start at %v, got %v", want, got)
+	}
+
+	m, err = re.FindNextMatch(m)
+	if err != nil {
+		t.Fatalf("Unexpected err 3: %v", err)
+	}
+	if m == nil {
+		t.Fatalf("Expected match 3")
+	}
+	if want, got := 13, m.Index; want != got {
+		t.Fatalf("expected match 3 to start at %v, got %v", want, got)
+	}
+}
+
+func TestUnicodeSupplementaryCharSetMatch(t *testing.T) {
+	//0x2070E 0x20731 𠜱 0x20779 𠝹
+	re := MustCompile("[𠜎-𠝹]", 0)
+
+	if m, err := re.MatchString("\u2070"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if m {
+		t.Fatalf("Unexpected match")
+	}
+
+	if m, err := re.MatchString("𠜱"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+}
+
+func TestUnicodeSupplementaryCharInRange(t *testing.T) {
+	//0x2070E 0x20731 𠜱 0x20779 𠝹
+	re := MustCompile(".", 0)
+
+	if m, err := re.MatchString("\u2070"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	if m, err := re.MatchString("𠜱"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+}
+
 /*
 func TestPcreStuff(t *testing.T) {
 	re := MustCompile(`(?(?=(a))a)`, Debug)

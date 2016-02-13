@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"sort"
 	"unicode"
+	"unicode/utf8"
 )
 
 // CharSet combines start-end rune ranges and unicode categories representing a set of characters
@@ -32,7 +33,7 @@ const (
 )
 
 var (
-	AnyClass          = getCharSetFromOldString("\x00", false) // &CharSet{ranges: []singleRange{singleRange{first: '\u0000', last: '\uFFFF'}}}
+	AnyClass          = getCharSetFromOldString("\x00", false)
 	ECMAWordClass     = getCharSetFromOldString("\u0030\u003A\u0041\u005B\u005F\u0060\u0061\u007B\u0130\u0131", false)
 	NotECMAWordClass  = getCharSetFromOldString("\u0030\u003A\u0041\u005B\u005F\u0060\u0061\u007B\u0130\u0131", true)
 	ECMASpaceClass    = getCharSetFromOldString("\u0009\u000E\u0020\u0021", false)
@@ -90,7 +91,7 @@ func getCharSetFromOldString(setText string, negate bool) func() *CharSet {
 		}
 	}
 	if !first {
-		c.ranges[i].last = '\uFFFF'
+		c.ranges[i].last = utf8.MaxRune
 	}
 
 	return func() *CharSet {
@@ -492,7 +493,7 @@ func (c *CharSet) canonicalize() {
 
 		for i, j = 1, 0; ; i++ {
 			for last = c.ranges[j].last; ; i++ {
-				if i == len(c.ranges) || last == '\uFFFF' {
+				if i == len(c.ranges) || last == utf8.MaxRune {
 					done = true
 					break
 				}
