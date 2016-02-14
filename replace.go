@@ -29,10 +29,6 @@ func replace(regex *Regexp, data *syntax.ReplacerData, input string, startAt, co
 	if count < -1 {
 		return "", errors.New("Count too small")
 	}
-	if startAt < 0 || startAt > len(input) {
-		return "", errors.New("Begin index must not be negative and less than the length")
-	}
-
 	if count == 0 {
 		return "", nil
 	}
@@ -133,5 +129,36 @@ func replacementImpl(data *syntax.ReplacerData, buf *bytes.Buffer, m *Match) {
 }
 
 func replacementImplRTL(data *syntax.ReplacerData, al *[]string, m *Match) {
+	l := *al
+	buf := &bytes.Buffer{}
 
+	for _, r := range data.Rules {
+		buf.Reset()
+		if r >= 0 { // string lookup
+			l = append(l, data.Strings[r])
+		} else if r < -replaceSpecials { // group lookup
+			m.groupValueAppendToBuf(-replaceSpecials-1-r, buf)
+			l = append(l, buf.String())
+		} else {
+			switch -replaceSpecials - 1 - r { // special insertion patterns
+			case replaceLeftPortion:
+				for i := 0; i < m.Index; i++ {
+					buf.WriteRune(m.text[i])
+				}
+			case replaceRightPortion:
+				for i := m.Index + m.Length; i < len(m.text); i++ {
+					buf.WriteRune(m.text[i])
+				}
+			case replaceLastGroup:
+				m.groupValueAppendToBuf(m.GroupCount()-1, buf)
+			case replaceWholeString:
+				for i := 0; i < len(m.text); i++ {
+					buf.WriteRune(m.text[i])
+				}
+			}
+			l = append(l, buf.String())
+		}
+	}
+
+	*al = l
 }

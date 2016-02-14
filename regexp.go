@@ -140,15 +140,6 @@ func (re *Regexp) Replace(input, replacement string, startAt, count int) (string
 	}
 	//TODO: cache ReplacerData
 
-	if startAt == -1 {
-		if re.RightToLeft() {
-			//change startAt to be relative to the right
-			startAt = len(input)
-		} else {
-			startAt = 0
-		}
-	}
-
 	return replace(re, data, input, startAt, count)
 }
 
@@ -168,7 +159,7 @@ func (re *Regexp) FindStringMatchStartingAt(s string, startAt int) (*Match, erro
 	if startAt > len(s) {
 		return nil, errors.New("startAt must be less than the length of the input string")
 	}
-	r, startAt := getRunesAndStart(s, startAt)
+	r, startAt := re.getRunesAndStart(s, startAt)
 	if startAt == -1 {
 		// we didn't find our start index in the string -- that's a problem
 		return nil, errors.New("startAt must align to the start of a valid rune in the input string")
@@ -216,8 +207,12 @@ func (re *Regexp) MatchString(s string) (bool, error) {
 	return m != nil, nil
 }
 
-func getRunesAndStart(s string, startAt int) ([]rune, int) {
-	if startAt <= 0 {
+func (re *Regexp) getRunesAndStart(s string, startAt int) ([]rune, int) {
+	if startAt < 0 {
+		if re.RightToLeft() {
+			r := getRunes(s)
+			return r, len(r)
+		}
 		return getRunes(s), 0
 	}
 	ret := make([]rune, len(s))
