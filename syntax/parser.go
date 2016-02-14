@@ -136,8 +136,8 @@ type parser struct {
 }
 
 const (
-	maxValueDiv10 int32 = math.MaxInt32 / 10
-	maxValueMod10       = math.MaxInt32 % 10
+	maxValueDiv10 int = math.MaxInt32 / 10
+	maxValueMod10     = math.MaxInt32 % 10
 )
 
 // Parse converts a regex string into a parse tree
@@ -650,6 +650,149 @@ BreakOuterScan:
 
 	return p.unit, nil
 
+}
+
+/*
+ * Simple parsing for replacement patterns
+ */
+func (p *parser) scanReplacement() (*regexNode, error) {
+	var c, startpos int
+
+	p.concatenation = newRegexNode(ntConcatenate, p.options)
+
+	for {
+		c = p.charsRight()
+		if c == 0 {
+			break
+		}
+
+		startpos = p.textpos()
+
+		for c > 0 && p.rightChar(0) != '$' {
+			p.moveRight(1)
+			c--
+		}
+
+		p.addToConcatenate(startpos, p.textpos()-startpos, true)
+
+		if c > 0 {
+			if p.moveRightGetChar() == '$' {
+				n, err := p.scanDollar()
+				if err != nil {
+					return nil, err
+				}
+				p.addUnitNode(n)
+			}
+			p.addConcatenate()
+		}
+	}
+
+	return p.concatenation, nil
+}
+
+/*
+ * Scans $ patterns recognized within replacement patterns
+ */
+func (p *parser) scanDollar() (*regexNode, error) {
+	if p.charsRight() == 0 {
+		return newRegexNodeCh(ntOne, p.options, '$'), nil
+	}
+
+	ch := p.rightChar(0)
+	angled := false
+	backpos := p.textpos()
+	lastEndPos := backpos
+
+	// Note angle
+
+	if ch == '{' && p.charsRight() > 1 {
+		angled = true
+		p.moveRight(1)
+		ch = p.rightChar(0)
+	}
+
+	// Try to parse backreference: \1 or \{1} or \{cap}
+
+	if ch >= '0' && ch <= '9' {
+		if !angled && p.useOptionE() {
+			capnum := -1
+			newcapnum := int(ch - '0')
+			p.moveRight(1)
+			if p.isCaptureSlot(newcapnum) {
+				capnum = newcapnum
+				lastEndPos = p.textpos()
+			}
+
+			for p.charsRight() > 0 {
+				ch = p.rightChar(0)
+				if ch < '0' || ch > '9' {
+					break
+				}
+				digit := int(ch - '0')
+				if newcapnum > maxValueDiv10 || (newcapnum == maxValueDiv10 && digit > maxValueMod10) {
+					return nil, p.getErr(ErrCaptureGroupOutOfRange)
+				}
+
+				newcapnum = newcapnum*10 + digit
+
+				p.moveRight(1)
+				if p.isCaptureSlot(newcapnum) {
+					capnum = newcapnum
+					lastEndPos = p.textpos()
+				}
+			}
+			p.textto(lastEndPos)
+			if capnum >= 0 {
+				return newRegexNodeM(ntRef, p.options, capnum), nil
+			}
+		} else {
+			capnum, err := p.scanDecimal()
+			if err != nil {
+				return nil, err
+			}
+			if !angled || p.charsRight() > 0 && p.moveRightGetChar() == '}' {
+				if p.isCaptureSlot(capnum) {
+					return newRegexNodeM(ntRef, p.options, capnum), nil
+				}
+			}
+		}
+	} else if angled && IsWordChar(ch) {
+		capname := p.scanCapname()
+
+		if p.charsRight() > 0 && p.moveRightGetChar() == '}' {
+			if p.isCaptureName(capname) {
+				return newRegexNodeM(ntRef, p.options, p.captureSlotFromName(capname)), nil
+			}
+		}
+	} else if !angled {
+		capnum := 1
+
+		switch ch {
+		case '$':
+			p.moveRight(1)
+			return newRegexNodeCh(ntOne, p.options, '$'), nil
+		case '&':
+			capnum = 0
+		case '`':
+			capnum = replaceLeftPortion
+		case '\'':
+			capnum = replaceRightPortion
+		case '+':
+			capnum = replaceLastGroup
+		case '_':
+			capnum = replaceWholeString
+		}
+
+		if capnum != 1 {
+			p.moveRight(1)
+			return newRegexNodeM(ntRef, p.options, capnum), nil
+		}
+	}
+
+	// unrecognized $: literalize
+
+	p.textto(backpos)
+	return newRegexNodeCh(ntOne, p.options, '$'), nil
 }
 
 // scanGroupOpen scans chars following a '(' (not counting the '('), and returns
@@ -1370,17 +1513,17 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 
 // Scans any number of decimal digits (pegs value at 2^31-1 if too large)
 func (p *parser) scanDecimal() (int, error) {
-	i := int32(0)
-	var d int32
+	i := 0
+	var d int
 
 	for p.charsRight() > 0 {
-		d = p.rightChar(0) - '0'
+		d = int(p.rightChar(0) - '0')
 		if d < 0 || d > 9 {
 			break
 		}
 		p.moveRight(1)
 
-		if i > (maxValueDiv10) || (i == (maxValueDiv10) && d > (maxValueMod10)) {
+		if i > maxValueDiv10 || (i == maxValueDiv10 && d > maxValueMod10) {
 			return 0, p.getErr(ErrCaptureGroupOutOfRange)
 		}
 

@@ -274,6 +274,22 @@ func (m *Match) populateOtherGroups() {
 	}
 }
 
+func (m *Match) groupValueAppendToBuf(groupnum int, buf *bytes.Buffer) {
+	c := m.matchcount[groupnum]
+	if c == 0 {
+		return
+	}
+
+	matches := m.matches[groupnum]
+
+	index := matches[(c-1)*2]
+	last := index + matches[(c*2)-1]
+
+	for ; index < last; index++ {
+		buf.WriteRune(m.text[index])
+	}
+}
+
 func newGroup(name string, text []rune, caps []int, capcount int) Group {
 	g := Group{}
 	g.text = text

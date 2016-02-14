@@ -3,29 +3,33 @@ package regexp2
 import (
 	"bytes"
 	"errors"
+
+	"github.com/dlclark/regexp2/syntax"
 )
 
-type replacer struct {
-	rep     []string
-	strings []string
-	rules   []int
-}
+const (
+	replaceSpecials     = 4
+	replaceLeftPortion  = -1
+	replaceRightPortion = -2
+	replaceLastGroup    = -3
+	replaceWholeString  = -4
+)
 
 // Three very similar algorithms appear below: replace (pattern),
 // replace (evaluator), and split.
 
-// Replaces all occurrences of the regex in the string with the
+// Replace Replaces all occurrences of the regex in the string with the
 // replacement pattern.
 //
 // Note that the special case of no matches is handled on its own:
 // with no matches, the input string is returned unchanged.
 // The right-to-left case is split out because StringBuilder
 // doesn't handle right-to-left string building directly very well.
-func replace(regex Regexp, input string, count, startat int) (string, error) {
+func replace(regex *Regexp, data *syntax.ReplacerData, input string, startAt, count int) (string, error) {
 	if count < -1 {
 		return "", errors.New("Count too small")
 	}
-	if startat < 0 || startat > len(input) {
+	if startAt < 0 || startAt > len(input) {
 		return "", errors.New("Begin index must not be negative and less than the length")
 	}
 
@@ -33,7 +37,7 @@ func replace(regex Regexp, input string, count, startat int) (string, error) {
 		return "", nil
 	}
 
-	m, err := regex.FindStringMatch(input)
+	m, err := regex.FindStringMatchStartingAt(input, startAt)
 
 	if err != nil {
 		return "", err
@@ -52,7 +56,7 @@ func replace(regex Regexp, input string, count, startat int) (string, error) {
 				buf.WriteString(string(text[prevat:m.Index]))
 			}
 			prevat = m.Index + m.Length
-			replacementImpl(buf, m)
+			replacementImpl(data, buf, m)
 			count--
 			if count == 0 {
 				break
@@ -75,7 +79,7 @@ func replace(regex Regexp, input string, count, startat int) (string, error) {
 				al = append(al, string(text[m.Index+m.Length:prevat]))
 			}
 			prevat = m.Index
-			replacementImplRTL(&al, m)
+			replacementImplRTL(data, &al, m)
 			count--
 			if count == 0 {
 				break
@@ -98,10 +102,36 @@ func replace(regex Regexp, input string, count, startat int) (string, error) {
 	return buf.String(), nil
 }
 
-func replacementImpl(buf *bytes.Buffer, m *Match) {
+// Given a Match, emits into the StringBuilder the evaluated
+// substitution pattern.
+func replacementImpl(data *syntax.ReplacerData, buf *bytes.Buffer, m *Match) {
+	for _, r := range data.Rules {
 
+		if r >= 0 { // string lookup
+			buf.WriteString(data.Strings[r])
+		} else if r < -replaceSpecials { // group lookup
+			m.groupValueAppendToBuf(-replaceSpecials-1-r, buf)
+		} else {
+			switch -replaceSpecials - 1 - r { // special insertion patterns
+			case replaceLeftPortion:
+				for i := 0; i < m.Index; i++ {
+					buf.WriteRune(m.text[i])
+				}
+			case replaceRightPortion:
+				for i := m.Index + m.Length; i < len(m.text); i++ {
+					buf.WriteRune(m.text[i])
+				}
+			case replaceLastGroup:
+				m.groupValueAppendToBuf(m.GroupCount()-1, buf)
+			case replaceWholeString:
+				for i := 0; i < len(m.text); i++ {
+					buf.WriteRune(m.text[i])
+				}
+			}
+		}
+	}
 }
 
-func replacementImplRTL(al *[]string, m *Match) {
+func replacementImplRTL(data *syntax.ReplacerData, al *[]string, m *Match) {
 
 }

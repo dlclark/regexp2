@@ -162,6 +162,12 @@ func newRegexNodeMN(t nodeType, opt RegexOptions, m, n int) *regexNode {
 	}
 }
 
+func (n *regexNode) writeStrToBuf(buf *bytes.Buffer) {
+	for i := 0; i < len(n.str); i++ {
+		buf.WriteRune(n.str[i])
+	}
+}
+
 func (n *regexNode) addChild(child *regexNode) {
 	reduced := child.reduce()
 	n.children = append(n.children, reduced)

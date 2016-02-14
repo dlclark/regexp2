@@ -9,6 +9,7 @@ need to write very complex patterns or require compatibility with .NET.
 package regexp2
 
 import (
+	"errors"
 	"math"
 	"strconv"
 	"sync"
@@ -38,7 +39,7 @@ type Regexp struct {
 	code *syntax.Code // compiled program
 
 	// cache of machines for running regexp
-	mu     sync.Mutex
+	muRun  sync.Mutex
 	runner []*runner
 }
 
@@ -103,6 +104,9 @@ func quote(s string) string {
 	return strconv.Quote(s)
 }
 
+// RegexOptions impact the runtime and parsing behavior
+// for each specific regex.  They are setable in code as well
+// as in the regex pattern itself.
 type RegexOptions int32
 
 const (
@@ -126,6 +130,28 @@ func (re *Regexp) Debug() bool {
 	return re.options&Debug != 0
 }
 
+// Replace searches the input string and replaces each match found with the replacement text.
+// Count will limit the number of matches attempted and startAt will allow
+// us to skip past possible matches at the start of the input (left or right depending on RightToLeft option)
+func (re *Regexp) Replace(input, replacement string, startAt, count int) (string, error) {
+	data, err := syntax.NewReplacerData(replacement, re.caps, re.capsize, re.capnames, syntax.RegexOptions(re.options))
+	if err != nil {
+		return "", err
+	}
+	//TODO: cache ReplacerData
+
+	if startAt == -1 {
+		if re.RightToLeft() {
+			//change startAt to be relative to the right
+			startAt = len(input)
+		} else {
+			startAt = 0
+		}
+	}
+
+	return replace(re, data, input, startAt, count)
+}
+
 // FindStringMatch searches the input string for a Regexp match
 func (re *Regexp) FindStringMatch(s string) (*Match, error) {
 	// convert string to runes
@@ -135,6 +161,25 @@ func (re *Regexp) FindStringMatch(s string) (*Match, error) {
 // FindRunesMatch searches the input rune slice for a Regexp match
 func (re *Regexp) FindRunesMatch(r []rune) (*Match, error) {
 	return re.run(false, -1, r)
+}
+
+// FindStringMatchStartingAt searches the input string for a Regexp match starting at the startAt index
+func (re *Regexp) FindStringMatchStartingAt(s string, startAt int) (*Match, error) {
+	if startAt > len(s) {
+		return nil, errors.New("startAt must be less than the length of the input string")
+	}
+	r, startAt := getRunesAndStart(s, startAt)
+	if startAt == -1 {
+		// we didn't find our start index in the string -- that's a problem
+		return nil, errors.New("startAt must align to the start of a valid rune in the input string")
+	}
+
+	return re.run(false, startAt, r)
+}
+
+// FindRunesMatchStartingAt searches the input rune slice for a Regexp match starting at the startAt index
+func (re *Regexp) FindRunesMatchStartingAt(r []rune, startAt int) (*Match, error) {
+	return re.run(false, startAt, r)
 }
 
 // FindNextMatch returns the next match in the same input string as the match parameter.
@@ -169,6 +214,23 @@ func (re *Regexp) MatchString(s string) (bool, error) {
 		return false, err
 	}
 	return m != nil, nil
+}
+
+func getRunesAndStart(s string, startAt int) ([]rune, int) {
+	if startAt <= 0 {
+		return getRunes(s), 0
+	}
+	ret := make([]rune, len(s))
+	i := 0
+	runeIdx := -1
+	for strIdx, r := range s {
+		if strIdx == startAt {
+			runeIdx = i
+		}
+		ret[i] = r
+		i++
+	}
+	return ret[:i], runeIdx
 }
 
 func getRunes(s string) []rune {

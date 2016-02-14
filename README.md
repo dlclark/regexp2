@@ -58,11 +58,10 @@ The __last__ capture is embedded in each group, so `g.String()` will return the 
 | conditionals `((expr)yes\|no)` | no | yes |
 
 ## Library features that I'm still working on
-- Regex replace
 - Regex split
 
 ## Potential bugs
-I've run a battery of tests against regexp2 from various sources and found the debug output matches the .NET engine, but .NET and Go handle strings very differently.  I've attempted to handle these differences, but most of my testing deals with basic ASCII with a little bit of multi-byte Unicode.  There's a chance that there are bugs in the string handling related to character sets with supplementary Unicode chars.  
+I've run a battery of tests against regexp2 from various sources and found the debug output matches the .NET engine, but .NET and Go handle strings very differently.  I've attempted to handle these differences, but most of my testing deals with basic ASCII with a little bit of multi-byte Unicode.  There's a chance that there are bugs in the string handling related to character sets with supplementary Unicode chars.  Right-to-Left support is coded, but not well tested either.
 
 ## Find a bug?
 I'm open to new issues and pull requests with tests if you find something odd!
