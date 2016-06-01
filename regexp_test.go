@@ -544,6 +544,57 @@ func TestUnicodeSupplementaryCharInRange(t *testing.T) {
 	}
 }
 
+func TestHexadecimalCurlyBraces(t *testing.T) {
+	re := MustCompile(`\x20`, 0)
+
+	if m, err := re.MatchString(" "); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	re = MustCompile(`\x{C4}`, 0)
+	if m, err := re.MatchString("Ä"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	re = MustCompile(`\x{0C5}`, 0)
+	if m, err := re.MatchString("Å"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	re = MustCompile(`\x{00C6}`, 0)
+	if m, err := re.MatchString("Æ"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	re = MustCompile(`\x{1FF}`, 0)
+	if m, err := re.MatchString("ǿ"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	re = MustCompile(`\x{02FF}`, 0)
+	if m, err := re.MatchString("˿"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	re = MustCompile(`\x{1392}`, 0)
+	if m, err := re.MatchString("᎒"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+}
 /*
 func TestPcreStuff(t *testing.T) {
 	re := MustCompile(`(?(?=(a))a)`, Debug)

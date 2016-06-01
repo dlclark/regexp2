@@ -75,6 +75,7 @@ const (
 	ErrCaptureGroupOutOfRange     = "capture group number out of range"
 	ErrUnexpectedParen            = "unexpected )"
 	ErrMissingParen               = "missing closing )"
+	ErrMissingBrace		          = "missing closing }"
 	ErrInvalidRepeatOp            = "invalid nested repetition operator"
 	ErrMissingRepeatArgument      = "missing argument to repetition operator"
 	ErrConditionalExpression      = "illegal conditional (?(...)) expression"
@@ -1576,9 +1577,17 @@ func (p *parser) scanCharEscape() (rune, error) {
 
 	switch ch {
 	case 'x':
-		return p.scanHex(2)
+		chOpeningBrace := p.moveRightGetChar()
+		if chOpeningBrace == '{' {
+			// Perl and PCRE do not support the \uFFFF syntax. They use \x{FFFF} instead.
+			// You can omit leading zeros in the hexadecimal number between the curly braces.
+			return p.scanHex(4, true)
+		} else {
+			p.moveLeft() // Move character back
+			return p.scanHex(2, false)
+		}
 	case 'u':
-		return p.scanHex(4)
+		return p.scanHex(4, false)
 	case 'a':
 		return '\u0007', nil
 	case 'b':
@@ -1628,23 +1637,31 @@ func (p *parser) scanControl() (rune, error) {
 }
 
 // Scans exactly c hex digits (c=2 for \xFF, c=4 for \uFFFF)
-func (p *parser) scanHex(c int) (rune, error) {
-
+func (p *parser) scanHex(c int, wantClosingBrace bool) (rune, error) {
 	i := 0
 
-	if p.charsRight() >= c {
-		for c > 0 {
-			d := hexDigit(p.moveRightGetChar())
-			if d < 0 {
-				break
-			}
-			i *= 0x10
-			i += d
-			c--
+	var ch rune
+	for c > 0 {
+		ch = p.moveRightGetChar()
+		d := hexDigit(ch)
+		if d < 0 {
+			break
 		}
+		i *= 0x10
+		i += d
+		c--
 	}
 
-	if c > 0 {
+	if wantClosingBrace {
+		if c > 0 && ch != '}' { // we must have already read the closing brace, so check it
+			return 0, p.getErr(ErrMissingBrace)
+		} else if c == 0 { // read and check for closing brace
+			ch := p.moveRightGetChar()
+			if ch != '}' {
+				return 0, p.getErr(ErrMissingBrace)
+			}
+		}
+	} else if c > 0 {
 		return 0, p.getErr(ErrTooFewHex)
 	}
 
