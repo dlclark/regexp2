@@ -1644,11 +1644,17 @@ func (p *parser) scanControl() (rune, error) {
 func (p *parser) scanHex(c int, wantClosingBrace bool) (rune, error) {
 	i := -1
 
-	charsRight := p.charsRight()
-	if !wantClosingBrace && charsRight < c {
-		return 0, p.getErr(ErrTooFewHex)
-	} else if (!wantClosingBrace && charsRight > c) || (wantClosingBrace && charsRight > c + 1) {
-		return 0, p.getErr(ErrTooManyHex)
+	var charsRight int
+	if wantClosingBrace {
+		charsRight = p.charsRight()
+		if charsRight > c + 1 {
+			return 0, p.getErr(ErrTooManyHex)
+		}
+	} else {
+		charsRight = c
+		if p.charsRight() < charsRight {
+			return 0, p.getErr(ErrTooFewHex)
+		}
 	}
 
 	var ch rune
