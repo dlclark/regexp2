@@ -1577,6 +1577,9 @@ func (p *parser) scanCharEscape() (rune, error) {
 
 	switch ch {
 	case 'x':
+		if p.charsRight() == 0 { // Check whether we have at least a single char in order to check for opening brace
+			return 0, p.getErr(ErrTooFewHex)
+		}
 		chOpeningBrace := p.moveRightGetChar()
 		if chOpeningBrace == '{' {
 			// Perl and PCRE do not support the \uFFFF syntax. They use \x{FFFF} instead.
@@ -1638,21 +1641,33 @@ func (p *parser) scanControl() (rune, error) {
 
 // Scans exactly c hex digits (c=2 for \xFF, c=4 for \uFFFF)
 func (p *parser) scanHex(c int, wantClosingBrace bool) (rune, error) {
-	i := 0
+	i := -1
+
+	charsRight := p.charsRight()
+	if charsRight == 0 {
+		return 0, p.getErr(ErrTooFewHex)
+	}
 
 	var ch rune
-	for c > 0 {
+	for charsRight > 0 && c > 0 {
 		ch = p.moveRightGetChar()
 		d := hexDigit(ch)
 		if d < 0 {
 			break
 		}
-		i *= 0x10
+		if i == -1 {
+			i = 0
+		} else {
+			i *= 0x10
+		}
 		i += d
 		c--
+		charsRight--
 	}
 
-	if wantClosingBrace {
+	if i == -1 {
+		return 0, p.getErr(ErrTooFewHex) // uninitialized
+	} else if wantClosingBrace {
 		if c > 0 && ch != '}' { // we must have already read the closing brace, so check it
 			return 0, p.getErr(ErrMissingBrace)
 		} else if c == 0 { // read and check for closing brace

@@ -546,7 +546,6 @@ func TestUnicodeSupplementaryCharInRange(t *testing.T) {
 
 func TestHexadecimalCurlyBraces(t *testing.T) {
 	re := MustCompile(`\x20`, 0)
-
 	if m, err := re.MatchString(" "); err != nil {
 		t.Fatalf("Unexpected err: %v", err)
 	} else if !m {
@@ -593,6 +592,34 @@ func TestHexadecimalCurlyBraces(t *testing.T) {
 		t.Fatalf("Unexpected err: %v", err)
 	} else if !m {
 		t.Fatalf("Expected match")
+	}
+
+	if _, err := Compile(`\x2R`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x0`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x{`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x{2`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x{2R`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x{2R}`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x{}`, 0); err == nil {
+		t.Fatalf("Expected error")
+	}
+	_, err := Compile(`\x{10000}`, 0);	if err == nil {
+		t.Fatal("Expected error")
 	}
 }
 /*
