@@ -75,6 +75,7 @@ const (
 	ErrCaptureGroupOutOfRange     = "capture group number out of range"
 	ErrUnexpectedParen            = "unexpected )"
 	ErrMissingParen               = "missing closing )"
+	ErrMissingBrace		          = "missing closing }"
 	ErrInvalidRepeatOp            = "invalid nested repetition operator"
 	ErrMissingRepeatArgument      = "missing argument to repetition operator"
 	ErrConditionalExpression      = "illegal conditional (?(...)) expression"
@@ -95,6 +96,7 @@ const (
 	ErrMissingControl             = "missing control character"
 	ErrUnrecognizedControl        = "unrecognized control character"
 	ErrTooFewHex                  = "insufficient hexadecimal digits"
+	ErrTooManyHex                 = "too many hexadecimal digits"
 	ErrMalformedNameRef           = "malformed \\k<...> named back reference"
 	ErrBadClassInCharRange        = "cannot include class \\%v in character range"
 	ErrUnterminatedBracket        = "unterminated [] set"
@@ -1576,9 +1578,20 @@ func (p *parser) scanCharEscape() (rune, error) {
 
 	switch ch {
 	case 'x':
-		return p.scanHex(2)
+		if p.charsRight() == 0 { // Check whether we have at least a single char in order to check for opening brace
+			return 0, p.getErr(ErrTooFewHex)
+		}
+		chOpeningBrace := p.moveRightGetChar()
+		if chOpeningBrace == '{' {
+			// Perl and PCRE do not support the \uFFFF syntax. They use \x{FFFF} instead.
+			// You can omit leading zeros in the hexadecimal number between the curly braces.
+			return p.scanHex(4, true)
+		} else {
+			p.moveLeft() // Move character back
+			return p.scanHex(2, false)
+		}
 	case 'u':
-		return p.scanHex(4)
+		return p.scanHex(4, false)
 	case 'a':
 		return '\u0007', nil
 	case 'b':
@@ -1628,23 +1641,44 @@ func (p *parser) scanControl() (rune, error) {
 }
 
 // Scans exactly c hex digits (c=2 for \xFF, c=4 for \uFFFF)
-func (p *parser) scanHex(c int) (rune, error) {
+func (p *parser) scanHex(c int, wantClosingBrace bool) (rune, error) {
+	i := -1
 
-	i := 0
-
-	if p.charsRight() >= c {
-		for c > 0 {
-			d := hexDigit(p.moveRightGetChar())
-			if d < 0 {
-				break
-			}
-			i *= 0x10
-			i += d
-			c--
+	var charsRight int
+	if wantClosingBrace {
+		charsRight = p.charsRight()
+		if charsRight > c + 1 {
+			return 0, p.getErr(ErrTooManyHex)
+		}
+	} else {
+		charsRight = c
+		if p.charsRight() < charsRight {
+			return 0, p.getErr(ErrTooFewHex)
 		}
 	}
 
-	if c > 0 {
+	var ch rune
+	for ; charsRight > 0; charsRight-- {
+		ch = p.moveRightGetChar()
+		d := hexDigit(ch)
+		if d < 0 {
+			break
+		}
+		if i == -1 {
+			i = 0
+		} else {
+			i *= 0x10
+		}
+		i += d
+	}
+
+	if i == -1 {
+		return 0, p.getErr(ErrTooFewHex) // uninitialized
+	} else if wantClosingBrace {
+		if ch != '}' { // we must have already read the closing brace, so check it
+			return 0, p.getErr(ErrMissingBrace)
+		}
+	} else if charsRight > 0 {
 		return 0, p.getErr(ErrTooFewHex)
 	}
 
