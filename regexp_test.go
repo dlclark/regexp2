@@ -630,6 +630,9 @@ func TestHexadecimalCurlyBraces(t *testing.T) {
 	if _, err := Compile(`\x{10000`, 0); err == nil {
 		t.Fatal("Expected error")
 	}
+	if _, err := Compile(`\x{1234`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
 }
 /*
 func TestPcreStuff(t *testing.T) {
