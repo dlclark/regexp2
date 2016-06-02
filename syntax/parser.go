@@ -96,6 +96,7 @@ const (
 	ErrMissingControl             = "missing control character"
 	ErrUnrecognizedControl        = "unrecognized control character"
 	ErrTooFewHex                  = "insufficient hexadecimal digits"
+	ErrTooManyHex                 = "too many hexadecimal digits"
 	ErrMalformedNameRef           = "malformed \\k<...> named back reference"
 	ErrBadClassInCharRange        = "cannot include class \\%v in character range"
 	ErrUnterminatedBracket        = "unterminated [] set"
@@ -1644,12 +1645,14 @@ func (p *parser) scanHex(c int, wantClosingBrace bool) (rune, error) {
 	i := -1
 
 	charsRight := p.charsRight()
-	if charsRight == 0 {
+	if !wantClosingBrace && charsRight < c {
 		return 0, p.getErr(ErrTooFewHex)
+	} else if (!wantClosingBrace && charsRight > c) || (wantClosingBrace && charsRight > c + 1) {
+		return 0, p.getErr(ErrTooManyHex)
 	}
 
 	var ch rune
-	for charsRight > 0 && c > 0 {
+	for ; charsRight > 0; charsRight-- {
 		ch = p.moveRightGetChar()
 		d := hexDigit(ch)
 		if d < 0 {
@@ -1661,22 +1664,15 @@ func (p *parser) scanHex(c int, wantClosingBrace bool) (rune, error) {
 			i *= 0x10
 		}
 		i += d
-		c--
-		charsRight--
 	}
 
 	if i == -1 {
 		return 0, p.getErr(ErrTooFewHex) // uninitialized
 	} else if wantClosingBrace {
-		if c > 0 && ch != '}' { // we must have already read the closing brace, so check it
+		if ch != '}' { // we must have already read the closing brace, so check it
 			return 0, p.getErr(ErrMissingBrace)
-		} else if c == 0 { // read and check for closing brace
-			ch := p.moveRightGetChar()
-			if ch != '}' {
-				return 0, p.getErr(ErrMissingBrace)
-			}
 		}
-	} else if c > 0 {
+	} else if charsRight > 0 {
 		return 0, p.getErr(ErrTooFewHex)
 	}
 
