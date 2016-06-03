@@ -544,6 +544,99 @@ func TestUnicodeSupplementaryCharInRange(t *testing.T) {
 	}
 }
 
+func TestHexadecimalCurlyBraces(t *testing.T) {
+	re := MustCompile(`\x20`, 0)
+	if m, err := re.MatchString(" "); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	re = MustCompile(`\x{C4}`, 0)
+	if m, err := re.MatchString("Ä"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	re = MustCompile(`\x{0C5}`, 0)
+	if m, err := re.MatchString("Å"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	re = MustCompile(`\x{00C6}`, 0)
+	if m, err := re.MatchString("Æ"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	re = MustCompile(`\x{1FF}`, 0)
+	if m, err := re.MatchString("ǿ"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	re = MustCompile(`\x{02FF}`, 0)
+	if m, err := re.MatchString("˿"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	re = MustCompile(`\x{1392}`, 0)
+	if m, err := re.MatchString("᎒"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	re = MustCompile(`\x{0010ffff}`, 0)
+	if m, err := re.MatchString(string(0x10ffff)); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+
+	if _, err := Compile(`\x2R`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x0`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x{`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x{2`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x{2R`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x{2R}`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x{}`, 0); err == nil {
+		t.Fatalf("Expected error")
+	}
+	if _, err := Compile(`\x{10000`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x{1234`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+	if _, err := Compile(`\x{123456789}`, 0); err == nil {
+		t.Fatal("Expected error")
+	}
+
+}
+
 /*
 func TestPcreStuff(t *testing.T) {
 	re := MustCompile(`(?(?=(a))a)`, Debug)

@@ -75,6 +75,7 @@ const (
 	ErrCaptureGroupOutOfRange     = "capture group number out of range"
 	ErrUnexpectedParen            = "unexpected )"
 	ErrMissingParen               = "missing closing )"
+	ErrMissingBrace               = "missing closing }"
 	ErrInvalidRepeatOp            = "invalid nested repetition operator"
 	ErrMissingRepeatArgument      = "missing argument to repetition operator"
 	ErrConditionalExpression      = "illegal conditional (?(...)) expression"
@@ -95,6 +96,7 @@ const (
 	ErrMissingControl             = "missing control character"
 	ErrUnrecognizedControl        = "unrecognized control character"
 	ErrTooFewHex                  = "insufficient hexadecimal digits"
+	ErrInvalidHex                 = "hex values may not be larger than 0x10FFFF"
 	ErrMalformedNameRef           = "malformed \\k<...> named back reference"
 	ErrBadClassInCharRange        = "cannot include class \\%v in character range"
 	ErrUnterminatedBracket        = "unterminated [] set"
@@ -1576,6 +1578,11 @@ func (p *parser) scanCharEscape() (rune, error) {
 
 	switch ch {
 	case 'x':
+		// support for \x{HEX} syntax from Perl and PCRE
+		if p.charsRight() > 0 && p.rightChar(0) == '{' {
+			p.moveRight(1)
+			return p.scanHexUntilBrace()
+		}
 		return p.scanHex(2)
 	case 'u':
 		return p.scanHex(4)
@@ -1625,6 +1632,43 @@ func (p *parser) scanControl() (rune, error) {
 
 	return 0, p.getErr(ErrUnrecognizedControl)
 
+}
+
+// Scan hex digits until we hit a closing brace.
+// Non-hex digits, hex value too large for UTF-8, or running out of chars are errors
+func (p *parser) scanHexUntilBrace() (rune, error) {
+	// PCRE spec reads like unlimited hex digits are allowed, but unicode has a limit
+	// so we can enforce that
+	i := 0
+	hasContent := false
+
+	for p.charsRight() > 0 {
+		ch := p.moveRightGetChar()
+		if ch == '}' {
+			// hit our close brace, we're done here
+			// prevent \x{}
+			if !hasContent {
+				return 0, p.getErr(ErrTooFewHex)
+			}
+			return rune(i), nil
+		}
+		hasContent = true
+		// no brace needs to be hex digit
+		d := hexDigit(ch)
+		if d < 0 {
+			return 0, p.getErr(ErrMissingBrace)
+		}
+
+		i *= 0x10
+		i += d
+
+		if i > unicode.MaxRune {
+			return 0, p.getErr(ErrInvalidHex)
+		}
+	}
+
+	// we only make it here if we run out of digits without finding the brace
+	return 0, p.getErr(ErrMissingBrace)
 }
 
 // Scans exactly c hex digits (c=2 for \xFF, c=4 for \uFFFF)

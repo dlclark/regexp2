@@ -544,7 +544,8 @@ Outerloop:
 	for examine = last; examine != beforefirst; examine -= bump {
 		ch = b.pattern[examine]
 
-		if ch < 128 {
+		switch {
+		case ch < 128:
 			if b.lowASCII > ch {
 				b.lowASCII = ch
 			}
@@ -556,7 +557,7 @@ Outerloop:
 			if b.negativeASCII[ch] == last-beforefirst {
 				b.negativeASCII[ch] = last - examine
 			}
-		} else {
+		case ch <= 0xffff:
 			i, j := ch>>8, ch&0xFF
 
 			if b.negativeUnicode == nil {
@@ -582,6 +583,10 @@ Outerloop:
 			if b.negativeUnicode[i][j] == last-beforefirst {
 				b.negativeUnicode[i][j] = last - examine
 			}
+		default:
+			// we can't do the filter because this algo doesn't support
+			// unicode chars >0xffff
+			return nil
 		}
 	}
 
