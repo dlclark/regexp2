@@ -1,5 +1,5 @@
 language: go
 
 go:
-	- 1.5
-	- tip
+  - 1.5
+  - tip
