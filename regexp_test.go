@@ -544,6 +544,15 @@ func TestUnicodeSupplementaryCharInRange(t *testing.T) {
 	}
 }
 
+func TestUnicodeScriptSets(t *testing.T) {
+	re := MustCompile(`\p{Katakana}+`, 0)
+	if m, err := re.MatchString("\u30A0\u30FF"); err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	} else if !m {
+		t.Fatalf("Expected match")
+	}
+}
+
 func TestHexadecimalCurlyBraces(t *testing.T) {
 	re := MustCompile(`\x20`, 0)
 	if m, err := re.MatchString(" "); err != nil {

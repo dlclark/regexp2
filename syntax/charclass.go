@@ -49,6 +49,17 @@ var (
 	NotDigitClass = getCharSetFromCategoryString(false, true, "Nd")
 )
 
+var unicodeCategories = func() map[string]*unicode.RangeTable {
+	retVal := make(map[string]*unicode.RangeTable)
+	for k, v := range unicode.Scripts {
+		retVal[k] = v
+	}
+	for k, v := range unicode.Categories {
+		retVal[k] = v
+	}
+	return retVal
+}()
+
 func getCharSetFromCategoryString(negateSet bool, negateCat bool, cats ...string) func() *CharSet {
 	if negateCat && negateSet {
 		panic("BUG!  You should only negate the set OR the category in a constant setup, but not both")
@@ -220,7 +231,7 @@ func (c CharSet) CharIn(ch rune) bool {
 					val = true
 					break
 				}
-			} else if unicode.Is(unicode.Categories[ct.cat], ch) {
+			} else if unicode.Is(unicodeCategories[ct.cat], ch) {
 				// if we're in this unicode category then we're done
 				// if negate=true on this category then we "failed" our test
 				// otherwise we're good that we found it
@@ -260,7 +271,7 @@ func (c category) String() string {
 		}
 		return "\\w"
 	}
-	if _, ok := unicode.Categories[c.cat]; ok {
+	if _, ok := unicodeCategories[c.cat]; ok {
 
 		if c.negate {
 			return "\\P{" + c.cat + "}"
@@ -447,7 +458,7 @@ func (c *CharSet) addRanges(ranges []singleRange) {
 
 func (c *CharSet) addCategory(categoryName string, negate, caseInsensitive bool, pattern string) {
 
-	if _, ok := unicode.Categories[categoryName]; ok {
+	if _, ok := unicodeCategories[categoryName]; ok {
 		if caseInsensitive && (categoryName == "Ll" || categoryName == "Lu" || categoryName == "Lt") {
 			// when RegexOptions.IgnoreCase is specified then {Ll} {Lu} and {Lt} cases should all match
 			c.addCategories(
@@ -455,7 +466,6 @@ func (c *CharSet) addCategory(categoryName string, negate, caseInsensitive bool,
 				category{cat: "Lu", negate: negate},
 				category{cat: "Lt", negate: negate})
 		}
-
 		c.addCategories(category{cat: categoryName, negate: negate})
 	} else {
 		c.addRanges(setFromProperty(categoryName, negate, pattern).ranges)
@@ -740,5 +750,5 @@ func (c *CharSet) addLowercaseRange(chMin, chMax rune) {
 }
 
 func setFromProperty(capname string, negate bool, pattern string) *CharSet {
-	panic("not impelemented")
+	panic("not implemented")
 }
