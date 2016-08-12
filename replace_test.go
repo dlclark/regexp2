@@ -1,6 +1,9 @@
 package regexp2
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+)
 
 func TestReplace_Basic(t *testing.T) {
 	re := MustCompile(`test`, 0)
@@ -98,5 +101,50 @@ func TestReplace_BadSyntax(t *testing.T) {
 	_, err := re.Replace(myStr, `$5000000000`, -1, -1)
 	if err == nil {
 		t.Fatalf("Expected err")
+	}
+}
+
+func TestReplaceFunc_Basic(t *testing.T) {
+	re := MustCompile(`test`, None)
+	str, err := re.ReplaceFunc("this is a test", func(m Match) string { return "unit" }, -1, -1)
+	if err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	}
+	if want, got := "this is a unit", str; want != got {
+		t.Fatalf("Replace failed, wanted %v, got %v", want, got)
+	}
+}
+
+func TestReplaceFunc_Multiple(t *testing.T) {
+	re := MustCompile(`test`, None)
+	count := 0
+	str, err := re.ReplaceFunc("This test is another test for stuff", func(m Match) string {
+		count++
+		return strconv.Itoa(count)
+	}, -1, -1)
+	if err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	}
+	if want, got := "This 1 is another 2 for stuff", str; want != got {
+		t.Fatalf("Replace failed, wanted %v, got %v", want, got)
+	}
+}
+
+func TestReplaceFunc_Groups(t *testing.T) {
+	re := MustCompile(`test(?<sub>ing)?`, None)
+	count := 0
+	str, err := re.ReplaceFunc("This testing is another test testingly junk", func(m Match) string {
+		count++
+		if m.GroupByName("sub").Length > 0 {
+			// we have an "ing", make it negative
+			return strconv.Itoa(count * -1)
+		}
+		return strconv.Itoa(count)
+	}, -1, -1)
+	if err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	}
+	if want, got := "This -1 is another 2 -3ly junk", str; want != got {
+		t.Fatalf("Replace failed, wanted %v, got %v", want, got)
 	}
 }

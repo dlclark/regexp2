@@ -132,7 +132,8 @@ func (re *Regexp) Debug() bool {
 
 // Replace searches the input string and replaces each match found with the replacement text.
 // Count will limit the number of matches attempted and startAt will allow
-// us to skip past possible matches at the start of the input (left or right depending on RightToLeft option)
+// us to skip past possible matches at the start of the input (left or right depending on RightToLeft option).
+// Set startAt and count to -1 to go through the whole string
 func (re *Regexp) Replace(input, replacement string, startAt, count int) (string, error) {
 	data, err := syntax.NewReplacerData(replacement, re.caps, re.capsize, re.capnames, syntax.RegexOptions(re.options))
 	if err != nil {
@@ -140,7 +141,15 @@ func (re *Regexp) Replace(input, replacement string, startAt, count int) (string
 	}
 	//TODO: cache ReplacerData
 
-	return replace(re, data, input, startAt, count)
+	return replace(re, data, nil, input, startAt, count)
+}
+
+// ReplaceFunc searches the input string and replaces each match found using the string from the evaluator
+// Count will limit the number of matches attempted and startAt will allow
+// us to skip past possible matches at the start of the input (left or right depending on RightToLeft option).
+// Set startAt and count to -1 to go through the whole string.
+func (re *Regexp) ReplaceFunc(input string, evaluator MatchEvaluator, startAt, count int) (string, error) {
+	return replace(re, nil, evaluator, input, startAt, count)
 }
 
 // FindStringMatch searches the input string for a Regexp match

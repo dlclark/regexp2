@@ -15,6 +15,9 @@ const (
 	replaceWholeString  = -4
 )
 
+// MatchEvaluator is a function that takes a match and returns a replacement string to be used
+type MatchEvaluator func(Match) string
+
 // Three very similar algorithms appear below: replace (pattern),
 // replace (evaluator), and split.
 
@@ -25,7 +28,7 @@ const (
 // with no matches, the input string is returned unchanged.
 // The right-to-left case is split out because StringBuilder
 // doesn't handle right-to-left string building directly very well.
-func replace(regex *Regexp, data *syntax.ReplacerData, input string, startAt, count int) (string, error) {
+func replace(regex *Regexp, data *syntax.ReplacerData, evaluator MatchEvaluator, input string, startAt, count int) (string, error) {
 	if count < -1 {
 		return "", errors.New("Count too small")
 	}
@@ -52,7 +55,12 @@ func replace(regex *Regexp, data *syntax.ReplacerData, input string, startAt, co
 				buf.WriteString(string(text[prevat:m.Index]))
 			}
 			prevat = m.Index + m.Length
-			replacementImpl(data, buf, m)
+			if evaluator == nil {
+				replacementImpl(data, buf, m)
+			} else {
+				buf.WriteString(evaluator(*m))
+			}
+
 			count--
 			if count == 0 {
 				break
@@ -75,7 +83,12 @@ func replace(regex *Regexp, data *syntax.ReplacerData, input string, startAt, co
 				al = append(al, string(text[m.Index+m.Length:prevat]))
 			}
 			prevat = m.Index
-			replacementImplRTL(data, &al, m)
+			if evaluator == nil {
+				replacementImplRTL(data, &al, m)
+			} else {
+				al = append(al, evaluator(*m))
+			}
+
 			count--
 			if count == 0 {
 				break
