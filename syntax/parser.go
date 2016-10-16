@@ -533,10 +533,14 @@ func (p *parser) scanRegex() (*regexNode, error) {
 			}
 
 		case '.':
-			if p.useOptionS() {
-				p.addUnitSet(AnyClass())
+			if p.useOptionE() {
+				p.addUnitSet(ECMAAnyClass())
 			} else {
-				p.addUnitNotone('\n')
+				if p.useOptionS() {
+					p.addUnitSet(AnyClass())
+				} else {
+					p.addUnitNotone('\n')
+				}
 			}
 
 		case '{', '*', '+', '?':
@@ -1172,25 +1176,11 @@ func (p *parser) scanBasicBackslash() (*regexNode, error) {
 		}
 	} else if !angled && ch >= '1' && ch <= '9' { // Try to parse backreference or octal: \1
 		if p.useOptionE() {
-			capnum := -1
-			newcapnum := int(ch - '0')
-			pos := p.textpos() - 1
-			for newcapnum <= p.captop {
-				if p.isCaptureSlot(newcapnum) && (p.caps == nil || p.caps[newcapnum] < pos) {
-					capnum = newcapnum
-				}
-				p.moveRight(1)
-				if p.charsRight() == 0 {
-					break
-				}
-				if ch = p.rightChar(0); ch < '0' || ch > '9' {
-					break
-				}
-				newcapnum = newcapnum*10 + int(ch-'0')
+			capnum, err := p.scanDecimal()
+			if err != nil {
+				return nil, err
 			}
-			if capnum >= 0 {
-				return newRegexNodeM(ntRef, p.options, capnum), nil
-			}
+			return newRegexNodeM(ntRef, p.options, capnum), nil
 		} else {
 			capnum, err := p.scanDecimal()
 			if err != nil {
@@ -1369,6 +1359,14 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 			if !firstChar {
 				closed = true
 				break
+			} else {
+				if p.useOptionE() {
+					if !scanOnly {
+						cc.addRanges(NoneClass().ranges)
+					}
+					closed = true
+					break
+				}
 			}
 		} else if ch == '\\' && p.charsRight() > 0 {
 			switch ch = p.moveRightGetChar(); ch {

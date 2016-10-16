@@ -646,6 +646,55 @@ func TestHexadecimalCurlyBraces(t *testing.T) {
 
 }
 
+func TestECMAEmptyCharClass(t *testing.T) {
+	re := MustCompile("[]", ECMAScript)
+	if m, err := re.MatchString("a"); err != nil {
+		t.Fatal(err)
+	} else if m {
+		t.Fatal("Expected no match")
+	}
+}
+
+func TestECMADot(t *testing.T) {
+	re := MustCompile(".", ECMAScript)
+	if m, err := re.MatchString("\r"); err != nil {
+		t.Fatal(err)
+	} else if m {
+		t.Fatal("Expected no match")
+	}
+
+}
+
+func TestECMADecimalLookahead(t *testing.T) {
+	re := MustCompile(`\1(A)`, ECMAScript)
+	m, err := re.FindStringMatch("AA")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if c := m.GroupCount(); c != 2 {
+		t.Fatalf("Group count !=2 (%d)", c)
+	}
+
+	if s := m.GroupByNumber(0).String(); s != "A" {
+		t.Fatalf("Group0 != 'A' ('%s')", s)
+	}
+
+	if s := m.GroupByNumber(1).String(); s != "A" {
+		t.Fatalf("Group1 != 'A' ('%s')", s)
+	}
+}
+
+func TestECMANegateRange(t *testing.T) {
+	re := MustCompile(`[\D]`, ECMAScript)
+	if m, err := re.MatchString("A"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+
+}
+
 /*
 func TestPcreStuff(t *testing.T) {
 	re := MustCompile(`(?(?=(a))a)`, Debug)

@@ -33,13 +33,22 @@ const (
 )
 
 var (
-	AnyClass          = getCharSetFromOldString("\x00", false)
-	ECMAWordClass     = getCharSetFromOldString("\u0030\u003A\u0041\u005B\u005F\u0060\u0061\u007B\u0130\u0131", false)
-	NotECMAWordClass  = getCharSetFromOldString("\u0030\u003A\u0041\u005B\u005F\u0060\u0061\u007B\u0130\u0131", true)
-	ECMASpaceClass    = getCharSetFromOldString("\u0009\u000E\u0020\u0021", false)
-	NotECMASpaceClass = getCharSetFromOldString("\u0009\u000E\u0020\u0021", true)
-	ECMADigitClass    = getCharSetFromOldString("\u0030\u003A", false)
-	NotECMADigitClass = getCharSetFromOldString("\u0030\u003A", true)
+	ecmaSpace = []rune{0x0009, 0x000e, 0x0020, 0x0021, 0x00a0, 0x00a1, 0x1680, 0x1681, 0x2000, 0x200b, 0x2028, 0x202a, 0x202f, 0x2030, 0x205f, 0x2060, 0x3000, 0x3001, 0xfeff, 0xff00}
+	ecmaWord = []rune{0x0030, 0x003a, 0x0041, 0x005b, 0x005f, 0x0060, 0x0061, 0x007b}
+	ecmaDigit = []rune{0x0030, 0x003a}
+)
+
+
+var (
+	AnyClass          = getCharSetFromOldString([]rune{0}, false)
+	ECMAAnyClass      = getCharSetFromOldString([]rune{0, 0x000a, 0x000b, 0x000d, 0x000e}, false)
+	NoneClass         = getCharSetFromOldString(nil, false)
+	ECMAWordClass     = getCharSetFromOldString(ecmaWord, false)
+	NotECMAWordClass  = getCharSetFromOldString(ecmaWord, true)
+	ECMASpaceClass    = getCharSetFromOldString(ecmaSpace, false)
+	NotECMASpaceClass = getCharSetFromOldString(ecmaSpace, true)
+	ECMADigitClass    = getCharSetFromOldString(ecmaDigit, false)
+	NotECMADigitClass = getCharSetFromOldString(ecmaDigit, true)
 
 	WordClass     = getCharSetFromCategoryString(false, false, wordCategoryText)
 	NotWordClass  = getCharSetFromCategoryString(true, false, wordCategoryText)
@@ -79,30 +88,47 @@ func getCharSetFromCategoryString(negateSet bool, negateCat bool, cats ...string
 	}
 }
 
-func getCharSetFromOldString(setText string, negate bool) func() *CharSet {
-	c := CharSet{negate: negate}
-
-	if len(setText)%2 == 0 {
-		c.ranges = make([]singleRange, len(setText)/2)
-	} else {
-		c.ranges = make([]singleRange, len(setText)/2+1)
-	}
-
-	i := 0
-	first := true
-	for _, r := range setText {
-		if first {
-			// lower bound in a new range
-			c.ranges[i] = singleRange{first: r}
-			first = false
-		} else {
-			c.ranges[i].last = r - 1
-			i++
-			first = true
+func getCharSetFromOldString(setText []rune, negate bool) func() *CharSet {
+	c := CharSet{}
+	if len(setText) > 0 {
+		fillFirst := false
+		l := len(setText)
+		if negate {
+			if setText[0] == 0 {
+				setText = setText[1:]
+			} else {
+				l++
+				fillFirst = true
+			}
 		}
-	}
-	if !first {
-		c.ranges[i].last = utf8.MaxRune
+
+		if l%2 == 0 {
+			c.ranges = make([]singleRange, l/2)
+		} else {
+			c.ranges = make([]singleRange, l/2+1)
+		}
+
+		first := true
+		if fillFirst {
+			c.ranges[0] = singleRange{first: 0}
+			first = false
+		}
+
+		i := 0
+		for _, r := range setText {
+			if first {
+				// lower bound in a new range
+				c.ranges[i] = singleRange{first: r}
+				first = false
+			} else {
+				c.ranges[i].last = r - 1
+				i++
+				first = true
+			}
+		}
+		if !first {
+			c.ranges[i].last = utf8.MaxRune
+		}
 	}
 
 	return func() *CharSet {
@@ -358,7 +384,6 @@ func (c CharSet) IsEmpty() bool {
 
 func (c *CharSet) addDigit(ecma, negate bool, pattern string) {
 	if ecma {
-		//TODO: Bug?  the ranges are the same regardless of negate
 		if negate {
 			c.addRanges(NotECMADigitClass().ranges)
 		} else {
