@@ -535,12 +535,10 @@ func (p *parser) scanRegex() (*regexNode, error) {
 		case '.':
 			if p.useOptionE() {
 				p.addUnitSet(ECMAAnyClass())
+			} else if p.useOptionS() {
+				p.addUnitSet(AnyClass())
 			} else {
-				if p.useOptionS() {
-					p.addUnitSet(AnyClass())
-				} else {
-					p.addUnitNotone('\n')
-				}
+				p.addUnitNotone('\n')
 			}
 
 		case '{', '*', '+', '?':
@@ -1175,23 +1173,17 @@ func (p *parser) scanBasicBackslash() (*regexNode, error) {
 			}
 		}
 	} else if !angled && ch >= '1' && ch <= '9' { // Try to parse backreference or octal: \1
-		if p.useOptionE() {
-			capnum, err := p.scanDecimal()
-			if err != nil {
-				return nil, err
-			}
-			return newRegexNodeM(ntRef, p.options, capnum), nil
-		} else {
-			capnum, err := p.scanDecimal()
-			if err != nil {
-				return nil, err
-			}
-			if p.isCaptureSlot(capnum) {
-				return newRegexNodeM(ntRef, p.options, capnum), nil
-			} else if capnum <= 9 {
-				return nil, p.getErr(ErrUndefinedBackRef, capnum)
-			}
+		capnum, err := p.scanDecimal()
+		if err != nil {
+			return nil, err
 		}
+		if p.useOptionE() || p.isCaptureSlot(capnum) {
+			return newRegexNodeM(ntRef, p.options, capnum), nil
+		}
+		if capnum <= 9 {
+			return nil, p.getErr(ErrUndefinedBackRef, capnum)
+		}
+
 	} else if angled && IsWordChar(ch) {
 		capname := p.scanCapname()
 
@@ -1359,15 +1351,14 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 			if !firstChar {
 				closed = true
 				break
-			} else {
-				if p.useOptionE() {
-					if !scanOnly {
-						cc.addRanges(NoneClass().ranges)
-					}
-					closed = true
-					break
+			} else if p.useOptionE() {
+				if !scanOnly {
+					cc.addRanges(NoneClass().ranges)
 				}
+				closed = true
+				break
 			}
+
 		} else if ch == '\\' && p.charsRight() > 0 {
 			switch ch = p.moveRightGetChar(); ch {
 			case 'D', 'd':
