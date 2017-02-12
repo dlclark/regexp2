@@ -736,6 +736,17 @@ func TestECMANegateRange(t *testing.T) {
 	}
 }
 
+func TestThreeByteUnicode_InputOnly(t *testing.T) {
+	// confirm the bmprefix properly ignores 3-byte unicode in the input value
+	// this used to panic
+	re := MustCompile("高", 0)
+	if m, err := re.MatchString("📍Test高"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+}
+
 /*
 func TestPcreStuff(t *testing.T) {
 	re := MustCompile(`(?(?=(a))a)`, Debug)
