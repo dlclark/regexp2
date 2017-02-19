@@ -747,6 +747,24 @@ func TestThreeByteUnicode_InputOnly(t *testing.T) {
 	}
 }
 
+func TestMultibyteUnicode_MatchPartialPattern(t *testing.T) {
+	re := MustCompile("猟な", 0)
+	if m, err := re.MatchString("なあ🍺な"); err != nil {
+		t.Fatal(err)
+	} else if m {
+		t.Fatal("Expected no match")
+	}
+}
+
+func TestMultibyteUnicode_Match(t *testing.T) {
+	re := MustCompile("猟な", 0)
+	if m, err := re.MatchString("なあ🍺猟な"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+}
+
 /*
 func TestPcreStuff(t *testing.T) {
 	re := MustCompile(`(?(?=(a))a)`, Debug)
