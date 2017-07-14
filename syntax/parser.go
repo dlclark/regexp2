@@ -1013,7 +1013,10 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 			p.moveLeft()
 
 			nt = ntGroup
-			p.scanOptions()
+			// disallow options in the children of a testgroup node
+			if p.group.t != ntTestgroup {
+				p.scanOptions()
+			}
 			if p.charsRight() == 0 {
 				goto BreakRecognize
 			}

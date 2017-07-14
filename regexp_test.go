@@ -2,6 +2,7 @@ package regexp2
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -762,6 +763,96 @@ func TestMultibyteUnicode_Match(t *testing.T) {
 		t.Fatal(err)
 	} else if !m {
 		t.Fatal("Expected match")
+	}
+}
+
+func TestAlternationNamedOptions_Errors(t *testing.T) {
+	// all of these should give an error "error parsing regexp:"
+	data := []string{
+		"(?(?e))", "(?(?a)", "(?(?", "(?(", "?(a:b)", "?(a)", "?(a|b)", "?((a)", "?((a)a", "?((a)a|", "?((a)a|b",
+		"(?(?i))", "(?(?I))", "(?(?m))", "(?(?M))", "(?(?s))", "(?(?S))", "(?(?x))", "(?(?X))", "(?(?n))", "(?(?N))", " (?(?n))",
+	}
+	for _, p := range data {
+		re, err := Compile(p, 0)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if re != nil {
+			t.Fatal("Expected unparsed regexp, got non-nil")
+		}
+
+		if !strings.HasPrefix(err.Error(), "error parsing regexp: ") {
+			t.Fatalf("Wanted parse error, got '%v'", err)
+		}
+	}
+}
+
+func TestAlternationNamedOptions_Success(t *testing.T) {
+	data := []struct {
+		pattern       string
+		input         string
+		expectSuccess bool
+		matchVal      string
+	}{
+		{"(?(cat)|dog)", "cat", true, ""},
+		{"(?(cat)|dog)", "catdog", true, ""},
+		{"(?(cat)dog1|dog2)", "catdog1", false, ""},
+		{"(?(cat)dog1|dog2)", "catdog2", true, "dog2"},
+		{"(?(cat)dog1|dog2)", "catdog1dog2", true, "dog2"},
+		{"(?(dog2))", "dog2", true, ""},
+		{"(?(cat)|dog)", "oof", false, ""},
+		{"(?(a:b))", "a", true, ""},
+		{"(?(a:))", "a", true, ""},
+	}
+	for _, p := range data {
+		re := MustCompile(p.pattern, 0)
+		m, err := re.FindStringMatch(p.input)
+
+		if err != nil {
+			t.Fatalf("Unexpected error during match: %v", err)
+		}
+		if want, got := p.expectSuccess, m != nil; want != got {
+			t.Fatalf("Success mismatch for %v, wanted %v, got %v", p.pattern, want, got)
+		}
+		if m != nil {
+			if want, got := p.matchVal, m.String(); want != got {
+				t.Fatalf("Match val mismatch for %v, wanted %v, got %v", p.pattern, want, got)
+			}
+		}
+	}
+}
+
+func TestAlternationConstruct_Matches(t *testing.T) {
+	re := MustCompile("(?(A)A123|C789)", 0)
+	m, err := re.FindStringMatch("A123 B456 C789")
+	if err != nil {
+		t.Fatalf("Unexpected err: %v", err)
+	}
+	if m == nil {
+		t.Fatal("Expected match, got nil")
+	}
+
+	if want, got := "A123", m.String(); want != got {
+		t.Fatalf("Wanted %v, got %v", want, got)
+	}
+
+	m, err = re.FindNextMatch(m)
+	if err != nil {
+		t.Fatalf("Unexpected err in second match: %v", err)
+	}
+	if m == nil {
+		t.Fatal("Expected second match, got nil")
+	}
+	if want, got := "C789", m.String(); want != got {
+		t.Fatalf("Wanted %v, got %v", want, got)
+	}
+
+	m, err = re.FindNextMatch(m)
+	if err != nil {
+		t.Fatalf("Unexpected err in third match: %v", err)
+	}
+	if m != nil {
+		t.Fatal("Did not expect third match")
 	}
 }
 
