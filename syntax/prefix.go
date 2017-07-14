@@ -391,7 +391,7 @@ func getPrefix(tree *RegexTree) *Prefix {
 
 func repeat(r rune, c int) []rune {
 	ret := make([]rune, c)
-	for i := 0; i < c; i++ {
+	for i := 0; i < len(ret); i++ {
 		ret[i] = r
 	}
 	return ret
@@ -534,7 +534,7 @@ Outerloop:
 
 	b.negativeASCII = make([]int, 128)
 
-	for i := 0; i < 128; i++ {
+	for i := 0; i < len(b.negativeASCII); i++ {
 		b.negativeASCII[i] = last - beforefirst
 	}
 
@@ -567,7 +567,7 @@ Outerloop:
 			if b.negativeUnicode[i] == nil {
 				newarray := make([]int, 256)
 
-				for k := 0; k < 256; k++ {
+				for k := 0; k < len(newarray); k++ {
 					newarray[k] = last - beforefirst
 				}
 
