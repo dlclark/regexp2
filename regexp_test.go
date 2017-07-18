@@ -856,6 +856,42 @@ func TestAlternationConstruct_Matches(t *testing.T) {
 	}
 }
 
+func TestParserFuzzCrashes(t *testing.T) {
+	var crashes = []string{
+		"(?'-", "(\\c0)", "(\\00(?())", "[\\p{0}", "(\x00?.*.()?(()?)?)*.x\xcb?&(\\s\x80)", "\\p{0}", "[0-[\\p{0}",
+	}
+
+	for _, c := range crashes {
+		t.Log(c)
+		Compile(c, 0)
+	}
+}
+
+func TestParserFuzzHangs(t *testing.T) {
+	var hangs = []string{
+		"\r{865720113}z\xd5{\r{861o", "\r{915355}\r{9153}", "\r{525005}", "\x01{19765625}", "(\r{068828256})", "\r{677525005}",
+	}
+
+	for _, c := range hangs {
+		t.Log(c)
+		Compile(c, 0)
+	}
+}
+
+func BenchmarkParserPrefixLongLen(b *testing.B) {
+	re := MustCompile("\r{100001}T+", 0)
+	inp := strings.Repeat("testing", 10000) + strings.Repeat("\r", 100000) + "TTTT"
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if m, err := re.MatchString(inp); err != nil {
+			b.Fatalf("Unexpected err: %v", err)
+		} else if m {
+			b.Fatalf("Expected no match")
+		}
+	}
+}
+
 /*
 func TestPcreStuff(t *testing.T) {
 	re := MustCompile(`(?(?=(a))a)`, Debug)

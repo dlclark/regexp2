@@ -389,11 +389,22 @@ func getPrefix(tree *RegexTree) *Prefix {
 	}
 }
 
+// repeat the rune r, c times... up to the max of MaxPrefixSize
 func repeat(r rune, c int) []rune {
-	ret := make([]rune, c)
-	for i := 0; i < len(ret); i++ {
-		ret[i] = r
+	if c > MaxPrefixSize {
+		c = MaxPrefixSize
 	}
+
+	ret := make([]rune, c)
+
+	// binary growth using copy for speed
+	ret[0] = r
+	bp := 1
+	for bp < len(ret) {
+		copy(ret[bp:], ret[:bp])
+		bp *= 2
+	}
+
 	return ret
 }
 
@@ -482,7 +493,6 @@ Outerloop:
 		scan = examine
 
 		// find the length of the match
-
 		for {
 			if scan == beforefirst || b.pattern[match] != b.pattern[scan] {
 				// at the end of the match, note the difference in _positive
