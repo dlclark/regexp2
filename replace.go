@@ -46,13 +46,13 @@ func replace(regex *Regexp, data *syntax.ReplacerData, evaluator MatchEvaluator,
 	}
 
 	buf := &bytes.Buffer{}
-	text := m.text
+	rc := m.rc
 
 	if !regex.RightToLeft() {
 		prevat := 0
 		for m != nil {
 			if m.Index != prevat {
-				buf.WriteString(string(text[prevat:m.Index]))
+				buf.WriteString(string(rc.CachedRunesFromTo(prevat, m.Index)))
 			}
 			prevat = m.Index + m.Length
 			if evaluator == nil {
@@ -71,16 +71,16 @@ func replace(regex *Regexp, data *syntax.ReplacerData, evaluator MatchEvaluator,
 			}
 		}
 
-		if prevat < len(text) {
-			buf.WriteString(string(text[prevat:]))
+		if prevat < rc.Len() {
+			buf.WriteString(string(rc.RunesFrom(prevat)))
 		}
 	} else {
-		prevat := len(text)
+		prevat := rc.Len()
 		var al []string
 
 		for m != nil {
 			if m.Index+m.Length != prevat {
-				al = append(al, string(text[m.Index+m.Length:prevat]))
+				al = append(al, string(rc.CachedRunesFromTo(m.Index+m.Length, prevat)))
 			}
 			prevat = m.Index
 			if evaluator == nil {
@@ -100,7 +100,7 @@ func replace(regex *Regexp, data *syntax.ReplacerData, evaluator MatchEvaluator,
 		}
 
 		if prevat > 0 {
-			buf.WriteString(string(text[:prevat]))
+			buf.WriteString(string(rc.CachedRunesTo(prevat)))
 		}
 
 		for i := len(al) - 1; i >= 0; i-- {
@@ -124,17 +124,17 @@ func replacementImpl(data *syntax.ReplacerData, buf *bytes.Buffer, m *Match) {
 			switch -replaceSpecials - 1 - r { // special insertion patterns
 			case replaceLeftPortion:
 				for i := 0; i < m.Index; i++ {
-					buf.WriteRune(m.text[i])
+					buf.WriteRune(m.rc.RuneAt(i))
 				}
 			case replaceRightPortion:
-				for i := m.Index + m.Length; i < len(m.text); i++ {
-					buf.WriteRune(m.text[i])
+				for i := m.Index + m.Length; i < m.rc.Len(); i++ {
+					buf.WriteRune(m.rc.RuneAt(i))
 				}
 			case replaceLastGroup:
 				m.groupValueAppendToBuf(m.GroupCount()-1, buf)
 			case replaceWholeString:
-				for i := 0; i < len(m.text); i++ {
-					buf.WriteRune(m.text[i])
+				for i := 0; i < m.rc.Len(); i++ {
+					buf.WriteRune(m.rc.RuneAt(i))
 				}
 			}
 		}
@@ -156,17 +156,17 @@ func replacementImplRTL(data *syntax.ReplacerData, al *[]string, m *Match) {
 			switch -replaceSpecials - 1 - r { // special insertion patterns
 			case replaceLeftPortion:
 				for i := 0; i < m.Index; i++ {
-					buf.WriteRune(m.text[i])
+					buf.WriteRune(m.rc.RuneAt(i))
 				}
 			case replaceRightPortion:
-				for i := m.Index + m.Length; i < len(m.text); i++ {
-					buf.WriteRune(m.text[i])
+				for i := m.Index + m.Length; i < m.rc.Len(); i++ {
+					buf.WriteRune(m.rc.RuneAt(i))
 				}
 			case replaceLastGroup:
 				m.groupValueAppendToBuf(m.GroupCount()-1, buf)
 			case replaceWholeString:
-				for i := 0; i < len(m.text); i++ {
-					buf.WriteRune(m.text[i])
+				for i := 0; i < m.rc.Len(); i++ {
+					buf.WriteRune(m.rc.RuneAt(i))
 				}
 			}
 			l = append(l, buf.String())

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/dlclark/regexp2/runecacher"
 )
 
 type Prefix struct {
@@ -637,7 +639,7 @@ func (b *BmPrefix) Dump(indent string) string {
 //
 // The direction and case-sensitivity of the match is determined
 // by the arguments to the RegexBoyerMoore constructor.
-func (b *BmPrefix) Scan(text []rune, index, beglimit, endlimit int) int {
+func (b *BmPrefix) Scan(rc *runecacher.RuneCacher, index, beglimit, endlimit int) int {
 	var (
 		defadv, test, test2         int
 		match, startmatch, endmatch int
@@ -667,7 +669,7 @@ func (b *BmPrefix) Scan(text []rune, index, beglimit, endlimit int) int {
 			return -1
 		}
 
-		chTest = text[test]
+		chTest = rc.RuneAt(test)
 
 		if b.caseInsensitive {
 			chTest = unicode.ToLower(chTest)
@@ -704,7 +706,7 @@ func (b *BmPrefix) Scan(text []rune, index, beglimit, endlimit int) int {
 				match -= bump
 				test2 -= bump
 
-				chTest = text[test2]
+				chTest = rc.RuneAt(test2)
 
 				if b.caseInsensitive {
 					chTest = unicode.ToLower(chTest)
@@ -744,38 +746,38 @@ func (b *BmPrefix) Scan(text []rune, index, beglimit, endlimit int) int {
 }
 
 // When a regex is anchored, we can do a quick IsMatch test instead of a Scan
-func (b *BmPrefix) IsMatch(text []rune, index, beglimit, endlimit int) bool {
+func (b *BmPrefix) IsMatch(rc *runecacher.RuneCacher, index, beglimit, endlimit int) bool {
 	if !b.rightToLeft {
 		if index < beglimit || endlimit-index < len(b.pattern) {
 			return false
 		}
 
-		return b.matchPattern(text, index)
+		return b.matchPattern(rc, index)
 	} else {
 		if index > endlimit || index-beglimit < len(b.pattern) {
 			return false
 		}
 
-		return b.matchPattern(text, index-len(b.pattern))
+		return b.matchPattern(rc, index-len(b.pattern))
 	}
 }
 
-func (b *BmPrefix) matchPattern(text []rune, index int) bool {
-	if len(text)-index < len(b.pattern) {
+func (b *BmPrefix) matchPattern(rc *runecacher.RuneCacher, index int) bool {
+	if rc.Len()-index < len(b.pattern) {
 		return false
 	}
 
 	if b.caseInsensitive {
 		for i := 0; i < len(b.pattern); i++ {
 			//Debug.Assert(textinfo.ToLower(_pattern[i]) == _pattern[i], "pattern should be converted to lower case in constructor!");
-			if unicode.ToLower(text[index+i]) != b.pattern[i] {
+			if unicode.ToLower(rc.RuneAt(index+i)) != b.pattern[i] {
 				return false
 			}
 		}
 		return true
 	} else {
 		for i := 0; i < len(b.pattern); i++ {
-			if text[index+i] != b.pattern[i] {
+			if rc.RuneAt(index+i) != b.pattern[i] {
 				return false
 			}
 		}

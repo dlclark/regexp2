@@ -305,3 +305,36 @@ func BenchmarkLeading(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkLongStringAllMatch(b *testing.B) {
+	text := strings.Repeat("one two three four five six seven eight nine ten", 1000)
+
+	r := MustCompile(`([a-z]+|\s+)`, 0)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m, err := r.FindStringMatch(text)
+		if err != nil {
+			b.Fatalf("Error: %v", err)
+		}
+
+		for m != nil {
+			m, err = r.FindNextMatch(m)
+			if err != nil {
+				b.Fatalf("Error: %v", err)
+			}
+		}
+	}
+}
+
+func BenchmarkLongStringSingleMatch(b *testing.B) {
+	text := strings.Repeat("one two three four five six seven eight nine ten", 1000)
+
+	r := MustCompile(`([a-z]+|\s+)`, 0)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := r.FindStringMatch(text)
+		if err != nil {
+			b.Fatalf("Error: %v", err)
+		}
+	}
+}

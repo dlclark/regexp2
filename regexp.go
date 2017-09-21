@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dlclark/regexp2/runecacher"
 	"github.com/dlclark/regexp2/syntax"
 )
 
@@ -155,12 +156,12 @@ func (re *Regexp) ReplaceFunc(input string, evaluator MatchEvaluator, startAt, c
 // FindStringMatch searches the input string for a Regexp match
 func (re *Regexp) FindStringMatch(s string) (*Match, error) {
 	// convert string to runes
-	return re.run(false, -1, getRunes(s))
+	return re.run(false, -1, runecacher.NewFromString(s))
 }
 
 // FindRunesMatch searches the input rune slice for a Regexp match
 func (re *Regexp) FindRunesMatch(r []rune) (*Match, error) {
-	return re.run(false, -1, r)
+	return re.run(false, -1, runecacher.NewFromRunes(r))
 }
 
 // FindStringMatchStartingAt searches the input string for a Regexp match starting at the startAt index
@@ -168,18 +169,20 @@ func (re *Regexp) FindStringMatchStartingAt(s string, startAt int) (*Match, erro
 	if startAt > len(s) {
 		return nil, errors.New("startAt must be less than the length of the input string")
 	}
+
+	//TODO: optimize
 	r, startAt := re.getRunesAndStart(s, startAt)
 	if startAt == -1 {
 		// we didn't find our start index in the string -- that's a problem
 		return nil, errors.New("startAt must align to the start of a valid rune in the input string")
 	}
 
-	return re.run(false, startAt, r)
+	return re.run(false, startAt, runecacher.NewFromRunes(r))
 }
 
 // FindRunesMatchStartingAt searches the input rune slice for a Regexp match starting at the startAt index
 func (re *Regexp) FindRunesMatchStartingAt(r []rune, startAt int) (*Match, error) {
-	return re.run(false, startAt, r)
+	return re.run(false, startAt, runecacher.NewFromRunes(r))
 }
 
 // FindNextMatch returns the next match in the same input string as the match parameter.
@@ -193,7 +196,7 @@ func (re *Regexp) FindNextMatch(m *Match) (*Match, error) {
 	// infinite loop
 	startAt := m.textpos
 	if m.Length == 0 {
-		if m.textpos == len(m.text) {
+		if m.textpos == m.rc.Len() {
 			return nil, nil
 		}
 
@@ -203,13 +206,13 @@ func (re *Regexp) FindNextMatch(m *Match) (*Match, error) {
 			startAt++
 		}
 	}
-	return re.run(false, startAt, m.text)
+	return re.run(false, startAt, m.rc)
 }
 
 // MatchString return true if the string matches the regex
 // error will be set if a timeout occurs
 func (re *Regexp) MatchString(s string) (bool, error) {
-	m, err := re.run(true, -1, getRunes(s))
+	m, err := re.run(true, -1, runecacher.NewFromString(s))
 	if err != nil {
 		return false, err
 	}
@@ -250,7 +253,7 @@ func getRunes(s string) []rune {
 // MatchRunes return true if the runes matches the regex
 // error will be set if a timeout occurs
 func (re *Regexp) MatchRunes(r []rune) (bool, error) {
-	m, err := re.run(true, -1, r)
+	m, err := re.run(true, -1, runecacher.NewFromRunes(r))
 	if err != nil {
 		return false, err
 	}

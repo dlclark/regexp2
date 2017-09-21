@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/dlclark/regexp2/runecacher"
 	"github.com/dlclark/regexp2/syntax"
 )
 
@@ -19,9 +20,12 @@ type runner struct {
 
 	runtextstart int // starting point for search
 
-	runtext    []rune // text to search
-	runtextpos int    // current position in text
-	runtextend int
+	//runtext    []rune // text to search
+	// cacher that handles our string -> rune conversion on the fly
+	rc *runecacher.RuneCacher
+
+	runtextpos int // current position in text
+	runtextend int // len of input text
 
 	// The backtracking stack.  Opcodes use this to store data regarding
 	// what they have matched and where to backtrack to.  Each "frame" on
@@ -74,7 +78,7 @@ type runner struct {
 // quick is usually false, but can be true to not return matches, just put it in caches
 // textstart is -1 to start at the "beginning" (depending on Right-To-Left), otherwise an index in input
 // input is the string to search for our regex pattern
-func (re *Regexp) run(quick bool, textstart int, input []rune) (*Match, error) {
+func (re *Regexp) run(quick bool, textstart int, input *runecacher.RuneCacher) (*Match, error) {
 
 	// get a cached runner
 	runner := re.getRunner()
@@ -82,7 +86,7 @@ func (re *Regexp) run(quick bool, textstart int, input []rune) (*Match, error) {
 
 	if textstart < 0 {
 		if re.RightToLeft() {
-			textstart = len(input)
+			textstart = input.Len()
 		} else {
 			textstart = 0
 		}
@@ -101,12 +105,12 @@ func (re *Regexp) run(quick bool, textstart int, input []rune) (*Match, error) {
 // The optimizer can compute a set of candidate starting characters,
 // and we could use a separate method Skip() that will quickly scan past
 // any characters that we know can't match.
-func (r *runner) scan(rt []rune, textstart int, quick bool, timeout time.Duration) (*Match, error) {
+func (r *runner) scan(rc *runecacher.RuneCacher, textstart int, quick bool, timeout time.Duration) (*Match, error) {
 	r.timeout = timeout
 	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
 	r.runtextstart = textstart
-	r.runtext = rt
-	r.runtextend = len(rt)
+	r.runtextend = rc.Len()
+	r.rc = rc
 
 	stoppos := r.runtextend
 	bump := 1
@@ -1136,9 +1140,9 @@ func (r *runner) forwardcharnext() rune {
 	var ch rune
 	if r.rightToLeft {
 		r.runtextpos--
-		ch = r.runtext[r.runtextpos]
+		ch = r.rc.RuneAt(r.runtextpos)
 	} else {
-		ch = r.runtext[r.runtextpos]
+		ch = r.rc.RuneAt(r.runtextpos)
 		r.runtextpos++
 	}
 
@@ -1170,7 +1174,7 @@ func (r *runner) runematch(str []rune) bool {
 		for c != 0 {
 			c--
 			pos--
-			if str[c] != r.runtext[pos] {
+			if str[c] != r.rc.RuneAt(pos) {
 				return false
 			}
 		}
@@ -1178,7 +1182,7 @@ func (r *runner) runematch(str []rune) bool {
 		for c != 0 {
 			c--
 			pos--
-			if str[c] != unicode.ToLower(r.runtext[pos]) {
+			if str[c] != unicode.ToLower(r.rc.RuneAt(pos)) {
 				return false
 			}
 		}
@@ -1218,7 +1222,7 @@ func (r *runner) refmatch(index, len int) bool {
 			c--
 			cmpos--
 			pos--
-			if r.runtext[cmpos] != r.runtext[pos] {
+			if r.rc.RuneAt(cmpos) != r.rc.RuneAt(pos) {
 				return false
 			}
 
@@ -1229,7 +1233,7 @@ func (r *runner) refmatch(index, len int) bool {
 			cmpos--
 			pos--
 
-			if unicode.ToLower(r.runtext[cmpos]) != unicode.ToLower(r.runtext[pos]) {
+			if unicode.ToLower(r.rc.RuneAt(cmpos)) != unicode.ToLower(r.rc.RuneAt(pos)) {
 				return false
 			}
 		}
@@ -1253,7 +1257,7 @@ func (r *runner) backwardnext() {
 }
 
 func (r *runner) charAt(j int) rune {
-	return r.runtext[j]
+	return r.rc.RuneAt(j)
 }
 
 func (r *runner) findFirstChar() bool {
@@ -1284,12 +1288,12 @@ func (r *runner) findFirstChar() bool {
 		}
 
 		if r.code.BmPrefix != nil {
-			return r.code.BmPrefix.IsMatch(r.runtext, r.runtextpos, 0, r.runtextend)
+			return r.code.BmPrefix.IsMatch(r.rc, r.runtextpos, 0, r.runtextend)
 		}
 
 		return true // found a valid start or end anchor
 	} else if r.code.BmPrefix != nil {
-		r.runtextpos = r.code.BmPrefix.Scan(r.runtext, r.runtextpos, 0, r.runtextend)
+		r.runtextpos = r.code.BmPrefix.Scan(r.rc, r.runtextpos, 0, r.runtextend)
 
 		if r.runtextpos == -1 {
 			if r.code.RightToLeft {
@@ -1336,12 +1340,12 @@ func (r *runner) initMatch() {
 
 	if r.runmatch == nil {
 		if r.re.caps != nil {
-			r.runmatch = newMatchSparse(r.re, r.re.caps, r.re.capsize, r.runtext, r.runtextstart)
+			r.runmatch = newMatchSparse(r.re, r.re.caps, r.re.capsize, r.rc, r.runtextstart)
 		} else {
-			r.runmatch = newMatch(r.re, r.re.capsize, r.runtext, r.runtextstart)
+			r.runmatch = newMatch(r.re, r.re.capsize, r.rc, r.runtextstart)
 		}
 	} else {
-		r.runmatch.reset(r.runtext, r.runtextstart)
+		r.runmatch.reset(r.rc, r.runtextstart)
 	}
 
 	// note we test runcrawl, because it is the last one to be allocated
@@ -1505,7 +1509,7 @@ func (r *runner) textposDescription() string {
 	}
 
 	if r.runtextpos > 0 {
-		buf.WriteString(syntax.CharDescription(r.runtext[r.runtextpos-1]))
+		buf.WriteString(syntax.CharDescription(r.rc.RuneAt(r.runtextpos - 1)))
 	} else {
 		buf.WriteRune('^')
 	}
@@ -1513,7 +1517,7 @@ func (r *runner) textposDescription() string {
 	buf.WriteRune('>')
 
 	for i := r.runtextpos; i < r.runtextend; i++ {
-		buf.WriteString(syntax.CharDescription(r.runtext[i]))
+		buf.WriteString(syntax.CharDescription(r.rc.RuneAt(i)))
 	}
 	if buf.Len() >= 64 {
 		buf.Truncate(61)
@@ -1529,13 +1533,13 @@ func (r *runner) textposDescription() string {
 // at the specified index is a boundary or not. It's just not worth
 // emitting inline code for this logic.
 func (r *runner) isBoundary(index, startpos, endpos int) bool {
-	return (index > startpos && syntax.IsWordChar(r.runtext[index-1])) !=
-		(index < endpos && syntax.IsWordChar(r.runtext[index]))
+	return (index > startpos && syntax.IsWordChar(r.rc.RuneAt(index-1))) !=
+		(index < endpos && syntax.IsWordChar(r.rc.RuneAt(index)))
 }
 
 func (r *runner) isECMABoundary(index, startpos, endpos int) bool {
-	return (index > startpos && syntax.IsECMAWordChar(r.runtext[index-1])) !=
-		(index < endpos && syntax.IsECMAWordChar(r.runtext[index]))
+	return (index > startpos && syntax.IsECMAWordChar(r.rc.RuneAt(index-1))) !=
+		(index < endpos && syntax.IsECMAWordChar(r.rc.RuneAt(index)))
 }
 
 // this seems like a comment to justify randomly picking 1000 :-P
@@ -1584,7 +1588,7 @@ func (r *runner) doCheckTimeout() error {
 		//Debug.WriteLine("About to throw RegexMatchTimeoutException.")
 	}
 
-	return fmt.Errorf("match timeout after %v on input `%v`", r.timeout, string(r.runtext))
+	return fmt.Errorf("match timeout after %v on input `%v`", r.timeout, r.rc.String())
 }
 
 func (r *runner) initTrackCount() {

@@ -3,6 +3,8 @@ package regexp2
 import (
 	"bytes"
 	"fmt"
+
+	"github.com/dlclark/regexp2/runecacher"
 )
 
 // Match is a single regex result match that contains groups and repeated captures
@@ -42,7 +44,7 @@ type Group struct {
 // Capture is a single capture of text within the larger original string
 type Capture struct {
 	// the original string
-	text []rune
+	rc *runecacher.RuneCacher
 	// the position in the original string where the first character of
 	// captured substring was found.
 	Index int
@@ -52,15 +54,15 @@ type Capture struct {
 
 // String returns the captured text as a String
 func (c *Capture) String() string {
-	return string(c.text[c.Index : c.Index+c.Length])
+	return string(c.rc.CachedRunesAt(c.Index, c.Length))
 }
 
 // Runes returns the captured text as a rune slice
 func (c *Capture) Runes() []rune {
-	return c.text[c.Index : c.Index+c.Length]
+	return c.rc.CachedRunesAt(c.Index, c.Length)
 }
 
-func newMatch(regex *Regexp, capcount int, text []rune, startpos int) *Match {
+func newMatch(regex *Regexp, capcount int, rc *runecacher.RuneCacher, startpos int) *Match {
 	m := Match{
 		regex:      regex,
 		matchcount: make([]int, capcount),
@@ -69,19 +71,19 @@ func newMatch(regex *Regexp, capcount int, text []rune, startpos int) *Match {
 		balancing:  false,
 	}
 	m.Name = "0"
-	m.text = text
+	m.rc = rc
 	m.matches[0] = make([]int, 2)
 	return &m
 }
 
-func newMatchSparse(regex *Regexp, caps map[int]int, capcount int, text []rune, startpos int) *Match {
-	m := newMatch(regex, capcount, text, startpos)
+func newMatchSparse(regex *Regexp, caps map[int]int, capcount int, rc *runecacher.RuneCacher, startpos int) *Match {
+	m := newMatch(regex, capcount, rc, startpos)
 	m.sparseCaps = caps
 	return m
 }
 
-func (m *Match) reset(text []rune, textstart int) {
-	m.text = text
+func (m *Match) reset(rc *runecacher.RuneCacher, textstart int) {
+	m.rc = rc
 	m.textstart = textstart
 	for i := 0; i < len(m.matchcount); i++ {
 		m.matchcount[i] = 0
@@ -269,7 +271,7 @@ func (m *Match) populateOtherGroups() {
 	if m.otherGroups == nil {
 		m.otherGroups = make([]Group, len(m.matchcount)-1)
 		for i := 0; i < len(m.otherGroups); i++ {
-			m.otherGroups[i] = newGroup(m.regex.GroupNameFromNumber(i+1), m.text, m.matches[i+1], m.matchcount[i+1])
+			m.otherGroups[i] = newGroup(m.regex.GroupNameFromNumber(i+1), m.rc, m.matches[i+1], m.matchcount[i+1])
 		}
 	}
 }
@@ -286,13 +288,13 @@ func (m *Match) groupValueAppendToBuf(groupnum int, buf *bytes.Buffer) {
 	last := index + matches[(c*2)-1]
 
 	for ; index < last; index++ {
-		buf.WriteRune(m.text[index])
+		buf.WriteRune(m.rc.RuneAt(index))
 	}
 }
 
-func newGroup(name string, text []rune, caps []int, capcount int) Group {
+func newGroup(name string, rc *runecacher.RuneCacher, caps []int, capcount int) Group {
 	g := Group{}
-	g.text = text
+	g.rc = rc
 	if capcount > 0 {
 		g.Index = caps[(capcount-1)*2]
 		g.Length = caps[(capcount*2)-1]
@@ -301,7 +303,7 @@ func newGroup(name string, text []rune, caps []int, capcount int) Group {
 	g.Captures = make([]Capture, capcount)
 	for i := 0; i < capcount; i++ {
 		g.Captures[i] = Capture{
-			text:   text,
+			rc:     rc,
 			Index:  caps[i*2],
 			Length: caps[i*2+1],
 		}
