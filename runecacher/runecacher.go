@@ -4,7 +4,7 @@ import (
 	"unicode/utf8"
 )
 
-const cachePrimeSize = 1
+const cachePrimeSize = 10
 
 // RuneCacher allows the consumer to read runes from a string or byte slice
 // and caches the results so that backtracking is cheap
@@ -34,9 +34,10 @@ func NewFromRunes(runes []rune) *RuneCacher {
 
 func NewFromString(str string) *RuneCacher {
 	r := &RuneCacher{
+		runes:    make([]rune, 0, len(str)),
 		inpStr:   str,
 		inpLen:   len(str),
-		runesLen: utf8.RuneCountInString(str),
+		runesLen: len(str), // utf8.RuneCountInString(str),
 	}
 	// prime cache with some runes
 	r.cachedNext(cachePrimeSize)
@@ -98,18 +99,14 @@ func (r *RuneCacher) hasUncached() bool {
 	return r.inpUncachedPos < r.inpLen
 }
 
-func (r *RuneCacher) cachedNext(count int) int {
+func (r *RuneCacher) cachedNext(count int) {
 	// calculate our next runes and pre-populate the cache
 	// stop if we've cached everything OR if we're
-	added := 0
 	for r.hasUncached() && count > 0 {
 		// decode bytes
 		newRune, newLen := utf8.DecodeRuneInString(r.inpStr[r.inpUncachedPos:])
 		r.runes = append(r.runes, newRune)
 		r.inpUncachedPos += newLen
-		added++
 		count--
 	}
-
-	return added
 }

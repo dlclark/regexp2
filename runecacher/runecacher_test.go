@@ -12,7 +12,7 @@ func TestStringBasicCacheFirstChar(t *testing.T) {
 }
 
 func TestStringEnsureCached(t *testing.T) {
-	rc := NewFromString("test")
+	rc := NewFromString("testing1234")
 
 	if want, got := cachePrimeSize, len(rc.runes); want != got {
 		t.Fatalf("wanted %v, got %v", want, got)
