@@ -924,7 +924,7 @@ func TestControlBracketFail(t *testing.T) {
 }
 
 func TestControlBracketGroups(t *testing.T) {
-	re := MustCompile(`(cat)(\c[*)(dog)`, Debug)
+	re := MustCompile(`(cat)(\c[*)(dog)`, 0)
 	inp := "asdlkcat\u001bdogiwod"
 
 	if want, got := 4, re.capsize; want != got {

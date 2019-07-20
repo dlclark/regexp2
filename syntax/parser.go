@@ -310,7 +310,7 @@ func (p *parser) countCaptures() error {
 		switch ch {
 		case '\\':
 			if p.charsRight() > 0 {
-				p.scanBackslash()
+				p.scanBackslash(true)
 			}
 
 		case '#':
@@ -520,7 +520,7 @@ func (p *parser) scanRegex() (*regexNode, error) {
 			}
 
 		case '\\':
-			n, err := p.scanBackslash()
+			n, err := p.scanBackslash(false)
 			if err != nil {
 				return nil, err
 			}
@@ -1055,7 +1055,7 @@ BreakRecognize:
 }
 
 // scans backslash specials and basics
-func (p *parser) scanBackslash() (*regexNode, error) {
+func (p *parser) scanBackslash(scanOnly bool) (*regexNode, error) {
 
 	if p.charsRight() == 0 {
 		return nil, p.getErr(ErrIllegalEndEscape)
@@ -1123,12 +1123,12 @@ func (p *parser) scanBackslash() (*regexNode, error) {
 		return newRegexNodeSet(ntSet, p.options, cc), nil
 
 	default:
-		return p.scanBasicBackslash()
+		return p.scanBasicBackslash(scanOnly)
 	}
 }
 
 // Scans \-style backreferences and character escapes
-func (p *parser) scanBasicBackslash() (*regexNode, error) {
+func (p *parser) scanBasicBackslash(scanOnly bool) (*regexNode, error) {
 	if p.charsRight() == 0 {
 		return nil, p.getErr(ErrIllegalEndEscape)
 	}
@@ -1184,15 +1184,19 @@ func (p *parser) scanBasicBackslash() (*regexNode, error) {
 		if p.charsRight() > 0 && p.moveRightGetChar() == close {
 			if p.isCaptureSlot(capnum) {
 				return newRegexNodeM(ntRef, p.options, capnum), nil
-			} else {
-				return nil, p.getErr(ErrUndefinedBackRef, capnum)
 			}
+			return nil, p.getErr(ErrUndefinedBackRef, capnum)
 		}
 	} else if !angled && ch >= '1' && ch <= '9' { // Try to parse backreference or octal: \1
 		capnum, err := p.scanDecimal()
 		if err != nil {
 			return nil, err
 		}
+
+		if scanOnly {
+			return nil, nil
+		}
+
 		if p.useOptionE() || p.isCaptureSlot(capnum) {
 			return newRegexNodeM(ntRef, p.options, capnum), nil
 		}
