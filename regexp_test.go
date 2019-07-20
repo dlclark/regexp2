@@ -913,3 +913,45 @@ func TestPcreStuff(t *testing.T) {
 */
 
 //(.*)(\d+) different FirstChars ([\x00-\t\v-\x08] OR [\x00-\t\v-\uffff\p{Nd}]
+
+func TestControlBracketFail(t *testing.T) {
+	re := MustCompile(`(cat)(\c[*)(dog)`, 0)
+	inp := "asdlkcat\u00FFdogiwod"
+
+	if m, _ := re.MatchString(inp); m {
+		t.Fatal("expected no match")
+	}
+}
+
+func TestControlBracketGroups(t *testing.T) {
+	re := MustCompile(`(cat)(\c[*)(dog)`, Debug)
+	inp := "asdlkcat\u001bdogiwod"
+
+	if want, got := 4, re.capsize; want != got {
+		t.Fatalf("Capsize wrong, want %v, got %v", want, got)
+	}
+
+	m, _ := re.FindStringMatch(inp)
+	if m == nil {
+		t.Fatal("expected match")
+	}
+
+	g := m.Groups()
+	want := []string{"cat\u001bdog", "cat", "\u001b", "dog"}
+	for i := 0; i < len(g); i++ {
+		if want[i] != g[i].String() {
+			t.Fatalf("Bad group num %v, want %v, got %v", i, want[i], g[i].String())
+		}
+	}
+}
+
+func TestBadGroupConstruct(t *testing.T) {
+	bad := []string{"(?>-", "(?<", "(?<=", "(?<!", "(?>", "(?)", "(?<)", "(?')", "(?<-"}
+
+	for _, b := range bad {
+		_, err := Compile(b, 0)
+		if err == nil {
+			t.Fatalf("Wanted error, but got no error for pattern: %v", b)
+		}
+	}
+}

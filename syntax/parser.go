@@ -310,7 +310,7 @@ func (p *parser) countCaptures() error {
 		switch ch {
 		case '\\':
 			if p.charsRight() > 0 {
-				p.moveRight(1)
+				p.scanBackslash()
 			}
 
 		case '#':
