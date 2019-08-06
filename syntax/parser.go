@@ -21,6 +21,7 @@ const (
 	RightToLeft                          = 0x0040 // "r"
 	Debug                                = 0x0080 // "d"
 	ECMAScript                           = 0x0100 // "e"
+	RE2                                  = 0x0200 // RE2 compat mode
 )
 
 func optionFromCode(ch rune) RegexOptions {
@@ -354,6 +355,14 @@ func (p *parser) countCaptures() error {
 								p.noteCaptureName(p.scanCapname(), pos)
 							}
 						}
+					} else if p.useRE2() && p.charsRight() > 2 && (p.rightChar(0) == 'P' && p.rightChar(1) == '<') {
+						// RE2-compat (?P<)
+						p.moveRight(2)
+						ch = p.rightChar(0)
+						if IsWordChar(ch) {
+							p.noteCaptureName(p.scanCapname(), pos)
+						}
+
 					} else {
 						// (?...
 
@@ -1022,6 +1031,50 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 				}
 			}
 
+		case 'P':
+			if p.useRE2() {
+				// support for P<name> syntax
+				if p.charsRight() < 3 {
+					goto BreakRecognize
+				}
+
+				ch = p.moveRightGetChar()
+				if ch != '<' {
+					goto BreakRecognize
+				}
+
+				ch = p.moveRightGetChar()
+				p.moveLeft()
+
+				if IsWordChar(ch) {
+					capnum := -1
+					capname := p.scanCapname()
+
+					if p.isCaptureName(capname) {
+						capnum = p.captureSlotFromName(capname)
+					}
+
+					// check if we have bogus character after the name
+					if p.charsRight() > 0 && p.rightChar(0) != '>' {
+						return nil, p.getErr(ErrInvalidGroupName)
+					}
+
+					// actually make the node
+
+					if capnum != -1 && p.charsRight() > 0 && p.moveRightGetChar() == '>' {
+						return newRegexNodeMN(ntCapture, p.options, capnum, -1), nil
+					}
+					goto BreakRecognize
+
+				} else {
+					// bad group name - starts with something other than a word character and isn't a number
+					return nil, p.getErr(ErrInvalidGroupName)
+				}
+			}
+			// if we're not using RE2 compat mode then
+			// we just behave like normal
+			fallthrough
+
 		default:
 			p.moveLeft()
 
@@ -1452,11 +1505,26 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 				savePos := p.textpos()
 
 				p.moveRight(1)
-				p.scanCapname() // throwaway the name
+				negate := false
+				if p.charsRight() > 1 && p.rightChar(0) == '^' {
+					negate = true
+					p.moveRight(1)
+				}
+
+				nm := p.scanCapname() // snag the name
+				if !scanOnly && p.useRE2() {
+					// look up the name since these are valid for RE2
+					// add the group based on the name
+					if ok := cc.addNamedASCII(nm, negate); !ok {
+						return nil, p.getErr(ErrInvalidCharRange)
+					}
+				}
 				if p.charsRight() < 2 || p.moveRightGetChar() != ':' || p.moveRightGetChar() != ']' {
 					p.textto(savePos)
+				} else if p.useRE2() {
+					// move on
+					continue
 				}
-				// else lookup name (nyi)
 			}
 		}
 
@@ -1551,7 +1619,7 @@ func (p *parser) scanDecimal() (int, error) {
 
 // Returns true for options allowed only at the top level
 func isOnlyTopOption(option RegexOptions) bool {
-	return option == RightToLeft || option == ECMAScript
+	return option == RightToLeft || option == ECMAScript || option == RE2
 }
 
 // Scans cimsx-cimsx option string, stops at the first unrecognized char.
@@ -1863,6 +1931,11 @@ func (p *parser) useOptionX() bool {
 // True if E option enabling ECMAScript behavior on.
 func (p *parser) useOptionE() bool {
 	return (p.options & ECMAScript) != 0
+}
+
+// true to use RE2 compatibility parsing behavior.
+func (p *parser) useRE2() bool {
+	return (p.options & RE2) != 0
 }
 
 // True if options stack is empty.
