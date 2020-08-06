@@ -717,6 +717,27 @@ func TestECMAOctal(t *testing.T) {
 	} else if !m {
 		t.Fatal("Expected match")
 	}
+
+	if m, err := re.MatchString("x"); err != nil {
+		t.Fatal(err)
+	} else if m {
+		t.Fatal("Expected no match")
+	}
+
+	re = MustCompile(`\377`, ECMAScript)
+	if m, err := re.MatchString("\u00ff"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+
+	re = MustCompile(`\400`, ECMAScript)
+	if m, err := re.MatchString(" 0"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+
 }
 
 func TestNegateRange(t *testing.T) {
