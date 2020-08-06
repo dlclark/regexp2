@@ -239,13 +239,7 @@ func (re *Regexp) getRunesAndStart(s string, startAt int) ([]rune, int) {
 }
 
 func getRunes(s string) []rune {
-	ret := make([]rune, len(s))
-	i := 0
-	for _, r := range s {
-		ret[i] = r
-		i++
-	}
-	return ret[:i]
+	return []rune(s)
 }
 
 // MatchRunes return true if the runes matches the regex
