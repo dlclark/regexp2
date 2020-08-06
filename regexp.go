@@ -235,6 +235,9 @@ func (re *Regexp) getRunesAndStart(s string, startAt int) ([]rune, int) {
 		ret[i] = r
 		i++
 	}
+	if startAt == len(s) {
+		runeIdx = i
+	}
 	return ret[:i], runeIdx
 }
 
