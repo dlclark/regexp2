@@ -877,6 +877,17 @@ func TestAlternationConstruct_Matches(t *testing.T) {
 	}
 }
 
+func TestStartAtEnd(t *testing.T) {
+	re := MustCompile("(?:)", 0)
+	m, err := re.FindStringMatchStartingAt("t", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m == nil {
+		t.Fatal("Expected match")
+	}
+}
+
 func TestParserFuzzCrashes(t *testing.T) {
 	var crashes = []string{
 		"(?'-", "(\\c0)", "(\\00(?())", "[\\p{0}", "(\x00?.*.()?(()?)?)*.x\xcb?&(\\s\x80)", "\\p{0}", "[0-[\\p{0}",
