@@ -605,7 +605,7 @@ func TestHexadecimalCurlyBraces(t *testing.T) {
 	}
 
 	re = MustCompile(`\x{0010ffff}`, 0)
-	if m, err := re.MatchString(string(0x10ffff)); err != nil {
+	if m, err := re.MatchString(string(rune(0x10ffff))); err != nil {
 		t.Fatalf("Unexpected err: %v", err)
 	} else if !m {
 		t.Fatalf("Expected match")
