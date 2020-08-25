@@ -758,6 +758,25 @@ func TestECMANegateRange(t *testing.T) {
 	}
 }
 
+func TestDollar(t *testing.T) {
+	// PCRE/C# allow \n to match to $ at end-of-string in singleline mode...
+	// a weird edge-case kept for compatibility, ECMAScript/RE2 mode don't allow it
+	re := MustCompile(`ac$`, 0)
+	if m, err := re.MatchString("ac\n"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+}
+func TestECMADollar(t *testing.T) {
+	re := MustCompile(`ac$`, ECMAScript)
+	if m, err := re.MatchString("ac\n"); err != nil {
+		t.Fatal(err)
+	} else if m {
+		t.Fatal("Expected no match")
+	}
+}
+
 func TestThreeByteUnicode_InputOnly(t *testing.T) {
 	// confirm the bmprefix properly ignores 3-byte unicode in the input value
 	// this used to panic

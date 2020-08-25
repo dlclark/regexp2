@@ -96,3 +96,26 @@ func TestRE2NamedAscii_Concat(t *testing.T) {
 		t.Fatal("Expected match")
 	}
 }
+
+func TestRE2Dollar_Singleline(t *testing.T) {
+	// PCRE allows for \n after the $ and RE2 doesn't
+	r := MustCompile(`^ac$\n`, RE2)
+	if m, _ := r.MatchString("ac"); m {
+		t.Fatal("Expected no match")
+	}
+	if m, _ := r.MatchString("ac\n"); m {
+		t.Fatal("Expected no match")
+	}
+}
+
+func TestRE2Dollar_Multiline(t *testing.T) {
+	r := MustCompile(`^ac$\n`, RE2|Multiline)
+	if m, _ := r.MatchString("ac"); m {
+		t.Fatal("Expected no match")
+	}
+	if m, err := r.MatchString("ac\n"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+}
