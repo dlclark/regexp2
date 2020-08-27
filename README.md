@@ -43,8 +43,8 @@ The __last__ capture is embedded in each group, so `g.String()` will return the 
 | Category | regexp | regexp2 |
 | --- | --- | --- |
 | Catastrophic backtracking possible | no, constant execution time guarantees | yes, if your pattern is at risk you can use the `re.MatchTimeout` field |
-| Python-style capture groups `(P<name>re)` | yes | no |
-| .NET-style capture groups `(<name>re)` or `('name're)` | no | yes |
+| Python-style capture groups `(?P<name>re)` | yes | no |
+| .NET-style capture groups `(?<name>re)` or `(?'name're)` | no | yes |
 | comments `(?#comment)` | no | yes |
 | branch numbering reset `(?\|a\|b)` | no | no |
 | possessive match `(?>re)` | no | yes |
@@ -55,7 +55,7 @@ The __last__ capture is embedded in each group, so `g.String()` will return the 
 | back reference `\1` | no | yes |
 | named back reference `\k'name'` | no | yes |
 | named ascii character class `[[:foo:]]`| yes | no |
-| conditionals `((expr)yes\|no)` | no | yes |
+| conditionals `(?(expr)yes\|no)` | no | yes |
 
 ## RE2 compatibility mode
 The default behavior of `regexp2` is to match the .NET regexp engine, however the `RE2` option is provided to change the parsing to increase compatibility with RE2.  Using the `RE2` option when compiling a regexp will not take away any features, but will change the following behaviors:
