@@ -1058,3 +1058,37 @@ func TestBadGroupConstruct(t *testing.T) {
 		}
 	}
 }
+
+func TestEmptyCaptureLargeRepeat(t *testing.T) {
+	// a bug would cause our track to not grow and eventually panic
+	// with large numbers of repeats of a non-capturing group (>16)
+
+	// the issue was that the jump occured to the same statement over and over
+	// and the "grow stack/track" logic only triggered on jumps that moved
+	// backwards
+
+	r := MustCompile(`(?:){40}`, 0)
+	m, err := r.FindStringMatch("1")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if want, got := 0, m.Index; want != got {
+		t.Errorf("First Match Index wanted %v got %v", want, got)
+	}
+	if want, got := 0, m.Length; want != got {
+		t.Errorf("First Match Length wanted %v got %v", want, got)
+	}
+
+	m, _ = r.FindNextMatch(m)
+	if want, got := 1, m.Index; want != got {
+		t.Errorf("Second Match Index wanted %v got %v", want, got)
+	}
+	if want, got := 0, m.Length; want != got {
+		t.Errorf("Second Match Length wanted %v got %v", want, got)
+	}
+
+	m, _ = r.FindNextMatch(m)
+	if m != nil {
+		t.Fatal("Expected 2 matches, got more")
+	}
+}

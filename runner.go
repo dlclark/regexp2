@@ -951,8 +951,8 @@ func (r *runner) advance(i int) {
 }
 
 func (r *runner) goTo(newpos int) {
-	// when branching backward, ensure storage
-	if newpos < r.codepos {
+	// when branching backward or in place, ensure storage
+	if newpos <= r.codepos {
 		r.ensureStorage()
 	}
 
