@@ -740,6 +740,43 @@ func TestECMAOctal(t *testing.T) {
 
 }
 
+func TestECMAInvalidEscape(t *testing.T) {
+	re := MustCompile(`\x0`, ECMAScript)
+	if m, err := re.MatchString("x0"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+
+	re = MustCompile(`\x0z`, ECMAScript)
+	if m, err := re.MatchString("x0z"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+}
+
+func TestECMAInvalidEscapeCharClass(t *testing.T) {
+	re := MustCompile(`[\x0]`, ECMAScript)
+	if m, err := re.MatchString("x"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+
+	if m, err := re.MatchString("0"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+
+	if m, err := re.MatchString("z"); err != nil {
+		t.Fatal(err)
+	} else if m {
+		t.Fatal("Expected no match")
+	}
+}
+
 func TestNegateRange(t *testing.T) {
 	re := MustCompile(`[\D]`, 0)
 	if m, err := re.MatchString("A"); err != nil {

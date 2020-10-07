@@ -1648,7 +1648,7 @@ func (p *parser) scanOptions() {
 }
 
 // Scans \ code for escape codes that map to single unicode chars.
-func (p *parser) scanCharEscape() (rune, error) {
+func (p *parser) scanCharEscape() (r rune, err error) {
 
 	ch := p.moveRightGetChar()
 
@@ -1657,16 +1657,19 @@ func (p *parser) scanCharEscape() (rune, error) {
 		return p.scanOctal(), nil
 	}
 
+	pos := p.textpos()
+
 	switch ch {
 	case 'x':
 		// support for \x{HEX} syntax from Perl and PCRE
 		if p.charsRight() > 0 && p.rightChar(0) == '{' {
 			p.moveRight(1)
-			return p.scanHexUntilBrace()
+			r, err = p.scanHexUntilBrace()
+		} else {
+			r, err = p.scanHex(2)
 		}
-		return p.scanHex(2)
 	case 'u':
-		return p.scanHex(4)
+		r, err = p.scanHex(4)
 	case 'a':
 		return '\u0007', nil
 	case 'b':
@@ -1684,13 +1687,18 @@ func (p *parser) scanCharEscape() (rune, error) {
 	case 'v':
 		return '\u000B', nil
 	case 'c':
-		return p.scanControl()
+		r, err = p.scanControl()
 	default:
 		if !p.useOptionE() && IsWordChar(ch) {
 			return 0, p.getErr(ErrUnrecognizedEscape, string(ch))
 		}
 		return ch, nil
 	}
+	if err != nil && p.useOptionE() {
+		p.textto(pos)
+		return ch, nil
+	}
+	return
 }
 
 // Grabs and converts an ascii control character
