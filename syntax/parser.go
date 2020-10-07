@@ -1818,7 +1818,7 @@ func (p *parser) scanOctal() rune {
 	//we know the first char is good because the caller had to check
 	i := 0
 	d := int(p.rightChar(0) - '0')
-	for c > 0 && d <= 7 {
+	for c > 0 && d <= 7 && d >= 0 {
 		if i >= 0x20 && p.useOptionE() {
 			break
 		}
