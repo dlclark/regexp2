@@ -777,6 +777,21 @@ func TestECMAInvalidEscapeCharClass(t *testing.T) {
 	}
 }
 
+func TestECMAScriptXCurlyBraceEscape(t *testing.T) {
+	re := MustCompile(`\x{20}`, ECMAScript)
+	if m, err := re.MatchString(" "); err != nil {
+		t.Fatal(err)
+	} else if m {
+		t.Fatal("Expected no match")
+	}
+
+	if m, err := re.MatchString("xxxxxxxxxxxxxxxxxxxx"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+}
+
 func TestNegateRange(t *testing.T) {
 	re := MustCompile(`[\D]`, 0)
 	if m, err := re.MatchString("A"); err != nil {

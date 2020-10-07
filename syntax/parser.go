@@ -1663,8 +1663,11 @@ func (p *parser) scanCharEscape() (r rune, err error) {
 	case 'x':
 		// support for \x{HEX} syntax from Perl and PCRE
 		if p.charsRight() > 0 && p.rightChar(0) == '{' {
+			if p.useOptionE() {
+				return ch, nil
+			}
 			p.moveRight(1)
-			r, err = p.scanHexUntilBrace()
+			return p.scanHexUntilBrace()
 		} else {
 			r, err = p.scanHex(2)
 		}
