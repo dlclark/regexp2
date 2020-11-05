@@ -756,6 +756,60 @@ func TestECMAInvalidEscape(t *testing.T) {
 	}
 }
 
+func TestECMANamedGroup(t *testing.T) {
+	re := MustCompile(`\k`, ECMAScript)
+	if m, err := re.MatchString("k"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+
+	re = MustCompile(`\k'test'`, ECMAScript)
+	if m, err := re.MatchString(`k'test'`); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+
+	re = MustCompile(`\k<test>`, ECMAScript)
+	if m, err := re.MatchString(`k<test>`); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+
+	_, err := Compile(`(?<title>\w+), yes \k'title'`, ECMAScript)
+	if err == nil {
+		t.Fatal("Expected error")
+	}
+
+	re = MustCompile(`(?<title>\w+), yes \k<title>`, ECMAScript)
+	if m, err := re.MatchString("sir, yes sir"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+
+	re = MustCompile(`\k<title>, yes (?<title>\w+)`, ECMAScript)
+	if m, err := re.MatchString(", yes sir"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+
+	_, err = Compile(`\k<(?<name>)>`, ECMAScript)
+	if err == nil {
+		t.Fatal("Expected error")
+	}
+
+	MustCompile(`\k<(<name>)>`, ECMAScript)
+
+	_, err = Compile(`\k<(<name>)>`, 0)
+	if err == nil {
+		t.Fatal("Expected error")
+	}
+}
+
 func TestECMAInvalidEscapeCharClass(t *testing.T) {
 	re := MustCompile(`[\x0]`, ECMAScript)
 	if m, err := re.MatchString("x"); err != nil {
