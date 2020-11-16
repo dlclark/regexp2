@@ -1186,6 +1186,7 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*regexNode, error) {
 		return nil, p.getErr(ErrIllegalEndEscape)
 	}
 	angled := false
+	k := false
 	close := '\x00'
 
 	backpos := p.textpos()
@@ -1217,6 +1218,7 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*regexNode, error) {
 		}
 
 		ch = p.rightChar(0)
+		k = true
 
 	} else if !p.useOptionE() && (ch == '<' || ch == '\'') && p.charsRight() > 1 { // Note angle without \g
 		angled = true
@@ -1275,7 +1277,9 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*regexNode, error) {
 			}
 			return nil, p.getErr(ErrUndefinedNameRef, capname)
 		} else {
-			return nil, p.getErr(ErrMalformedNameRef)
+			if k {
+				return nil, p.getErr(ErrMalformedNameRef)
+			}
 		}
 	}
 

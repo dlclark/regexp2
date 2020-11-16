@@ -808,6 +808,18 @@ func TestECMANamedGroup(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error")
 	}
+
+	re = MustCompile(`\'|\<?`, 0)
+	if m, err := re.MatchString("'"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+	if m, err := re.MatchString("<"); err != nil {
+		t.Fatal(err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
 }
 
 func TestECMAInvalidEscapeCharClass(t *testing.T) {
