@@ -22,6 +22,7 @@ const (
 	Debug                                = 0x0080 // "d"
 	ECMAScript                           = 0x0100 // "e"
 	RE2                                  = 0x0200 // RE2 compat mode
+	MaintainCaptureOrder                 = 0x1000 // "o" Maintain named and unnamed capture order
 )
 
 func optionFromCode(ch rune) RegexOptions {
@@ -43,6 +44,8 @@ func optionFromCode(ch rune) RegexOptions {
 		return Debug
 	case 'e', 'E':
 		return ECMAScript
+	case 'o', 'O':
+		return MaintainCaptureOrder
 	default:
 		return 0
 	}
@@ -129,8 +132,9 @@ type parser struct {
 	captop   int
 	capsize  int
 
-	caps     map[int]int
-	capnames map[string]int
+	caps          map[int]int
+	capnames      map[string]int
+	capnamenums   map[string]int
 
 	capnumlist  []int
 	capnamelist []string
@@ -214,6 +218,17 @@ func (p *parser) noteCaptureName(name string, pos int) {
 		p.capnames = make(map[string]int)
 	}
 
+	if p.useMaintainCaptureOrder() {
+		if p.capnamenums == nil {
+			p.capnamenums = make(map[string]int)
+		}
+
+		if _, ok := p.capnamenums[name]; !ok {
+			p.capnamenums[name] = p.autocap
+			p.noteCaptureSlot(p.consumeAutocap(), pos)
+		}
+	}
+
 	if _, ok := p.capnames[name]; !ok {
 		p.capnames[name] = pos
 		p.capnamelist = append(p.capnamelist, name)
@@ -221,73 +236,81 @@ func (p *parser) noteCaptureName(name string, pos int) {
 }
 
 func (p *parser) assignNameSlots() {
-	if p.capnames != nil {
-		for _, name := range p.capnamelist {
-			for p.isCaptureSlot(p.autocap) {
+	if p.useMaintainCaptureOrder() {
+		p.capnames = p.capnamenums
+		// Prepend `0` to capnamelist if it's not set
+		if p.capnamelist[0] != `0` {
+			p.capnamelist = append([]string{fmt.Sprint(0)}, p.capnamelist...)
+		}
+	} else {
+		if p.capnames != nil {
+			for _, name := range p.capnamelist {
+				for p.isCaptureSlot(p.autocap) {
+					p.autocap++
+				}
+				pos := p.capnames[name]
+				p.capnames[name] = p.autocap
+				p.noteCaptureSlot(p.autocap, pos)
+
 				p.autocap++
 			}
-			pos := p.capnames[name]
-			p.capnames[name] = p.autocap
-			p.noteCaptureSlot(p.autocap, pos)
-
-			p.autocap++
 		}
-	}
+		
+		// if the caps array has at least one gap, construct the list of used slots
+		if p.capcount < p.captop {
+			p.capnumlist = make([]int, p.capcount)
+			i := 0
 
-	// if the caps array has at least one gap, construct the list of used slots
-	if p.capcount < p.captop {
-		p.capnumlist = make([]int, p.capcount)
-		i := 0
-
-		for k := range p.caps {
-			p.capnumlist[i] = k
-			i++
-		}
-
-		sort.Ints(p.capnumlist)
-	}
-
-	// merge capsnumlist into capnamelist
-	if p.capnames != nil || p.capnumlist != nil {
-		var oldcapnamelist []string
-		var next int
-		var k int
-
-		if p.capnames == nil {
-			oldcapnamelist = nil
-			p.capnames = make(map[string]int)
-			p.capnamelist = []string{}
-			next = -1
-		} else {
-			oldcapnamelist = p.capnamelist
-			p.capnamelist = []string{}
-			next = p.capnames[oldcapnamelist[0]]
-		}
-
-		for i := 0; i < p.capcount; i++ {
-			j := i
-			if p.capnumlist != nil {
-				j = p.capnumlist[i]
+			for k := range p.caps {
+				p.capnumlist[i] = k
+				i++
 			}
 
-			if next == j {
-				p.capnamelist = append(p.capnamelist, oldcapnamelist[k])
-				k++
+			sort.Ints(p.capnumlist)
+		}
 
-				if k == len(oldcapnamelist) {
-					next = -1
-				} else {
-					next = p.capnames[oldcapnamelist[k]]
+		// merge capsnumlist into capnamelist
+		if p.capnames != nil || p.capnumlist != nil {
+			var oldcapnamelist []string
+			var next int
+			var k int
+
+			if p.capnames == nil {
+				oldcapnamelist = nil
+				p.capnames = make(map[string]int)
+				p.capnamelist = []string{}
+				next = -1
+			} else {
+				oldcapnamelist = p.capnamelist
+				p.capnamelist = []string{}
+				next = p.capnames[oldcapnamelist[0]]
+			}
+
+			for i := 0; i < p.capcount; i++ {
+				j := i
+				if p.capnumlist != nil {
+					j = p.capnumlist[i]
 				}
 
-			} else {
-				//feature: culture?
-				str := strconv.Itoa(j)
-				p.capnamelist = append(p.capnamelist, str)
-				p.capnames[str] = j
+				if next == j {
+					p.capnamelist = append(p.capnamelist, oldcapnamelist[k])
+					k++
+
+					if k == len(oldcapnamelist) {
+						next = -1
+					} else {
+						next = p.capnames[oldcapnamelist[k]]
+					}
+
+				} else {
+					//feature: culture?
+					str := strconv.Itoa(j)
+					p.capnamelist = append(p.capnamelist, str)
+p.capnames[str] = j
+					}
+				}
 			}
 		}
-	}
 }
 
 func (p *parser) consumeAutocap() int {
@@ -301,7 +324,11 @@ func (p *parser) consumeAutocap() int {
 func (p *parser) countCaptures() error {
 	var ch rune
 
-	p.noteCaptureSlot(0, 0)
+	if p.useMaintainCaptureOrder() {
+		p.noteCaptureName(fmt.Sprint(0), 0)
+	} else {
+		p.noteCaptureSlot(0, 0)
+	}
 
 	p.autocap = 1
 
@@ -350,7 +377,11 @@ func (p *parser) countCaptures() error {
 								if err != nil {
 									return err
 								}
-								p.noteCaptureSlot(dec, pos)
+								if p.useMaintainCaptureOrder() {
+									p.noteCaptureName(fmt.Sprint(dec), pos)
+								} else {
+									p.noteCaptureSlot(dec, pos)
+								}
 							} else {
 								p.noteCaptureName(p.scanCapname(), pos)
 							}
@@ -386,7 +417,11 @@ func (p *parser) countCaptures() error {
 					}
 				} else {
 					if !p.useOptionN() && !p.ignoreNextParen {
-						p.noteCaptureSlot(p.consumeAutocap(), pos)
+						if p.useMaintainCaptureOrder() {
+							p.noteCaptureName(fmt.Sprint(p.autocap), pos)
+						} else {
+							p.noteCaptureSlot(p.consumeAutocap(), pos)
+						}
 					}
 				}
 			}
@@ -921,6 +956,10 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 					if p.charsRight() > 0 && !(p.rightChar(0) == close || p.rightChar(0) == '-') {
 						return nil, p.getErr(ErrInvalidGroupName)
 					}
+
+					if capnum != -1 && p.useMaintainCaptureOrder() {
+						p.consumeAutocap()
+					}
 				} else if ch == '-' {
 					proceed = true
 				} else {
@@ -1062,6 +1101,9 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 					// actually make the node
 
 					if capnum != -1 && p.charsRight() > 0 && p.moveRightGetChar() == '>' {
+						if p.useMaintainCaptureOrder() {
+							p.consumeAutocap()
+						}
 						return newRegexNodeMN(ntCapture, p.options, capnum, -1), nil
 					}
 					goto BreakRecognize
@@ -1966,6 +2008,11 @@ func (p *parser) useOptionE() bool {
 // true to use RE2 compatibility parsing behavior.
 func (p *parser) useRE2() bool {
 	return (p.options & RE2) != 0
+}
+
+// true to use MaintainCaptureOrder parsing behavior.
+func (p *parser) useMaintainCaptureOrder() bool {
+	return (p.options & MaintainCaptureOrder) != 0
 }
 
 // True if options stack is empty.

@@ -74,6 +74,7 @@ The internals of `regexp2` always operate on `[]rune` so `Index` and `Length` da
 | named back reference `\k'name'` | no | yes |
 | named ascii character class `[[:foo:]]`| yes | no (yes in RE2 compat mode) |
 | conditionals `(?(expr)yes\|no)` | no | yes |
+| PCRE capture group order | no | no (yes in MaintainCaptureOrder mode) |
 
 ## RE2 compatibility mode
 The default behavior of `regexp2` is to match the .NET regexp engine, however the `RE2` option is provided to change the parsing to increase compatibility with RE2.  Using the `RE2` option when compiling a regexp will not take away any features, but will change the following behaviors:
