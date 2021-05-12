@@ -106,7 +106,6 @@ func TestMaintainCaptureOrder_Enable_Inline(t *testing.T) {
 	}
 	text := "This is a \ntesting stuff"
 	m, err := r.FindStringMatch(text)
-	// t.Errorf(" groups: %#v\n", m)
 	if err != nil {
 		t.Errorf("unexpected match err: %v", err)
 	}
@@ -139,6 +138,35 @@ func TestMaintainCaptureOrder_Enable_Inline(t *testing.T) {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 	if want, got := `last`, groups[3].Name; want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+}
+
+func TestMaintainCaptureOrder_Inline_No_Capture_Groups(t *testing.T) {
+	r, err := Compile("(?o)this.+?testing.+?stuff", 0)
+	// t.Logf("code dump: %v", r.code.Dump())
+	if err != nil {
+		t.Errorf("unexpected compile err: %v", err)
+	}
+	text := `this is a testing stuff`
+	m, err := r.FindStringMatch(text)
+	if err != nil {
+		t.Errorf("unexpected match err: %v", err)
+	}
+	if m == nil {
+		t.Error("Nil match, expected success")
+	} else {
+		//t.Logf("Match: %v", m.dump())
+	}
+
+	groups := m.Groups()
+	if want, got := text, m.String(); want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+	if want, got := text, groups[0].String(); want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+	if want, got := 1, len(groups); want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 }
