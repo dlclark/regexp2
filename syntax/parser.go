@@ -238,8 +238,8 @@ func (p *parser) noteCaptureName(name string, pos int) {
 func (p *parser) assignNameSlots() {
 	if p.useMaintainCaptureOrder() {
 		p.capnames = p.capnamenums
-		// Prepend `0` to capnamelist if it's not set
-		if p.capnamelist[0] != `0` {
+		// Prepend `0` to capnamelist if it's not set (MaintainCaptureOrder was enabled inline)
+		if len(p.capnamelist) == 0 || p.capnamelist[0] != `0` {
 			p.capnamelist = append([]string{fmt.Sprint(0)}, p.capnamelist...)
 		}
 	} else {
