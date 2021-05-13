@@ -37,10 +37,66 @@ func TestMaintainCaptureOrder_Basic(t *testing.T) {
 	if want, got := `this`, string(m.GroupByName(`first`).Runes()); want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
+	if want, got := `first`, m.regex.GroupNameFromNumber(1); want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
 	if want, got := `testing`, groups[2].String(); want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 	if want, got := `2`, groups[2].Name; want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+	if want, got := `stuff`, groups[3].String(); want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+	if want, got := `last`, groups[3].Name; want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+	if want, got := `stuff`, string(m.GroupByNumber(3).Runes()); want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+}
+
+func TestMaintainCaptureOrder_Mode_Not_Enabled(t *testing.T) {
+	r, err := Compile("(?<first>this).+?(testing).+?(?<last>stuff)", 0)
+	// t.Logf("code dump: %v", r.code.Dump())
+	if err != nil {
+		t.Errorf("unexpected compile err: %v", err)
+	}
+	text := `this is a testing stuff`
+	m, err := r.FindStringMatch(text)
+	if err != nil {
+		t.Errorf("unexpected match err: %v", err)
+	}
+	if m == nil {
+		t.Error("Nil match, expected success")
+	} else {
+		//t.Logf("Match: %v", m.dump())
+	}
+
+	groups := m.Groups()
+	if want, got := text, m.String(); want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+	if want, got := text, groups[0].String(); want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+	if want, got := `testing`, groups[1].String(); want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+	if want, got := `1`, groups[1].Name; want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+	if want, got := `this`, string(m.GroupByName(`first`).Runes()); want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+	if want, got := `first`, m.regex.GroupNameFromNumber(2); want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+	if want, got := `this`, groups[2].String(); want != got {
+		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+	if want, got := `first`, groups[2].Name; want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 	if want, got := `stuff`, groups[3].String(); want != got {
@@ -98,52 +154,8 @@ func TestMaintainCaptureOrder_With_Other_Options(t *testing.T) {
 	}
 }
 
-func TestMaintainCaptureOrder_Enable_Inline(t *testing.T) {
-	r, err := Compile("(?sio)(?<first>this).+?\n(testing).+?(?<last>stuff)", 0)
-	// t.Logf("code dump: %v", r.code.Dump())
-	if err != nil {
-		t.Errorf("unexpected compile err: %v", err)
-	}
-	text := "This is a \ntesting stuff"
-	m, err := r.FindStringMatch(text)
-	if err != nil {
-		t.Errorf("unexpected match err: %v", err)
-	}
-	if m == nil {
-		t.Error("Nil match, expected success")
-	} else {
-		//t.Logf("Match: %v", m.dump())
-	}
-
-	groups := m.Groups()
-	if want, got := text, m.String(); want != got {
-		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
-	}
-	if want, got := text, groups[0].String(); want != got {
-		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
-	}
-	if want, got := `This`, groups[1].String(); want != got {
-		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
-	}
-	if want, got := `first`, groups[1].Name; want != got {
-		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
-	}
-	if want, got := `testing`, groups[2].String(); want != got {
-		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
-	}
-	if want, got := `2`, groups[2].Name; want != got {
-		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
-	}
-	if want, got := `stuff`, groups[3].String(); want != got {
-		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
-	}
-	if want, got := `last`, groups[3].Name; want != got {
-		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
-	}
-}
-
-func TestMaintainCaptureOrder_Inline_No_Capture_Groups(t *testing.T) {
-	r, err := Compile("(?o)this.+?testing.+?stuff", 0)
+func TestMaintainCaptureOrder_No_Capture_Groups(t *testing.T) {
+	r, err := Compile("this.+?testing.+?stuff", MaintainCaptureOrder)
 	// t.Logf("code dump: %v", r.code.Dump())
 	if err != nil {
 		t.Errorf("unexpected compile err: %v", err)

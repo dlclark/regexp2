@@ -121,7 +121,7 @@ const (
 	Debug                                = 0x0080 // "d"
 	ECMAScript                           = 0x0100 // "e"
 	RE2                                  = 0x0200 // RE2 (regexp package) compatibility mode
-	MaintainCaptureOrder                 = 0x1000 // Maintain named and unnamed capture order
+	MaintainCaptureOrder                 = 0x0400 // Maintain named and unnamed capture order
 )
 
 func (re *Regexp) RightToLeft() bool {

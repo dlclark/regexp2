@@ -22,7 +22,7 @@ const (
 	Debug                                = 0x0080 // "d"
 	ECMAScript                           = 0x0100 // "e"
 	RE2                                  = 0x0200 // RE2 compat mode
-	MaintainCaptureOrder                 = 0x1000 // "o" Maintain named and unnamed capture order
+	MaintainCaptureOrder                 = 0x0400 // Maintain named and unnamed capture order
 )
 
 func optionFromCode(ch rune) RegexOptions {
@@ -44,8 +44,6 @@ func optionFromCode(ch rune) RegexOptions {
 		return Debug
 	case 'e', 'E':
 		return ECMAScript
-	case 'o', 'O':
-		return MaintainCaptureOrder
 	default:
 		return 0
 	}
@@ -242,75 +240,76 @@ func (p *parser) assignNameSlots() {
 		if len(p.capnamelist) == 0 || p.capnamelist[0] != `0` {
 			p.capnamelist = append([]string{fmt.Sprint(0)}, p.capnamelist...)
 		}
-	} else {
-		if p.capnames != nil {
-			for _, name := range p.capnamelist {
-				for p.isCaptureSlot(p.autocap) {
-					p.autocap++
-				}
-				pos := p.capnames[name]
-				p.capnames[name] = p.autocap
-				p.noteCaptureSlot(p.autocap, pos)
+		return
+	}
 
+	if p.capnames != nil {
+		for _, name := range p.capnamelist {
+			for p.isCaptureSlot(p.autocap) {
 				p.autocap++
 			}
-		}
-		
-		// if the caps array has at least one gap, construct the list of used slots
-		if p.capcount < p.captop {
-			p.capnumlist = make([]int, p.capcount)
-			i := 0
+			pos := p.capnames[name]
+			p.capnames[name] = p.autocap
+			p.noteCaptureSlot(p.autocap, pos)
 
-			for k := range p.caps {
-				p.capnumlist[i] = k
-				i++
+			p.autocap++
+		}
+	}
+
+	// if the caps array has at least one gap, construct the list of used slots
+	if p.capcount < p.captop {
+		p.capnumlist = make([]int, p.capcount)
+		i := 0
+
+		for k := range p.caps {
+			p.capnumlist[i] = k
+			i++
+		}
+
+		sort.Ints(p.capnumlist)
+	}
+
+	// merge capsnumlist into capnamelist
+	if p.capnames != nil || p.capnumlist != nil {
+		var oldcapnamelist []string
+		var next int
+		var k int
+
+		if p.capnames == nil {
+			oldcapnamelist = nil
+			p.capnames = make(map[string]int)
+			p.capnamelist = []string{}
+			next = -1
+		} else {
+			oldcapnamelist = p.capnamelist
+			p.capnamelist = []string{}
+			next = p.capnames[oldcapnamelist[0]]
+		}
+
+		for i := 0; i < p.capcount; i++ {
+			j := i
+			if p.capnumlist != nil {
+				j = p.capnumlist[i]
 			}
 
-			sort.Ints(p.capnumlist)
-		}
+			if next == j {
+				p.capnamelist = append(p.capnamelist, oldcapnamelist[k])
+				k++
 
-		// merge capsnumlist into capnamelist
-		if p.capnames != nil || p.capnumlist != nil {
-			var oldcapnamelist []string
-			var next int
-			var k int
-
-			if p.capnames == nil {
-				oldcapnamelist = nil
-				p.capnames = make(map[string]int)
-				p.capnamelist = []string{}
-				next = -1
-			} else {
-				oldcapnamelist = p.capnamelist
-				p.capnamelist = []string{}
-				next = p.capnames[oldcapnamelist[0]]
-			}
-
-			for i := 0; i < p.capcount; i++ {
-				j := i
-				if p.capnumlist != nil {
-					j = p.capnumlist[i]
-				}
-
-				if next == j {
-					p.capnamelist = append(p.capnamelist, oldcapnamelist[k])
-					k++
-
-					if k == len(oldcapnamelist) {
-						next = -1
-					} else {
-						next = p.capnames[oldcapnamelist[k]]
-					}
-
+				if k == len(oldcapnamelist) {
+					next = -1
 				} else {
-					//feature: culture?
-					str := strconv.Itoa(j)
-					p.capnamelist = append(p.capnamelist, str)
-p.capnames[str] = j
-					}
+					next = p.capnames[oldcapnamelist[k]]
 				}
+
+			} else {
+				//feature: culture?
+				str := strconv.Itoa(j)
+				p.capnamelist = append(p.capnamelist, str)
+				p.capnames[str] = j
 			}
 		}
+	}
 }
 
 func (p *parser) consumeAutocap() int {
@@ -958,6 +957,8 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 					}
 
 					if capnum != -1 && p.useMaintainCaptureOrder() {
+						// Successfully scanned a named capture group so we need to increment
+						// our cap number to maintain the order
 						p.consumeAutocap()
 					}
 				} else if ch == '-' {
