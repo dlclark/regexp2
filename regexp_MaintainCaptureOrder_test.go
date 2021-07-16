@@ -34,7 +34,7 @@ func TestMaintainCaptureOrder_Basic(t *testing.T) {
 	if want, got := `first`, groups[1].Name; want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
-	if want, got := `this`, string(m.GroupByName(`first`).Runes()); want != got {
+	if want, got := `this`, m.GroupByName(`first`).String(); want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 	if want, got := `first`, m.regex.GroupNameFromNumber(1); want != got {
@@ -52,7 +52,7 @@ func TestMaintainCaptureOrder_Basic(t *testing.T) {
 	if want, got := `last`, groups[3].Name; want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
-	if want, got := `stuff`, string(m.GroupByNumber(3).Runes()); want != got {
+	if want, got := `stuff`, m.GroupByNumber(3).String(); want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 }
@@ -87,7 +87,7 @@ func TestMaintainCaptureOrder_Mode_Not_Enabled(t *testing.T) {
 	if want, got := `1`, groups[1].Name; want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
-	if want, got := `this`, string(m.GroupByName(`first`).Runes()); want != got {
+	if want, got := `this`, m.GroupByName(`first`).String(); want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 	if want, got := `first`, m.regex.GroupNameFromNumber(2); want != got {
@@ -105,7 +105,7 @@ func TestMaintainCaptureOrder_Mode_Not_Enabled(t *testing.T) {
 	if want, got := `last`, groups[3].Name; want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
-	if want, got := `stuff`, string(m.GroupByNumber(3).Runes()); want != got {
+	if want, got := `stuff`, m.GroupByNumber(3).String(); want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 }
