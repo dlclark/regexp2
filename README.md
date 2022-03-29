@@ -80,6 +80,7 @@ The default behavior of `regexp2` is to match the .NET regexp engine, however th
 * add support for named ascii character classes (e.g. `[[:foo:]]`)
 * add support for python-style capture groups (e.g. `(P<name>re)`)
 * change singleline behavior for `$` to only match end of string (like RE2) (see [#24](https://github.com/dlclark/regexp2/issues/24))
+* change the character classes `\d` `\s` and `\w` to match the same characters as RE2. NOTE: if you also use the `ECMAScript` option then this will change the `\s` character class to match ECMAScript instead of RE2.  ECMAScript allows more whitespace characters in `\s` than RE2 (but still fewer than the the default behavior).
  
 ```go
 re := regexp2.MustCompile(`Your RE2-compatible pattern`, regexp2.RE2)

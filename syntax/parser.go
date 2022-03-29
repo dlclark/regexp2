@@ -1121,14 +1121,14 @@ func (p *parser) scanBackslash(scanOnly bool) (*regexNode, error) {
 
 	case 'w':
 		p.moveRight(1)
-		if p.useOptionE() {
+		if p.useOptionE() || p.useRE2() {
 			return newRegexNodeSet(ntSet, p.options, ECMAWordClass()), nil
 		}
 		return newRegexNodeSet(ntSet, p.options, WordClass()), nil
 
 	case 'W':
 		p.moveRight(1)
-		if p.useOptionE() {
+		if p.useOptionE() || p.useRE2() {
 			return newRegexNodeSet(ntSet, p.options, NotECMAWordClass()), nil
 		}
 		return newRegexNodeSet(ntSet, p.options, NotWordClass()), nil
@@ -1137,6 +1137,8 @@ func (p *parser) scanBackslash(scanOnly bool) (*regexNode, error) {
 		p.moveRight(1)
 		if p.useOptionE() {
 			return newRegexNodeSet(ntSet, p.options, ECMASpaceClass()), nil
+		} else if p.useRE2() {
+			return newRegexNodeSet(ntSet, p.options, RE2SpaceClass()), nil
 		}
 		return newRegexNodeSet(ntSet, p.options, SpaceClass()), nil
 
@@ -1144,19 +1146,21 @@ func (p *parser) scanBackslash(scanOnly bool) (*regexNode, error) {
 		p.moveRight(1)
 		if p.useOptionE() {
 			return newRegexNodeSet(ntSet, p.options, NotECMASpaceClass()), nil
+		} else if p.useRE2() {
+			return newRegexNodeSet(ntSet, p.options, NotRE2SpaceClass()), nil
 		}
 		return newRegexNodeSet(ntSet, p.options, NotSpaceClass()), nil
 
 	case 'd':
 		p.moveRight(1)
-		if p.useOptionE() {
+		if p.useOptionE() || p.useRE2() {
 			return newRegexNodeSet(ntSet, p.options, ECMADigitClass()), nil
 		}
 		return newRegexNodeSet(ntSet, p.options, DigitClass()), nil
 
 	case 'D':
 		p.moveRight(1)
-		if p.useOptionE() {
+		if p.useOptionE() || p.useRE2() {
 			return newRegexNodeSet(ntSet, p.options, NotECMADigitClass()), nil
 		}
 		return newRegexNodeSet(ntSet, p.options, NotDigitClass()), nil
@@ -1462,7 +1466,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					if inRange {
 						return nil, p.getErr(ErrBadClassInCharRange, ch)
 					}
-					cc.addDigit(p.useOptionE(), ch == 'D', p.patternRaw)
+					cc.addDigit(p.useOptionE() || p.useRE2(), ch == 'D', p.patternRaw)
 				}
 				continue
 
@@ -1471,7 +1475,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					if inRange {
 						return nil, p.getErr(ErrBadClassInCharRange, ch)
 					}
-					cc.addSpace(p.useOptionE(), ch == 'S')
+					cc.addSpace(p.useOptionE(), p.useRE2(), ch == 'S')
 				}
 				continue
 
@@ -1481,7 +1485,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 						return nil, p.getErr(ErrBadClassInCharRange, ch)
 					}
 
-					cc.addWord(p.useOptionE(), ch == 'W')
+					cc.addWord(p.useOptionE() || p.useRE2(), ch == 'W')
 				}
 				continue
 
