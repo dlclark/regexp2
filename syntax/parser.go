@@ -1715,7 +1715,7 @@ func (p *parser) scanCharEscape() (r rune, err error) {
 	case 'c':
 		r, err = p.scanControl()
 	default:
-		if !p.useOptionE() && IsWordChar(ch) {
+		if !p.useOptionE() && !p.useRE2() && IsWordChar(ch) {
 			return 0, p.getErr(ErrUnrecognizedEscape, string(ch))
 		}
 		return ch, nil

@@ -194,3 +194,30 @@ func TestRegularSpace(t *testing.T) {
 		t.Fatal("Expected no match")
 	}
 }
+
+func TestEscapeLiteralDefaults(t *testing.T) {
+	_, err := Compile(`a\_test`, 0)
+	if err == nil {
+		t.Fatal("Expected compile fail")
+	}
+
+	r := MustCompile(`a\_test`, RE2)
+	if m, _ := r.MatchString("a_test"); !m {
+		t.Fatal("Expected match")
+	}
+	if m, _ := r.MatchString("a\\_test"); m {
+		t.Fatal("Expected no match")
+	}
+}
+
+/*
+func TestRE2EndZ_Singleline(t *testing.T) {
+	// PCRE allows for \n after the $ and RE2 doesn't
+	r := MustCompile(`^ac$\Z`, RE2|Debug)
+	if m, _ := r.MatchString("ac"); m {
+		t.Fatal("Expected no match")
+	}
+	if m, _ := r.MatchString("ac\n"); m {
+		t.Fatal("Expected no match")
+	}
+}*/
