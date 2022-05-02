@@ -1220,3 +1220,24 @@ func TestFuzzBytes_Match(t *testing.T) {
 		})
 	}
 }
+
+func TestConcatAccidentalPatternCharge(t *testing.T) {
+	// originally this pattern would parse incorrectly
+	// specifically the closing group would concat the string literals
+	// together but the raw rune slice would blow over the original pattern
+	// so the final bit of pattern parsing would be wrong
+	// fixed in #49
+	r, err := Compile(`(?<=1234\.\*56).*(?=890)`, 0)
+
+	if err != nil {
+		panic(err)
+	}
+
+	m, err := r.FindStringMatch(`1234.*567890`)
+	if err != nil {
+		panic(err)
+	}
+	if m == nil {
+		t.Fatal("Expected non-nil, got nil")
+	}
+}

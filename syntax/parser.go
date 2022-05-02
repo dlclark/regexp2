@@ -2067,7 +2067,8 @@ func (p *parser) addToConcatenate(pos, cch int, isReplacement bool) {
 	}
 
 	if cch > 1 {
-		str := p.pattern[pos : pos+cch]
+		str := make([]rune, cch)
+		copy(str, p.pattern[pos:pos+cch])
 
 		if p.useOptionI() && !isReplacement {
 			// We do the ToLower character by character for consistency.  With surrogate chars, doing
