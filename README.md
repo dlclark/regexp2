@@ -74,6 +74,7 @@ The internals of `regexp2` always operate on `[]rune` so `Index` and `Length` da
 | named back reference `\k'name'` | no | yes |
 | named ascii character class `[[:foo:]]`| yes | no (yes in RE2 compat mode) |
 | conditionals `(?(expr)yes\|no)` | no | yes |
+| PCRE capture group order | no | no (yes in MaintainCaptureOrder mode) |
 
 ## RE2 compatibility mode
 The default behavior of `regexp2` is to match the .NET regexp engine, however the `RE2` option is provided to change the parsing to increase compatibility with RE2.  Using the `RE2` option when compiling a regexp will not take away any features, but will change the following behaviors:
@@ -92,6 +93,20 @@ if isMatch, _ := re.MatchString(`Something to match`); isMatch {
 
 This feature is a work in progress and I'm open to ideas for more things to put here (maybe more relaxed character escaping rules?).
 
+## MaintainCaptureOrder mode
+The default behavior of `regexp2` is to match the .NET regexp engine, which unlike PCRE, doesn't maintain the order of the captures and appends the named capture groups to the end of captured groups. Using the `MaintainCaptureOrder` option when compiling a regexp will keep the order of named and unnamed capture groups.
+
+```go
+re := regexp2.MustCompile(`(?<first>This) (is) a (?<last>test)`, regexp2.RE2)
+if match, _ := re.FindStringMatch(`This is a test`); match != nil {
+    // match.Groups()[1].String() == "This"
+    // match.Groups()[1].Name == "first"
+    // match.Groups()[2].String() == "is"
+    // match.Groups()[2].Name == "2"
+    // match.Groups()[3].String() == "test"
+    // match.Groups()[3].Name == "last"
+}
+```
 
 ## Library features that I'm still working on
 - Regex split
