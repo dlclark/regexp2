@@ -1241,3 +1241,14 @@ func TestConcatAccidentalPatternCharge(t *testing.T) {
 		t.Fatal("Expected non-nil, got nil")
 	}
 }
+
+func TestGoodReverseOrderMessage(t *testing.T) {
+	_, err := Compile(`[h-c]`, ECMAScript)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	expected := "error parsing regexp: [h-c] range in reverse order in `[h-c]`"
+	if err.Error() != expected {
+		t.Fatalf("expected %q got %q", expected, err.Error())
+	}
+}

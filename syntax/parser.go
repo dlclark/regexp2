@@ -104,7 +104,7 @@ const (
 	ErrBadClassInCharRange        = "cannot include class \\%v in character range"
 	ErrUnterminatedBracket        = "unterminated [] set"
 	ErrSubtractionMustBeLast      = "a subtraction must be the last element in a character class"
-	ErrReversedCharRange          = "[x-y] range in reverse order"
+	ErrReversedCharRange          = "[%c-%c] range in reverse order"
 )
 
 func (e ErrorCode) String() string {
@@ -1571,7 +1571,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 				} else {
 					// a regular range, like a-z
 					if chPrev > ch {
-						return nil, p.getErr(ErrReversedCharRange)
+						return nil, p.getErr(ErrReversedCharRange, chPrev, ch)
 					}
 					cc.addRange(chPrev, ch)
 				}
