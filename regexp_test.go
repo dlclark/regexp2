@@ -858,6 +858,20 @@ func TestECMAScriptXCurlyBraceEscape(t *testing.T) {
 	}
 }
 
+func TestEcmaScriptUnicodeRange(t *testing.T) {
+	r, err := Compile(`([\u{001a}-\u{ffff}]+)`, ECMAScript|Unicode)
+	if err != nil {
+		panic(err)
+	}
+	m, err := r.FindStringMatch("qqqq")
+	if err != nil {
+		panic(err)
+	}
+	if m == nil {
+		t.Fatal("Expected non-nil, got nil")
+	}
+}
+
 func TestNegateRange(t *testing.T) {
 	re := MustCompile(`[\D]`, 0)
 	if m, err := re.MatchString("A"); err != nil {

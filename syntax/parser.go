@@ -22,6 +22,7 @@ const (
 	Debug                                = 0x0080 // "d"
 	ECMAScript                           = 0x0100 // "e"
 	RE2                                  = 0x0200 // RE2 compat mode
+	Unicode                              = 0x0400 // "u"
 )
 
 func optionFromCode(ch rune) RegexOptions {
@@ -43,6 +44,8 @@ func optionFromCode(ch rune) RegexOptions {
 		return Debug
 	case 'e', 'E':
 		return ECMAScript
+	case 'u', 'U':
+		return Unicode
 	default:
 		return 0
 	}
@@ -1695,7 +1698,13 @@ func (p *parser) scanCharEscape() (r rune, err error) {
 			r, err = p.scanHex(2)
 		}
 	case 'u':
-		r, err = p.scanHex(4)
+		// ECMAscript suppot \u{HEX} only if `u` is also set
+		if p.useOptionE() && p.useOptionU() && p.charsRight() > 0 && p.rightChar(0) == '{' {
+			p.moveRight(1)
+			return p.scanHexUntilBrace()
+		} else {
+			r, err = p.scanHex(4)
+		}
 	case 'a':
 		return '\u0007', nil
 	case 'b':
@@ -1970,6 +1979,11 @@ func (p *parser) useOptionE() bool {
 // true to use RE2 compatibility parsing behavior.
 func (p *parser) useRE2() bool {
 	return (p.options & RE2) != 0
+}
+
+// True if U option enabling ECMAScript's Unicode behavior on.
+func (p *parser) useOptionU() bool {
+	return (p.options & Unicode) != 0
 }
 
 // True if options stack is empty.
