@@ -92,6 +92,10 @@ if isMatch, _ := re.MatchString(`Something to match`); isMatch {
 
 This feature is a work in progress and I'm open to ideas for more things to put here (maybe more relaxed character escaping rules?).
 
+## ECMAScript compatibility mode
+In this mode the engine provides compatibility with the [regex engine](https://tc39.es/ecma262/multipage/text-processing.html#sec-regexp-regular-expression-objects) described in the ECMAScript specification.
+
+Additionally a Unicode mode is provided which allows parsing of `\u{CodePoint}` syntax that is only when both are provided.
 
 ## Library features that I'm still working on
 - Regex split
