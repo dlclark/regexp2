@@ -1427,7 +1427,7 @@ func (p *parser) scanCapname() string {
 	return string(p.pattern[startpos:p.textpos()])
 }
 
-//Scans contents of [] (not including []'s), and converts to a set.
+// Scans contents of [] (not including []'s), and converts to a set.
 func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 	ch := '\x00'
 	chPrev := '\x00'
@@ -1467,7 +1467,11 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 			case 'D', 'd':
 				if !scanOnly {
 					if inRange {
-						return nil, p.getErr(ErrBadClassInCharRange, ch)
+						if !p.useOptionE() {
+							return nil, p.getErr(ErrBadClassInCharRange, ch)
+						}
+						cc.addChar('-')
+						cc.addChar(chPrev)
 					}
 					cc.addDigit(p.useOptionE() || p.useRE2(), ch == 'D', p.patternRaw)
 				}
@@ -1476,7 +1480,11 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 			case 'S', 's':
 				if !scanOnly {
 					if inRange {
-						return nil, p.getErr(ErrBadClassInCharRange, ch)
+						if !p.useOptionE() {
+							return nil, p.getErr(ErrBadClassInCharRange, ch)
+						}
+						cc.addChar('-')
+						cc.addChar(chPrev)
 					}
 					cc.addSpace(p.useOptionE(), p.useRE2(), ch == 'S')
 				}
@@ -1485,7 +1493,11 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 			case 'W', 'w':
 				if !scanOnly {
 					if inRange {
-						return nil, p.getErr(ErrBadClassInCharRange, ch)
+						if !p.useOptionE() {
+							return nil, p.getErr(ErrBadClassInCharRange, ch)
+						}
+						cc.addChar('-')
+						cc.addChar(chPrev)
 					}
 
 					cc.addWord(p.useOptionE() || p.useRE2(), ch == 'W')
@@ -1495,7 +1507,11 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 			case 'p', 'P':
 				if !scanOnly {
 					if inRange {
-						return nil, p.getErr(ErrBadClassInCharRange, ch)
+						if !p.useOptionE() {
+							return nil, p.getErr(ErrBadClassInCharRange, ch)
+						}
+						cc.addChar('-')
+						cc.addChar(chPrev)
 					}
 					prop, err := p.parseProperty()
 					if err != nil {
@@ -1503,14 +1519,17 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					}
 					cc.addCategory(prop, (ch != 'p'), caseInsensitive, p.patternRaw)
 				} else {
-					p.parseProperty()
+					_, err := p.parseProperty()
+					if err != nil {
+						return nil, err
+					}
 				}
 
 				continue
 
 			case '-':
 				if !scanOnly {
-					cc.addRange(ch, ch)
+					cc.addChar(ch)
 				}
 				continue
 
