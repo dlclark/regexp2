@@ -710,8 +710,6 @@ func TestMono_Basics(t *testing.T) {
 	runRegexTrial(t, `.[X](.+)+[X][X]`, 0, "bbbbXXXaaaaaaaaa", "Fail.")
 	runRegexTrial(t, `.[X][X](.+)+[X]`, 0, "bbbbXXXaaaaaaaaa", "Fail.")
 	runRegexTrial(t, `tt+$`, 0, "xxxtt", "Pass. Group[0]=(3,2)")
-	runRegexTrial(t, `([\d-z]+)`, 0, "a0-za", "Pass. Group[0]=(1,3) Group[1]=(1,3)")
-	runRegexTrial(t, `([\d-\s]+)`, 0, "a0- z", "Pass. Group[0]=(1,3) Group[1]=(1,3)")
 	runRegexTrial(t, `\GX.*X`, 0, "aaaXbX", "Fail.")
 	runRegexTrial(t, `(\d+\.\d+)`, 0, "3.1415926", "Pass. Group[0]=(0,9) Group[1]=(0,9)")
 	runRegexTrial(t, `(\ba.{0,10}br)`, 0, "have a web browser", "Pass. Group[0]=(5,8) Group[1]=(5,8)")

@@ -75,6 +75,7 @@ const (
 	// Parser errors
 	ErrUnterminatedComment        = "unterminated comment"
 	ErrInvalidCharRange           = "invalid character class range"
+	ErrShorthandCharRange         = "cannot create range with shorthand escape sequence \\%c"
 	ErrInvalidRepeatSize          = "invalid repeat count"
 	ErrInvalidUTF8                = "invalid UTF-8"
 	ErrCaptureGroupOutOfRange     = "capture group number out of range"
@@ -1170,14 +1171,19 @@ func (p *parser) scanBackslash(scanOnly bool) (*regexNode, error) {
 
 	case 'p', 'P':
 		p.moveRight(1)
-		prop, err := p.parseProperty()
+		prop, literal, err := p.parseProperty()
 		if err != nil {
 			return nil, err
 		}
+
 		cc := &CharSet{}
-		cc.addCategory(prop, (ch != 'p'), p.useOptionI(), p.patternRaw)
-		if p.useOptionI() {
-			cc.addLowercase()
+		if literal {
+			cc.addChar(ch)
+		} else {
+			cc.addCategory(prop, (ch != 'p'), p.useOptionI(), p.patternRaw)
+			if p.useOptionI() {
+				cc.addLowercase()
+			}
 		}
 
 		return newRegexNodeSet(ntSet, p.options, cc), nil
@@ -1310,13 +1316,20 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*regexNode, error) {
 }
 
 // Scans X for \p{X} or \P{X}
-func (p *parser) parseProperty() (string, error) {
+func (p *parser) parseProperty() (string, bool, error) {
+	if p.useOptionE() && !p.useOptionU() {
+		// Unless unicode is enabled ECMA \p is just a literal p
+		// and \P is invalid depending on the use case, which the
+		// caller must handle.
+		return "", true, nil
+	}
+
 	if p.charsRight() < 3 {
-		return "", p.getErr(ErrIncompleteSlashP)
+		return "", false, p.getErr(ErrIncompleteSlashP)
 	}
 	ch := p.moveRightGetChar()
 	if ch != '{' {
-		return "", p.getErr(ErrMalformedSlashP)
+		return "", false, p.getErr(ErrMalformedSlashP)
 	}
 
 	startpos := p.textpos()
@@ -1330,14 +1343,14 @@ func (p *parser) parseProperty() (string, error) {
 	capname := string(p.pattern[startpos:p.textpos()])
 
 	if p.charsRight() == 0 || p.moveRightGetChar() != '}' {
-		return "", p.getErr(ErrIncompleteSlashP)
+		return "", false, p.getErr(ErrIncompleteSlashP)
 	}
 
 	if !isValidUnicodeCat(capname) {
-		return "", p.getErr(ErrUnknownSlashP, capname)
+		return "", false, p.getErr(ErrUnknownSlashP, capname)
 	}
 
-	return capname, nil
+	return capname, false, nil
 }
 
 // Returns ReNode type for zero-length assertions with a \ code.
@@ -1461,7 +1474,6 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 				closed = true
 				break
 			}
-
 		} else if ch == '\\' && p.charsRight() > 0 {
 			switch ch = p.moveRightGetChar(); ch {
 			case 'D', 'd':
@@ -1472,6 +1484,9 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 						}
 						cc.addChar('-')
 						cc.addChar(chPrev)
+						inRange = false
+					} else if p.rangeStart() {
+						return nil, p.getErr(ErrShorthandCharRange, ch)
 					}
 					cc.addDigit(p.useOptionE() || p.useRE2(), ch == 'D', p.patternRaw)
 				}
@@ -1485,6 +1500,9 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 						}
 						cc.addChar('-')
 						cc.addChar(chPrev)
+						inRange = false
+					} else if p.rangeStart() {
+						return nil, p.getErr(ErrShorthandCharRange, ch)
 					}
 					cc.addSpace(p.useOptionE(), p.useRE2(), ch == 'S')
 				}
@@ -1498,6 +1516,9 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 						}
 						cc.addChar('-')
 						cc.addChar(chPrev)
+						inRange = false
+					} else if p.rangeStart() {
+						return nil, p.getErr(ErrShorthandCharRange, ch)
 					}
 
 					cc.addWord(p.useOptionE() || p.useRE2(), ch == 'W')
@@ -1506,20 +1527,29 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 
 			case 'p', 'P':
 				if !scanOnly {
-					if inRange {
-						if !p.useOptionE() {
-							return nil, p.getErr(ErrBadClassInCharRange, ch)
-						}
-						cc.addChar('-')
-						cc.addChar(chPrev)
-					}
-					prop, err := p.parseProperty()
+					prop, literal, err := p.parseProperty()
 					if err != nil {
 						return nil, err
 					}
-					cc.addCategory(prop, (ch != 'p'), caseInsensitive, p.patternRaw)
+
+					if inRange {
+						if p.useOptionE() {
+							if ch == 'P' || !literal {
+								return nil, p.getErr(ErrShorthandCharRange, ch)
+							}
+						} else if !literal {
+							return nil, p.getErr(ErrBadClassInCharRange, ch)
+						}
+
+						cc.addRange(chPrev, ch)
+						inRange = false
+					} else if p.rangeStart() {
+						return nil, p.getErr(ErrShorthandCharRange, ch)
+					} else if !literal {
+						cc.addCategory(prop, (ch != 'p'), caseInsensitive, p.patternRaw)
+					}
 				} else {
-					_, err := p.parseProperty()
+					_, _, err := p.parseProperty()
 					if err != nil {
 						return nil, err
 					}
@@ -1541,7 +1571,6 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					return nil, err
 				}
 				fTranslatedChar = true
-				break // this break will only break out of the switch
 			}
 		} else if ch == '[' {
 			// This is code for Posix style properties - [:Ll:] or [:IsTibetan:].
@@ -1598,7 +1627,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					cc.addRange(chPrev, ch)
 				}
 			}
-		} else if p.charsRight() >= 2 && p.rightChar(0) == '-' && p.rightChar(1) != ']' {
+		} else if p.rangeStart() {
 			// this could be the start of a range
 			chPrev = ch
 			inRange = true
@@ -1619,7 +1648,10 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 				}
 			} else {
 				p.moveRight(1)
-				p.scanCharSet(caseInsensitive, true)
+				_, err := p.scanCharSet(caseInsensitive, true)
+				if err != nil {
+					return nil, err
+				}
 			}
 		} else {
 			if !scanOnly {
@@ -1936,6 +1968,13 @@ func (p *parser) charsRight() int {
 
 func (p *parser) rightMost() bool {
 	return p.currentPos == len(p.pattern)
+}
+
+// rangeStart returns true if this might be a possible range start, false.
+func (p *parser) rangeStart() bool {
+	return p.charsRight() > 1 &&
+		p.rightChar(0) == '-' &&
+		p.rightChar(1) != ']'
 }
 
 // Looks up the slot number for a given name
