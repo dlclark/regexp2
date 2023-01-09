@@ -3,6 +3,7 @@ package regexp2
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func BenchmarkLiteral(b *testing.B) {
@@ -303,5 +304,27 @@ func BenchmarkLeading(b *testing.B) {
 		} else if err != nil {
 			b.Errorf("Error: %v", err)
 		}
+	}
+}
+
+func BenchmarkShortSearch(b *testing.B) {
+	for _, name := range []string{"no-timeout", "timeout"} {
+		b.Run(name, func(b *testing.B) {
+			b.StopTimer()
+			r := MustCompile(easy0, 0)
+			if name == "timeout" {
+				r.MatchTimeout = time.Second
+			}
+			t := makeText(100)
+			b.SetBytes(int64(len(t)))
+			b.StartTimer()
+			for i := 0; i < b.N; i++ {
+				if m, err := r.MatchRunes(t); m {
+					b.Fatal("match!")
+				} else if err != nil {
+					b.Fatalf("Err %v", err)
+				}
+			}
+		})
 	}
 }
