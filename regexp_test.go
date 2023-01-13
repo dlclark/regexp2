@@ -1,6 +1,7 @@
 package regexp2
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,14 +12,43 @@ import (
 
 func TestBacktrack_CatastrophicTimeout(t *testing.T) {
 	r, err := Compile("(.+)*\\?", 0)
-	r.MatchTimeout = time.Millisecond * 1
-	t.Logf("code dump: %v", r.code.Dump())
-	m, err := r.FindStringMatch("Do you think you found the problem string!")
-	if err == nil {
-		t.Errorf("expected timeout err")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if m != nil {
-		t.Errorf("Expected no match")
+	t.Logf("code dump: %v", r.code.Dump())
+	const subject = "Do you think you found the problem string!"
+
+	const earlyAllowance = 10 * time.Millisecond
+	const lateAllowance = clockPeriod + 500*time.Millisecond // Large allowance in case machine is slow
+
+	for _, timeout := range []time.Duration{
+		-1 * time.Millisecond,
+		0 * time.Millisecond,
+		1 * time.Millisecond,
+		10 * time.Millisecond,
+		100 * time.Millisecond,
+		500 * time.Millisecond,
+		1000 * time.Millisecond,
+	} {
+		t.Run(fmt.Sprint(timeout), func(t *testing.T) {
+			r.MatchTimeout = timeout
+			start := time.Now()
+			m, err := r.FindStringMatch(subject)
+			elapsed := time.Since(start)
+			if err == nil {
+				t.Errorf("expected timeout err")
+			}
+			if m != nil {
+				t.Errorf("Expected no match")
+			}
+			t.Logf("timeed out after %v", elapsed)
+			if elapsed < timeout-earlyAllowance {
+				t.Errorf("Match timed out too quickly (%v instead of expected %v)", elapsed, timeout-earlyAllowance)
+			}
+			if elapsed > timeout+lateAllowance {
+				t.Errorf("Match timed out too late (%v instead of expected %v)", elapsed, timeout+lateAllowance)
+			}
+		})
 	}
 }
 

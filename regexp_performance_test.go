@@ -3,6 +3,7 @@ package regexp2
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func BenchmarkLiteral(b *testing.B) {
@@ -58,6 +59,7 @@ func BenchmarkMatchClass_InRange(b *testing.B) {
 
 /*
 func BenchmarkReplaceAll(b *testing.B) {
+
 	x := "abcdefghijklmnopqrstuvwxyz"
 	b.StopTimer()
 	re := MustCompile("[cjrw]", 0)
@@ -65,6 +67,7 @@ func BenchmarkReplaceAll(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		re.ReplaceAllString(x, "")
 	}
+
 }
 */
 func BenchmarkAnchoredLiteralShortNonMatch(b *testing.B) {
@@ -303,5 +306,52 @@ func BenchmarkLeading(b *testing.B) {
 		} else if err != nil {
 			b.Errorf("Error: %v", err)
 		}
+	}
+}
+
+func BenchmarkShortSearch(b *testing.B) {
+	type benchmark struct {
+		name     string
+		parallel bool // Run in parallel?
+		timeout  time.Duration
+		increase time.Duration // timeout increase per match
+	}
+	for _, mode := range []benchmark{
+		{"serial-no-timeout", false, DefaultMatchTimeout, 0},
+		{"serial-fixed-timeout", false, time.Second, 0},
+		{"serial-increasing-timeout", false, time.Second, time.Second},
+		{"parallel-no-timeout", true, DefaultMatchTimeout, 0},
+		{"parallel-fixed-timeout", true, time.Second, 0},
+		{"parallel-increasing-timeout", true, time.Second, time.Second},
+	} {
+		b.Run(mode.name, func(b *testing.B) {
+			t := makeText(100)
+			b.SetBytes(int64(len(t)))
+			matchOnce := func(r *Regexp) {
+				if m, err := r.MatchRunes(t); m {
+					b.Fatal("match!")
+				} else if err != nil {
+					b.Fatalf("Err %v", err)
+				}
+			}
+
+			if !mode.parallel {
+				r := MustCompile(easy0, 0)
+				r.MatchTimeout = mode.timeout
+				for i := 0; i < b.N; i++ {
+					matchOnce(r)
+					r.MatchTimeout += mode.increase
+				}
+			} else {
+				b.RunParallel(func(pb *testing.PB) {
+					r := MustCompile(easy0, 0)
+					r.MatchTimeout = mode.timeout
+					for pb.Next() {
+						matchOnce(r)
+						r.MatchTimeout += mode.increase
+					}
+				})
+			}
+		})
 	}
 }
