@@ -19,7 +19,7 @@ func TestBacktrack_CatastrophicTimeout(t *testing.T) {
 	const subject = "Do you think you found the problem string!"
 
 	const earlyAllowance = 10 * time.Millisecond
-	const lateAllowance = clockPeriod + 500*time.Millisecond // Large allowance in case machine is slow
+	var lateAllowance = clockPeriod + 500*time.Millisecond // Large allowance in case machine is slow
 
 	for _, timeout := range []time.Duration{
 		-1 * time.Millisecond,

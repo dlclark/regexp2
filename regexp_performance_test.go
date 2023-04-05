@@ -310,6 +310,9 @@ func BenchmarkLeading(b *testing.B) {
 }
 
 func BenchmarkShortSearch(b *testing.B) {
+	// set to default check period for benchmarking purposes
+	// unit tests tend to send this low
+	SetTimeoutCheckPeriod(DefaultClockPeriod)
 	type benchmark struct {
 		name     string
 		parallel bool // Run in parallel?
