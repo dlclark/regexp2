@@ -1296,3 +1296,36 @@ func TestGoodReverseOrderMessage(t *testing.T) {
 		t.Fatalf("expected %q got %q", expected, err.Error())
 	}
 }
+
+func TestParseShortSlashP(t *testing.T) {
+	re := MustCompile(`[!\pL\pN]{1,}`, 0)
+	m, err := re.FindStringMatch("this23! is a! test 1a 2b")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if m.String() != "this23!" {
+		t.Fatalf("Expected match")
+	}
+}
+
+func TestParseShortSlashNegateP(t *testing.T) {
+	re := MustCompile(`\PNa`, 0)
+	m, err := re.FindStringMatch("this is a test 1a 2b")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if m.String() != " a" {
+		t.Fatalf("Expected match")
+	}
+}
+
+func TestParseShortSlashPEnd(t *testing.T) {
+	re := MustCompile(`\pN`, 0)
+	m, err := re.FindStringMatch("this is a test 1a 2b")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if m.String() != "1" {
+		t.Fatalf("Expected match")
+	}
+}
