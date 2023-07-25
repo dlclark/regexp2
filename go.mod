@@ -1,3 +1,3 @@
-module github.com/dlclark/regexp2
+module github.com/gaojl0728/regexp3
 
 go 1.13
