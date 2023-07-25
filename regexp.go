@@ -6,7 +6,7 @@ It doesn't have constant time guarantees, but it allows backtracking and is comp
 You'll likely be better off with the RE2 engine from the regexp package and should only use this if you
 need to write very complex patterns or require compatibility with .NET.
 */
-package regexp2
+package regexp3
 
 import (
 	"errors"
@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dlclark/regexp2/syntax"
+	"github.com/gaojl0728/regexp3/syntax"
 )
 
 // Default timeout used when running regexp matches -- "forever"

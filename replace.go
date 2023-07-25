@@ -1,10 +1,10 @@
-package regexp2
+package regexp3
 
 import (
 	"bytes"
 	"errors"
 
-	"github.com/dlclark/regexp2/syntax"
+	"github.com/gaojl0728/regexp3/syntax"
 )
 
 const (

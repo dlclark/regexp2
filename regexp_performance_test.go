@@ -1,4 +1,4 @@
-package regexp2
+package regexp3
 
 import (
 	"strings"

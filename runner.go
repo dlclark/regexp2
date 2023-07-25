@@ -1,4 +1,4 @@
-package regexp2
+package regexp3
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/dlclark/regexp2/syntax"
+	"github.com/gaojl0728/regexp3/syntax"
 )
 
 type runner struct {
