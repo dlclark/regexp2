@@ -19,7 +19,10 @@ import (
 )
 
 // Default timeout used when running regexp matches -- "forever"
-var DefaultMatchTimeout = time.Duration(math.MaxInt64)
+var (
+	DefaultMatchTimeout     = time.Duration(math.MaxInt64)
+	DefaultUnmarshalOptions = None
+)
 
 // Regexp is the representation of a compiled regular expression.
 // A Regexp is safe for concurrent use by multiple goroutines.
@@ -43,7 +46,7 @@ type Regexp struct {
 	code *syntax.Code // compiled program
 
 	// cache of machines for running regexp
-	muRun  sync.Mutex
+	muRun  *sync.Mutex
 	runner []*runner
 }
 
@@ -72,6 +75,7 @@ func Compile(expr string, opt RegexOptions) (*Regexp, error) {
 		capsize:      code.Capsize,
 		code:         code,
 		MatchTimeout: DefaultMatchTimeout,
+		muRun:        &sync.Mutex{},
 	}, nil
 }
 
@@ -370,4 +374,21 @@ func (re *Regexp) GroupNumberFromName(name string) int {
 	}
 
 	return -1
+}
+
+// MarshalText implements [encoding.TextMarshaler]. The output
+// matches that of calling the [Regexp.String] method.
+func (re *Regexp) MarshalText() ([]byte, error) {
+	return []byte(re.String()), nil
+}
+
+// UnmarshalText implements [encoding.TextUnmarshaler] by calling
+// [Compile] on the encoded value.
+func (re *Regexp) UnmarshalText(text []byte) error {
+	newRE, err := Compile(string(text), DefaultUnmarshalOptions)
+	if err != nil {
+		return err
+	}
+	*re = *newRE
+	return nil
 }

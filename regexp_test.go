@@ -1,6 +1,7 @@
 package regexp2
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -1327,5 +1328,39 @@ func TestParseShortSlashPEnd(t *testing.T) {
 	}
 	if m.String() != "1" {
 		t.Fatalf("Expected match")
+	}
+}
+
+func TestMarshal(t *testing.T) {
+	re := MustCompile(`.*`, 0)
+	m, err := json.Marshal(re)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if string(m) != `".*"` {
+		t.Fatalf(`Expected ".*"`)
+	}
+}
+
+func TestUnMarshal(t *testing.T) {
+	DefaultUnmarshalOptions = IgnoreCase
+	bytes := []byte(`"^[abc]"`)
+	var re *Regexp
+	err := json.Unmarshal(bytes, &re)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if re.options != IgnoreCase {
+		t.Fatalf("Expected options ignore case")
+	}
+	if re.String() != `^[abc]` {
+		t.Fatalf(`Expected "^[abc]"`)
+	}
+	ok, err := re.MatchString("A")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if !ok {
+		t.Fatalf(`Expected match`)
 	}
 }
