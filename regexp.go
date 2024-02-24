@@ -18,9 +18,10 @@ import (
 	"github.com/dlclark/regexp2/syntax"
 )
 
-// Default timeout used when running regexp matches -- "forever"
 var (
-	DefaultMatchTimeout     = time.Duration(math.MaxInt64)
+	// DefaultMatchTimeout used when running regexp matches -- "forever"
+	DefaultMatchTimeout = time.Duration(math.MaxInt64)
+	// DefaultUnmarshalOptions used when unmarshaling a regex from text
 	DefaultUnmarshalOptions = None
 )
 
