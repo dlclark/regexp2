@@ -26,67 +26,67 @@ const (
 	// 					    lef/back operands        description
 
 	Onerep    InstOp = 0 // lef,back char,min,max    a {n}
-	Notonerep        = 1 // lef,back char,min,max    .{n}
-	Setrep           = 2 // lef,back set,min,max     [\d]{n}
+	Notonerep InstOp = 1 // lef,back char,min,max    .{n}
+	Setrep    InstOp = 2 // lef,back set,min,max     [\d]{n}
 
-	Oneloop    = 3 // lef,back char,min,max    a {,n}
-	Notoneloop = 4 // lef,back char,min,max    .{,n}
-	Setloop    = 5 // lef,back set,min,max     [\d]{,n}
+	Oneloop    InstOp = 3 // lef,back char,min,max    a {,n}
+	Notoneloop InstOp = 4 // lef,back char,min,max    .{,n}
+	Setloop    InstOp = 5 // lef,back set,min,max     [\d]{,n}
 
-	Onelazy    = 6 // lef,back char,min,max    a {,n}?
-	Notonelazy = 7 // lef,back char,min,max    .{,n}?
-	Setlazy    = 8 // lef,back set,min,max     [\d]{,n}?
+	Onelazy    InstOp = 6 // lef,back char,min,max    a {,n}?
+	Notonelazy InstOp = 7 // lef,back char,min,max    .{,n}?
+	Setlazy    InstOp = 8 // lef,back set,min,max     [\d]{,n}?
 
-	One    = 9  // lef      char            a
-	Notone = 10 // lef      char            [^a]
-	Set    = 11 // lef      set             [a-z\s]  \w \s \d
+	One    InstOp = 9  // lef      char            a
+	Notone InstOp = 10 // lef      char            [^a]
+	Set    InstOp = 11 // lef      set             [a-z\s]  \w \s \d
 
-	Multi = 12 // lef      string          abcd
-	Ref   = 13 // lef      group           \#
+	Multi InstOp = 12 // lef      string          abcd
+	Ref   InstOp = 13 // lef      group           \#
 
-	Bol         = 14 //                          ^
-	Eol         = 15 //                          $
-	Boundary    = 16 //                          \b
-	Nonboundary = 17 //                          \B
-	Beginning   = 18 //                          \A
-	Start       = 19 //                          \G
-	EndZ        = 20 //                          \Z
-	End         = 21 //                          \Z
+	Bol         InstOp = 14 //                          ^
+	Eol         InstOp = 15 //                          $
+	Boundary    InstOp = 16 //                          \b
+	Nonboundary InstOp = 17 //                          \B
+	Beginning   InstOp = 18 //                          \A
+	Start       InstOp = 19 //                          \G
+	EndZ        InstOp = 20 //                          \Z
+	End         InstOp = 21 //                          \Z
 
-	Nothing = 22 //                          Reject!
+	Nothing InstOp = 22 //                          Reject!
 
 	// Primitive control structures
 
-	Lazybranch      = 23 // back     jump            straight first
-	Branchmark      = 24 // back     jump            branch first for loop
-	Lazybranchmark  = 25 // back     jump            straight first for loop
-	Nullcount       = 26 // back     val             set counter, null mark
-	Setcount        = 27 // back     val             set counter, make mark
-	Branchcount     = 28 // back     jump,limit      branch++ if zero<=c<limit
-	Lazybranchcount = 29 // back     jump,limit      same, but straight first
-	Nullmark        = 30 // back                     save position
-	Setmark         = 31 // back                     save position
-	Capturemark     = 32 // back     group           define group
-	Getmark         = 33 // back                     recall position
-	Setjump         = 34 // back                     save backtrack state
-	Backjump        = 35 //                          zap back to saved state
-	Forejump        = 36 //                          zap backtracking state
-	Testref         = 37 //                          backtrack if ref undefined
-	Goto            = 38 //          jump            just go
+	Lazybranch      InstOp = 23 // back     jump            straight first
+	Branchmark      InstOp = 24 // back     jump            branch first for loop
+	Lazybranchmark  InstOp = 25 // back     jump            straight first for loop
+	Nullcount       InstOp = 26 // back     val             set counter, null mark
+	Setcount        InstOp = 27 // back     val             set counter, make mark
+	Branchcount     InstOp = 28 // back     jump,limit      branch++ if zero<=c<limit
+	Lazybranchcount InstOp = 29 // back     jump,limit      same, but straight first
+	Nullmark        InstOp = 30 // back                     save position
+	Setmark         InstOp = 31 // back                     save position
+	Capturemark     InstOp = 32 // back     group           define group
+	Getmark         InstOp = 33 // back                     recall position
+	Setjump         InstOp = 34 // back                     save backtrack state
+	Backjump        InstOp = 35 //                          zap back to saved state
+	Forejump        InstOp = 36 //                          zap backtracking state
+	Testref         InstOp = 37 //                          backtrack if ref undefined
+	Goto            InstOp = 38 //          jump            just go
 
-	Prune = 39 //                          prune it baby
-	Stop  = 40 //                          done!
+	Prune InstOp = 39 //                          prune it baby
+	Stop  InstOp = 40 //                          done!
 
-	ECMABoundary    = 41 //                          \b
-	NonECMABoundary = 42 //                          \B
+	ECMABoundary    InstOp = 41 //                          \b
+	NonECMABoundary InstOp = 42 //                          \B
 
 	// Modifiers for alternate modes
 
-	Mask  = 63  // Mask to get unmodified ordinary operator
-	Rtl   = 64  // bit to indicate that we're reverse scanning.
-	Back  = 128 // bit to indicate that we're backtracking.
-	Back2 = 256 // bit to indicate that we're backtracking on a second branch.
-	Ci    = 512 // bit to indicate that we're case-insensitive.
+	Mask  InstOp = 63  // Mask to get unmodified ordinary operator
+	Rtl   InstOp = 64  // bit to indicate that we're reverse scanning.
+	Back  InstOp = 128 // bit to indicate that we're backtracking.
+	Back2 InstOp = 256 // bit to indicate that we're backtracking on a second branch.
+	Ci    InstOp = 512 // bit to indicate that we're case-insensitive.
 )
 
 type Code struct {
@@ -133,7 +133,7 @@ func opcodeSize(op InstOp) int {
 		return 3
 
 	default:
-		panic(fmt.Errorf("Unexpected op code: %v", op))
+		panic(fmt.Errorf("unexpected op code: %v", op))
 	}
 }
 

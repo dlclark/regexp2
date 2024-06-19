@@ -87,7 +87,7 @@ func (re *Regexp) run(quick bool, textstart int, input []rune) (*Match, error) {
 		}
 	}
 
-	return runner.scan(input, textstart, quick, re.MatchTimeout)
+	return runner.Scan(input, textstart, quick, re.MatchTimeout)
 }
 
 // Scans the string to find the first match. Uses the Match object
@@ -100,7 +100,7 @@ func (re *Regexp) run(quick bool, textstart int, input []rune) (*Match, error) {
 // The optimizer can compute a set of candidate starting characters,
 // and we could use a separate method Skip() that will quickly scan past
 // any characters that we know can't match.
-func (r *runner) scan(rt []rune, textstart int, quick bool, timeout time.Duration) (*Match, error) {
+func (r *runner) Scan(rt []rune, textstart int, quick bool, timeout time.Duration) (*Match, error) {
 	r.timeout = timeout
 	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
 	r.runtextstart = textstart
@@ -1042,9 +1042,9 @@ func (r *runner) backtrack() {
 
 	if newpos < 0 {
 		newpos = -newpos
-		r.setOperator(r.code.Codes[newpos] | syntax.Back2)
+		r.setOperator(r.code.Codes[newpos] | int(syntax.Back2))
 	} else {
-		r.setOperator(r.code.Codes[newpos] | syntax.Back)
+		r.setOperator(r.code.Codes[newpos] | int(syntax.Back))
 	}
 
 	// When branching backward, ensure storage
@@ -1056,9 +1056,9 @@ func (r *runner) backtrack() {
 }
 
 func (r *runner) setOperator(op int) {
-	r.caseInsensitive = (0 != (op & syntax.Ci))
-	r.rightToLeft = (0 != (op & syntax.Rtl))
-	r.operator = syntax.InstOp(op & ^(syntax.Rtl | syntax.Ci))
+	r.caseInsensitive = (0 != (op & int(syntax.Ci)))
+	r.rightToLeft = (0 != (op & int(syntax.Rtl)))
+	r.operator = syntax.InstOp(op & ^int(syntax.Rtl|syntax.Ci))
 }
 
 func (r *runner) trackPop() {
@@ -1582,7 +1582,7 @@ func (r *runner) initTrackCount() {
 // getRunner returns a run to use for matching re.
 // It uses the re's runner cache if possible, to avoid
 // unnecessary allocation.
-func (re *Regexp) getRunner() *runner {
+func (re *Regexp) getRunner() RegexRunner {
 	re.muRun.Lock()
 	if n := len(re.runner); n > 0 {
 		z := re.runner[n-1]
@@ -1591,10 +1591,7 @@ func (re *Regexp) getRunner() *runner {
 		return z
 	}
 	re.muRun.Unlock()
-	z := &runner{
-		re:   re,
-		code: re.code,
-	}
+	z := re.newRunner()
 	return z
 }
 
@@ -1602,7 +1599,7 @@ func (re *Regexp) getRunner() *runner {
 // There is no attempt to limit the size of the cache, so it will
 // grow to the maximum number of simultaneous matches
 // run using re.  (The cache empties when re gets garbage collected.)
-func (re *Regexp) putRunner(r *runner) {
+func (re *Regexp) putRunner(r RegexRunner) {
 	re.muRun.Lock()
 	re.runner = append(re.runner, r)
 	re.muRun.Unlock()

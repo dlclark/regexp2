@@ -8,13 +8,13 @@ import (
 )
 
 type RegexTree struct {
-	root       *regexNode
-	caps       map[int]int
-	capnumlist []int
-	captop     int
+	Root       *RegexNode
+	Caps       map[int]int
+	Capnumlist []int
+	Captop     int
 	Capnames   map[string]int
 	Caplist    []string
-	options    RegexOptions
+	Options    RegexOptions
 }
 
 // It is built into a parsed tree for a regular expression.
@@ -52,160 +52,160 @@ type RegexTree struct {
 // Two integers (for the looping constructs) are stored in
 // n.operands, an an object (either a string or a set)
 // is stored in n.data
-type regexNode struct {
-	t        nodeType
-	children []*regexNode
-	str      []rune
-	set      *CharSet
-	ch       rune
-	m        int
-	n        int
-	options  RegexOptions
-	next     *regexNode
+type RegexNode struct {
+	T        NodeType
+	Children []*RegexNode
+	Str      []rune
+	Set      *CharSet
+	Ch       rune
+	M        int
+	N        int
+	Options  RegexOptions
+	Next     *RegexNode
 }
 
-type nodeType int32
+type NodeType int32
 
 const (
 	// The following are leaves, and correspond to primitive operations
 
-	ntOnerep      nodeType = 0  // lef,back char,min,max    a {n}
-	ntNotonerep            = 1  // lef,back char,min,max    .{n}
-	ntSetrep               = 2  // lef,back set,min,max     [\d]{n}
-	ntOneloop              = 3  // lef,back char,min,max    a {,n}
-	ntNotoneloop           = 4  // lef,back char,min,max    .{,n}
-	ntSetloop              = 5  // lef,back set,min,max     [\d]{,n}
-	ntOnelazy              = 6  // lef,back char,min,max    a {,n}?
-	ntNotonelazy           = 7  // lef,back char,min,max    .{,n}?
-	ntSetlazy              = 8  // lef,back set,min,max     [\d]{,n}?
-	ntOne                  = 9  // lef      char            a
-	ntNotone               = 10 // lef      char            [^a]
-	ntSet                  = 11 // lef      set             [a-z\s]  \w \s \d
-	ntMulti                = 12 // lef      string          abcd
-	ntRef                  = 13 // lef      group           \#
-	ntBol                  = 14 //                          ^
-	ntEol                  = 15 //                          $
-	ntBoundary             = 16 //                          \b
-	ntNonboundary          = 17 //                          \B
-	ntBeginning            = 18 //                          \A
-	ntStart                = 19 //                          \G
-	ntEndZ                 = 20 //                          \Z
-	ntEnd                  = 21 //                          \Z
+	NtOnerep      NodeType = 0  // lef,back char,min,max    a {n}
+	NtNotonerep   NodeType = 1  // lef,back char,min,max    .{n}
+	NtSetrep      NodeType = 2  // lef,back set,min,max     [\d]{n}
+	NtOneloop     NodeType = 3  // lef,back char,min,max    a {,n}
+	NtNotoneloop  NodeType = 4  // lef,back char,min,max    .{,n}
+	NtSetloop     NodeType = 5  // lef,back set,min,max     [\d]{,n}
+	NtOnelazy     NodeType = 6  // lef,back char,min,max    a {,n}?
+	NtNotonelazy  NodeType = 7  // lef,back char,min,max    .{,n}?
+	NtSetlazy     NodeType = 8  // lef,back set,min,max     [\d]{,n}?
+	NtOne         NodeType = 9  // lef      char            a
+	NtNotone      NodeType = 10 // lef      char            [^a]
+	NtSet         NodeType = 11 // lef      set             [a-z\s]  \w \s \d
+	NtMulti       NodeType = 12 // lef      string          abcd
+	NtRef         NodeType = 13 // lef      group           \#
+	NtBol         NodeType = 14 //                          ^
+	NtEol         NodeType = 15 //                          $
+	NtBoundary    NodeType = 16 //                          \b
+	NtNonboundary NodeType = 17 //                          \B
+	NtBeginning   NodeType = 18 //                          \A
+	NtStart       NodeType = 19 //                          \G
+	NtEndZ        NodeType = 20 //                          \Z
+	NtEnd         NodeType = 21 //                          \Z
 
 	// Interior nodes do not correspond to primitive operations, but
 	// control structures compositing other operations
 
 	// Concat and alternate take n children, and can run forward or backwards
 
-	ntNothing     = 22 //          []
-	ntEmpty       = 23 //          ()
-	ntAlternate   = 24 //          a|b
-	ntConcatenate = 25 //          ab
-	ntLoop        = 26 // m,x      * + ? {,}
-	ntLazyloop    = 27 // m,x      *? +? ?? {,}?
-	ntCapture     = 28 // n        ()
-	ntGroup       = 29 //          (?:)
-	ntRequire     = 30 //          (?=) (?<=)
-	ntPrevent     = 31 //          (?!) (?<!)
-	ntGreedy      = 32 //          (?>) (?<)
-	ntTestref     = 33 //          (?(n) | )
-	ntTestgroup   = 34 //          (?(...) | )
+	NtNothing     NodeType = 22 //          []
+	NtEmpty       NodeType = 23 //          ()
+	NtAlternate   NodeType = 24 //          a|b
+	NtConcatenate NodeType = 25 //          ab
+	NtLoop        NodeType = 26 // m,x      * + ? {,}
+	NtLazyloop    NodeType = 27 // m,x      *? +? ?? {,}?
+	NtCapture     NodeType = 28 // n        ()
+	NtGroup       NodeType = 29 //          (?:)
+	NtRequire     NodeType = 30 //          (?=) (?<=)
+	NtPrevent     NodeType = 31 //          (?!) (?<!)
+	NtGreedy      NodeType = 32 //          (?>) (?<)
+	NtTestref     NodeType = 33 //          (?(n) | )
+	NtTestgroup   NodeType = 34 //          (?(...) | )
 
-	ntECMABoundary    = 41 //                          \b
-	ntNonECMABoundary = 42 //                          \B
+	NtECMABoundary    NodeType = 41 //                          \b
+	NtNonECMABoundary NodeType = 42 //                          \B
 )
 
-func newRegexNode(t nodeType, opt RegexOptions) *regexNode {
-	return &regexNode{
-		t:       t,
-		options: opt,
+func newRegexNode(t NodeType, opt RegexOptions) *RegexNode {
+	return &RegexNode{
+		T:       t,
+		Options: opt,
 	}
 }
 
-func newRegexNodeCh(t nodeType, opt RegexOptions, ch rune) *regexNode {
-	return &regexNode{
-		t:       t,
-		options: opt,
-		ch:      ch,
+func newRegexNodeCh(t NodeType, opt RegexOptions, ch rune) *RegexNode {
+	return &RegexNode{
+		T:       t,
+		Options: opt,
+		Ch:      ch,
 	}
 }
 
-func newRegexNodeStr(t nodeType, opt RegexOptions, str []rune) *regexNode {
-	return &regexNode{
-		t:       t,
-		options: opt,
-		str:     str,
+func newRegexNodeStr(t NodeType, opt RegexOptions, str []rune) *RegexNode {
+	return &RegexNode{
+		T:       t,
+		Options: opt,
+		Str:     str,
 	}
 }
 
-func newRegexNodeSet(t nodeType, opt RegexOptions, set *CharSet) *regexNode {
-	return &regexNode{
-		t:       t,
-		options: opt,
-		set:     set,
+func newRegexNodeSet(t NodeType, opt RegexOptions, set *CharSet) *RegexNode {
+	return &RegexNode{
+		T:       t,
+		Options: opt,
+		Set:     set,
 	}
 }
 
-func newRegexNodeM(t nodeType, opt RegexOptions, m int) *regexNode {
-	return &regexNode{
-		t:       t,
-		options: opt,
-		m:       m,
+func newRegexNodeM(t NodeType, opt RegexOptions, m int) *RegexNode {
+	return &RegexNode{
+		T:       t,
+		Options: opt,
+		M:       m,
 	}
 }
-func newRegexNodeMN(t nodeType, opt RegexOptions, m, n int) *regexNode {
-	return &regexNode{
-		t:       t,
-		options: opt,
-		m:       m,
-		n:       n,
-	}
-}
-
-func (n *regexNode) writeStrToBuf(buf *bytes.Buffer) {
-	for i := 0; i < len(n.str); i++ {
-		buf.WriteRune(n.str[i])
+func newRegexNodeMN(t NodeType, opt RegexOptions, m, n int) *RegexNode {
+	return &RegexNode{
+		T:       t,
+		Options: opt,
+		M:       m,
+		N:       n,
 	}
 }
 
-func (n *regexNode) addChild(child *regexNode) {
+func (n *RegexNode) writeStrToBuf(buf *bytes.Buffer) {
+	for i := 0; i < len(n.Str); i++ {
+		buf.WriteRune(n.Str[i])
+	}
+}
+
+func (n *RegexNode) addChild(child *RegexNode) {
 	reduced := child.reduce()
-	n.children = append(n.children, reduced)
-	reduced.next = n
+	n.Children = append(n.Children, reduced)
+	reduced.Next = n
 }
 
-func (n *regexNode) insertChildren(afterIndex int, nodes []*regexNode) {
-	newChildren := make([]*regexNode, 0, len(n.children)+len(nodes))
-	n.children = append(append(append(newChildren, n.children[:afterIndex]...), nodes...), n.children[afterIndex:]...)
+func (n *RegexNode) insertChildren(afterIndex int, nodes []*RegexNode) {
+	newChildren := make([]*RegexNode, 0, len(n.Children)+len(nodes))
+	n.Children = append(append(append(newChildren, n.Children[:afterIndex]...), nodes...), n.Children[afterIndex:]...)
 }
 
 // removes children including the start but not the end index
-func (n *regexNode) removeChildren(startIndex, endIndex int) {
-	n.children = append(n.children[:startIndex], n.children[endIndex:]...)
+func (n *RegexNode) removeChildren(startIndex, endIndex int) {
+	n.Children = append(n.Children[:startIndex], n.Children[endIndex:]...)
 }
 
 // Pass type as OneLazy or OneLoop
-func (n *regexNode) makeRep(t nodeType, min, max int) {
-	n.t += (t - ntOne)
-	n.m = min
-	n.n = max
+func (n *RegexNode) makeRep(t NodeType, min, max int) {
+	n.T += (t - NtOne)
+	n.M = min
+	n.N = max
 }
 
-func (n *regexNode) reduce() *regexNode {
-	switch n.t {
-	case ntAlternate:
+func (n *RegexNode) reduce() *RegexNode {
+	switch n.T {
+	case NtAlternate:
 		return n.reduceAlternation()
 
-	case ntConcatenate:
+	case NtConcatenate:
 		return n.reduceConcatenation()
 
-	case ntLoop, ntLazyloop:
+	case NtLoop, NtLazyloop:
 		return n.reduceRep()
 
-	case ntGroup:
+	case NtGroup:
 		return n.reduceGroup()
 
-	case ntSet, ntSetloop:
+	case NtSet, NtSetloop:
 		return n.reduceSet()
 
 	default:
@@ -219,9 +219,9 @@ func (n *regexNode) reduce() *regexNode {
 //
 // a|b|c|def|g|h -> [a-c]|def|[gh]
 // apple|(?:orange|pear)|grape -> apple|orange|pear|grape
-func (n *regexNode) reduceAlternation() *regexNode {
-	if len(n.children) == 0 {
-		return newRegexNode(ntNothing, n.options)
+func (n *RegexNode) reduceAlternation() *RegexNode {
+	if len(n.Children) == 0 {
+		return newRegexNode(NtNothing, n.Options)
 	}
 
 	wasLastSet := false
@@ -229,29 +229,29 @@ func (n *regexNode) reduceAlternation() *regexNode {
 	var optionsLast RegexOptions
 	var i, j int
 
-	for i, j = 0, 0; i < len(n.children); i, j = i+1, j+1 {
-		at := n.children[i]
+	for i, j = 0, 0; i < len(n.Children); i, j = i+1, j+1 {
+		at := n.Children[i]
 
 		if j < i {
-			n.children[j] = at
+			n.Children[j] = at
 		}
 
 		for {
-			if at.t == ntAlternate {
-				for k := 0; k < len(at.children); k++ {
-					at.children[k].next = n
+			if at.T == NtAlternate {
+				for k := 0; k < len(at.Children); k++ {
+					at.Children[k].Next = n
 				}
-				n.insertChildren(i+1, at.children)
+				n.insertChildren(i+1, at.Children)
 
 				j--
-			} else if at.t == ntSet || at.t == ntOne {
+			} else if at.T == NtSet || at.T == NtOne {
 				// Cannot merge sets if L or I options differ, or if either are negated.
-				optionsAt := at.options & (RightToLeft | IgnoreCase)
+				optionsAt := at.Options & (RightToLeft | IgnoreCase)
 
-				if at.t == ntSet {
-					if !wasLastSet || optionsLast != optionsAt || lastNodeCannotMerge || !at.set.IsMergeable() {
+				if at.T == NtSet {
+					if !wasLastSet || optionsLast != optionsAt || lastNodeCannotMerge || !at.Set.IsMergeable() {
 						wasLastSet = true
-						lastNodeCannotMerge = !at.set.IsMergeable()
+						lastNodeCannotMerge = !at.Set.IsMergeable()
 						optionsLast = optionsAt
 						break
 					}
@@ -265,25 +265,25 @@ func (n *regexNode) reduceAlternation() *regexNode {
 				// The last node was a Set or a One, we're a Set or One and our options are the same.
 				// Merge the two nodes.
 				j--
-				prev := n.children[j]
+				prev := n.Children[j]
 
 				var prevCharClass *CharSet
-				if prev.t == ntOne {
+				if prev.T == NtOne {
 					prevCharClass = &CharSet{}
-					prevCharClass.addChar(prev.ch)
+					prevCharClass.addChar(prev.Ch)
 				} else {
-					prevCharClass = prev.set
+					prevCharClass = prev.Set
 				}
 
-				if at.t == ntOne {
-					prevCharClass.addChar(at.ch)
+				if at.T == NtOne {
+					prevCharClass.addChar(at.Ch)
 				} else {
-					prevCharClass.addSet(*at.set)
+					prevCharClass.addSet(*at.Set)
 				}
 
-				prev.t = ntSet
-				prev.set = prevCharClass
-			} else if at.t == ntNothing {
+				prev.T = NtSet
+				prev.Set = prevCharClass
+			} else if at.T == NtNothing {
 				j--
 			} else {
 				wasLastSet = false
@@ -297,47 +297,47 @@ func (n *regexNode) reduceAlternation() *regexNode {
 		n.removeChildren(j, i)
 	}
 
-	return n.stripEnation(ntNothing)
+	return n.stripEnation(NtNothing)
 }
 
 // Basic optimization. Adjacent strings can be concatenated.
 //
 // (?:abc)(?:def) -> abcdef
-func (n *regexNode) reduceConcatenation() *regexNode {
+func (n *RegexNode) reduceConcatenation() *RegexNode {
 	// Eliminate empties and concat adjacent strings/chars
 
 	var optionsLast RegexOptions
 	var optionsAt RegexOptions
 	var i, j int
 
-	if len(n.children) == 0 {
-		return newRegexNode(ntEmpty, n.options)
+	if len(n.Children) == 0 {
+		return newRegexNode(NtEmpty, n.Options)
 	}
 
 	wasLastString := false
 
-	for i, j = 0, 0; i < len(n.children); i, j = i+1, j+1 {
-		var at, prev *regexNode
+	for i, j = 0, 0; i < len(n.Children); i, j = i+1, j+1 {
+		var at, prev *RegexNode
 
-		at = n.children[i]
+		at = n.Children[i]
 
 		if j < i {
-			n.children[j] = at
+			n.Children[j] = at
 		}
 
-		if at.t == ntConcatenate &&
-			((at.options & RightToLeft) == (n.options & RightToLeft)) {
-			for k := 0; k < len(at.children); k++ {
-				at.children[k].next = n
+		if at.T == NtConcatenate &&
+			((at.Options & RightToLeft) == (n.Options & RightToLeft)) {
+			for k := 0; k < len(at.Children); k++ {
+				at.Children[k].Next = n
 			}
 
 			//insert at.children at i+1 index in n.children
-			n.insertChildren(i+1, at.children)
+			n.insertChildren(i+1, at.Children)
 
 			j--
-		} else if at.t == ntMulti || at.t == ntOne {
+		} else if at.T == NtMulti || at.T == NtOne {
 			// Cannot merge strings if L or I options differ
-			optionsAt = at.options & (RightToLeft | IgnoreCase)
+			optionsAt = at.Options & (RightToLeft | IgnoreCase)
 
 			if !wasLastString || optionsLast != optionsAt {
 				wasLastString = true
@@ -346,34 +346,34 @@ func (n *regexNode) reduceConcatenation() *regexNode {
 			}
 
 			j--
-			prev = n.children[j]
+			prev = n.Children[j]
 
-			if prev.t == ntOne {
-				prev.t = ntMulti
-				prev.str = []rune{prev.ch}
+			if prev.T == NtOne {
+				prev.T = NtMulti
+				prev.Str = []rune{prev.Ch}
 			}
 
 			if (optionsAt & RightToLeft) == 0 {
-				if at.t == ntOne {
-					prev.str = append(prev.str, at.ch)
+				if at.T == NtOne {
+					prev.Str = append(prev.Str, at.Ch)
 				} else {
-					prev.str = append(prev.str, at.str...)
+					prev.Str = append(prev.Str, at.Str...)
 				}
 			} else {
-				if at.t == ntOne {
+				if at.T == NtOne {
 					// insert at the front by expanding our slice, copying the data over, and then setting the value
-					prev.str = append(prev.str, 0)
-					copy(prev.str[1:], prev.str)
-					prev.str[0] = at.ch
+					prev.Str = append(prev.Str, 0)
+					copy(prev.Str[1:], prev.Str)
+					prev.Str[0] = at.Ch
 				} else {
 					//insert at the front...this one we'll make a new slice and copy both into it
-					merge := make([]rune, len(prev.str)+len(at.str))
-					copy(merge, at.str)
-					copy(merge[len(at.str):], prev.str)
-					prev.str = merge
+					merge := make([]rune, len(prev.Str)+len(at.Str))
+					copy(merge, at.Str)
+					copy(merge[len(at.Str):], prev.Str)
+					prev.Str = merge
 				}
 			}
-		} else if at.t == ntEmpty {
+		} else if at.T == NtEmpty {
 			j--
 		} else {
 			wasLastString = false
@@ -385,60 +385,60 @@ func (n *regexNode) reduceConcatenation() *regexNode {
 		n.removeChildren(j, i)
 	}
 
-	return n.stripEnation(ntEmpty)
+	return n.stripEnation(NtEmpty)
 }
 
 // Nested repeaters just get multiplied with each other if they're not
 // too lumpy
-func (n *regexNode) reduceRep() *regexNode {
+func (n *RegexNode) reduceRep() *RegexNode {
 
 	u := n
-	t := n.t
-	min := n.m
-	max := n.n
+	t := n.T
+	min := n.M
+	max := n.N
 
 	for {
-		if len(u.children) == 0 {
+		if len(u.Children) == 0 {
 			break
 		}
 
-		child := u.children[0]
+		child := u.Children[0]
 
 		// multiply reps of the same type only
-		if child.t != t {
-			childType := child.t
+		if child.T != t {
+			childType := child.T
 
-			if !(childType >= ntOneloop && childType <= ntSetloop && t == ntLoop ||
-				childType >= ntOnelazy && childType <= ntSetlazy && t == ntLazyloop) {
+			if !(childType >= NtOneloop && childType <= NtSetloop && t == NtLoop ||
+				childType >= NtOnelazy && childType <= NtSetlazy && t == NtLazyloop) {
 				break
 			}
 		}
 
 		// child can be too lumpy to blur, e.g., (a {100,105}) {3} or (a {2,})?
 		// [but things like (a {2,})+ are not too lumpy...]
-		if u.m == 0 && child.m > 1 || child.n < child.m*2 {
+		if u.M == 0 && child.M > 1 || child.N < child.M*2 {
 			break
 		}
 
 		u = child
-		if u.m > 0 {
-			if (math.MaxInt32-1)/u.m < min {
-				u.m = math.MaxInt32
+		if u.M > 0 {
+			if (math.MaxInt32-1)/u.M < min {
+				u.M = math.MaxInt32
 			} else {
-				u.m = u.m * min
+				u.M = u.M * min
 			}
 		}
-		if u.n > 0 {
-			if (math.MaxInt32-1)/u.n < max {
-				u.n = math.MaxInt32
+		if u.N > 0 {
+			if (math.MaxInt32-1)/u.N < max {
+				u.N = math.MaxInt32
 			} else {
-				u.n = u.n * max
+				u.N = u.N * max
 			}
 		}
 	}
 
 	if math.MaxInt32 == min {
-		return newRegexNode(ntNothing, n.options)
+		return newRegexNode(NtNothing, n.Options)
 	}
 	return u
 
@@ -447,22 +447,22 @@ func (n *regexNode) reduceRep() *regexNode {
 // Simple optimization. If a concatenation or alternation has only
 // one child strip out the intermediate node. If it has zero children,
 // turn it into an empty.
-func (n *regexNode) stripEnation(emptyType nodeType) *regexNode {
-	switch len(n.children) {
+func (n *RegexNode) stripEnation(emptyType NodeType) *RegexNode {
+	switch len(n.Children) {
 	case 0:
-		return newRegexNode(emptyType, n.options)
+		return newRegexNode(emptyType, n.Options)
 	case 1:
-		return n.children[0]
+		return n.Children[0]
 	default:
 		return n
 	}
 }
 
-func (n *regexNode) reduceGroup() *regexNode {
+func (n *RegexNode) reduceGroup() *RegexNode {
 	u := n
 
-	for u.t == ntGroup {
-		u = u.children[0]
+	for u.T == NtGroup {
+		u = u.Children[0]
 	}
 
 	return u
@@ -470,61 +470,61 @@ func (n *regexNode) reduceGroup() *regexNode {
 
 // Simple optimization. If a set is a singleton, an inverse singleton,
 // or empty, it's transformed accordingly.
-func (n *regexNode) reduceSet() *regexNode {
+func (n *RegexNode) reduceSet() *RegexNode {
 	// Extract empty-set, one and not-one case as special
 
-	if n.set == nil {
-		n.t = ntNothing
-	} else if n.set.IsSingleton() {
-		n.ch = n.set.SingletonChar()
-		n.set = nil
-		n.t += (ntOne - ntSet)
-	} else if n.set.IsSingletonInverse() {
-		n.ch = n.set.SingletonChar()
-		n.set = nil
-		n.t += (ntNotone - ntSet)
+	if n.Set == nil {
+		n.T = NtNothing
+	} else if n.Set.IsSingleton() {
+		n.Ch = n.Set.SingletonChar()
+		n.Set = nil
+		n.T += (NtOne - NtSet)
+	} else if n.Set.IsSingletonInverse() {
+		n.Ch = n.Set.SingletonChar()
+		n.Set = nil
+		n.T += (NtNotone - NtSet)
 	}
 
 	return n
 }
 
-func (n *regexNode) reverseLeft() *regexNode {
-	if n.options&RightToLeft != 0 && n.t == ntConcatenate && len(n.children) > 0 {
+func (n *RegexNode) reverseLeft() *RegexNode {
+	if n.Options&RightToLeft != 0 && n.T == NtConcatenate && len(n.Children) > 0 {
 		//reverse children order
-		for left, right := 0, len(n.children)-1; left < right; left, right = left+1, right-1 {
-			n.children[left], n.children[right] = n.children[right], n.children[left]
+		for left, right := 0, len(n.Children)-1; left < right; left, right = left+1, right-1 {
+			n.Children[left], n.Children[right] = n.Children[right], n.Children[left]
 		}
 	}
 
 	return n
 }
 
-func (n *regexNode) makeQuantifier(lazy bool, min, max int) *regexNode {
+func (n *RegexNode) makeQuantifier(lazy bool, min, max int) *RegexNode {
 	if min == 0 && max == 0 {
-		return newRegexNode(ntEmpty, n.options)
+		return newRegexNode(NtEmpty, n.Options)
 	}
 
 	if min == 1 && max == 1 {
 		return n
 	}
 
-	switch n.t {
-	case ntOne, ntNotone, ntSet:
+	switch n.T {
+	case NtOne, NtNotone, NtSet:
 		if lazy {
-			n.makeRep(Onelazy, min, max)
+			n.makeRep(NtOnelazy, min, max)
 		} else {
-			n.makeRep(Oneloop, min, max)
+			n.makeRep(NtOneloop, min, max)
 		}
 		return n
 
 	default:
-		var t nodeType
+		var t NodeType
 		if lazy {
-			t = ntLazyloop
+			t = NtLazyloop
 		} else {
-			t = ntLoop
+			t = NtLoop
 		}
-		result := newRegexNodeMN(t, n.options, min, max)
+		result := newRegexNodeMN(t, n.Options, min, max)
 		result.addChild(n)
 		return result
 	}
@@ -550,60 +550,60 @@ var typeStr = []string{
 	"ECMABoundary", "NonECMABoundary",
 }
 
-func (n *regexNode) description() string {
+func (n *RegexNode) description() string {
 	buf := &bytes.Buffer{}
 
-	buf.WriteString(typeStr[n.t])
+	buf.WriteString(typeStr[n.T])
 
-	if (n.options & ExplicitCapture) != 0 {
+	if (n.Options & ExplicitCapture) != 0 {
 		buf.WriteString("-C")
 	}
-	if (n.options & IgnoreCase) != 0 {
+	if (n.Options & IgnoreCase) != 0 {
 		buf.WriteString("-I")
 	}
-	if (n.options & RightToLeft) != 0 {
+	if (n.Options & RightToLeft) != 0 {
 		buf.WriteString("-L")
 	}
-	if (n.options & Multiline) != 0 {
+	if (n.Options & Multiline) != 0 {
 		buf.WriteString("-M")
 	}
-	if (n.options & Singleline) != 0 {
+	if (n.Options & Singleline) != 0 {
 		buf.WriteString("-S")
 	}
-	if (n.options & IgnorePatternWhitespace) != 0 {
+	if (n.Options & IgnorePatternWhitespace) != 0 {
 		buf.WriteString("-X")
 	}
-	if (n.options & ECMAScript) != 0 {
+	if (n.Options & ECMAScript) != 0 {
 		buf.WriteString("-E")
 	}
 
-	switch n.t {
-	case ntOneloop, ntNotoneloop, ntOnelazy, ntNotonelazy, ntOne, ntNotone:
-		buf.WriteString("(Ch = " + CharDescription(n.ch) + ")")
+	switch n.T {
+	case NtOneloop, NtNotoneloop, NtOnelazy, NtNotonelazy, NtOne, NtNotone:
+		buf.WriteString("(Ch = " + CharDescription(n.Ch) + ")")
 		break
-	case ntCapture:
-		buf.WriteString("(index = " + strconv.Itoa(n.m) + ", unindex = " + strconv.Itoa(n.n) + ")")
+	case NtCapture:
+		buf.WriteString("(index = " + strconv.Itoa(n.M) + ", unindex = " + strconv.Itoa(n.N) + ")")
 		break
-	case ntRef, ntTestref:
-		buf.WriteString("(index = " + strconv.Itoa(n.m) + ")")
+	case NtRef, NtTestref:
+		buf.WriteString("(index = " + strconv.Itoa(n.M) + ")")
 		break
-	case ntMulti:
-		fmt.Fprintf(buf, "(String = %s)", string(n.str))
+	case NtMulti:
+		fmt.Fprintf(buf, "(String = %s)", string(n.Str))
 		break
-	case ntSet, ntSetloop, ntSetlazy:
-		buf.WriteString("(Set = " + n.set.String() + ")")
+	case NtSet, NtSetloop, NtSetlazy:
+		buf.WriteString("(Set = " + n.Set.String() + ")")
 		break
 	}
 
-	switch n.t {
-	case ntOneloop, ntNotoneloop, ntOnelazy, ntNotonelazy, ntSetloop, ntSetlazy, ntLoop, ntLazyloop:
+	switch n.T {
+	case NtOneloop, NtNotoneloop, NtOnelazy, NtNotonelazy, NtSetloop, NtSetlazy, NtLoop, NtLazyloop:
 		buf.WriteString("(Min = ")
-		buf.WriteString(strconv.Itoa(n.m))
+		buf.WriteString(strconv.Itoa(n.M))
 		buf.WriteString(", Max = ")
-		if n.n == math.MaxInt32 {
+		if n.N == math.MaxInt32 {
 			buf.WriteString("inf")
 		} else {
-			buf.WriteString(strconv.Itoa(n.n))
+			buf.WriteString(strconv.Itoa(n.N))
 		}
 		buf.WriteString(")")
 
@@ -616,10 +616,10 @@ func (n *regexNode) description() string {
 var padSpace = []byte("                                ")
 
 func (t *RegexTree) Dump() string {
-	return t.root.dump()
+	return t.Root.dump()
 }
 
-func (n *regexNode) dump() string {
+func (n *RegexNode) dump() string {
 	var stack []int
 	CurNode := n
 	CurChild := 0
@@ -628,9 +628,9 @@ func (n *regexNode) dump() string {
 	buf.WriteRune('\n')
 
 	for {
-		if CurNode.children != nil && CurChild < len(CurNode.children) {
+		if CurNode.Children != nil && CurChild < len(CurNode.Children) {
 			stack = append(stack, CurChild+1)
-			CurNode = CurNode.children[CurChild]
+			CurNode = CurNode.Children[CurChild]
 			CurChild = 0
 
 			Depth := len(stack)
@@ -647,7 +647,7 @@ func (n *regexNode) dump() string {
 
 			CurChild = stack[len(stack)-1]
 			stack = stack[:len(stack)-1]
-			CurNode = CurNode.next
+			CurNode = CurNode.Next
 		}
 	}
 	return buf.String()

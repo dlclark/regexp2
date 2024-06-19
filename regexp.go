@@ -47,8 +47,9 @@ type Regexp struct {
 	code *syntax.Code // compiled program
 
 	// cache of machines for running regexp
-	muRun  *sync.Mutex
-	runner []*runner
+	muRun     *sync.Mutex
+	runner    []RegexRunner
+	newRunner func() RegexRunner // a hook point to override the runner
 }
 
 // Compile parses a regular expression and returns, if successful,
@@ -67,7 +68,7 @@ func Compile(expr string, opt RegexOptions) (*Regexp, error) {
 	}
 
 	// return it
-	return &Regexp{
+	re := &Regexp{
 		pattern:      expr,
 		options:      opt,
 		caps:         code.Caps,
@@ -77,16 +78,29 @@ func Compile(expr string, opt RegexOptions) (*Regexp, error) {
 		code:         code,
 		MatchTimeout: DefaultMatchTimeout,
 		muRun:        &sync.Mutex{},
-	}, nil
+	}
+	re.newRunner = func() RegexRunner {
+		return &runner{
+			re:   re,
+			code: re.code,
+		}
+	}
+	return re, nil
 }
 
 // MustCompile is like Compile but panics if the expression cannot be parsed.
 // It simplifies safe initialization of global variables holding compiled regular
 // expressions.
 func MustCompile(str string, opt RegexOptions) *Regexp {
-	regexp, error := Compile(str, opt)
-	if error != nil {
-		panic(`regexp2: Compile(` + quote(str) + `): ` + error.Error())
+	// lookup if we have a pre-built state machine for this pattern and options
+	regexp := getEngineRegexp(str, opt)
+	if regexp != nil {
+		return regexp
+	}
+
+	regexp, err := Compile(str, opt)
+	if err != nil {
+		panic(`regexp2: Compile(` + quote(str) + `): ` + err.Error())
 	}
 	return regexp
 }
@@ -133,17 +147,17 @@ type RegexOptions int32
 
 const (
 	None                    RegexOptions = 0x0
-	IgnoreCase                           = 0x0001 // "i"
-	Multiline                            = 0x0002 // "m"
-	ExplicitCapture                      = 0x0004 // "n"
-	Compiled                             = 0x0008 // "c"
-	Singleline                           = 0x0010 // "s"
-	IgnorePatternWhitespace              = 0x0020 // "x"
-	RightToLeft                          = 0x0040 // "r"
-	Debug                                = 0x0080 // "d"
-	ECMAScript                           = 0x0100 // "e"
-	RE2                                  = 0x0200 // RE2 (regexp package) compatibility mode
-	Unicode                              = 0x0400 // "u"
+	IgnoreCase              RegexOptions = 0x0001 // "i"
+	Multiline               RegexOptions = 0x0002 // "m"
+	ExplicitCapture         RegexOptions = 0x0004 // "n"
+	Compiled                RegexOptions = 0x0008 // "c"
+	Singleline              RegexOptions = 0x0010 // "s"
+	IgnorePatternWhitespace RegexOptions = 0x0020 // "x"
+	RightToLeft             RegexOptions = 0x0040 // "r"
+	Debug                   RegexOptions = 0x0080 // "d"
+	ECMAScript              RegexOptions = 0x0100 // "e"
+	RE2                     RegexOptions = 0x0200 // RE2 (regexp package) compatibility mode
+	Unicode                 RegexOptions = 0x0400 // "u"
 )
 
 func (re *Regexp) RightToLeft() bool {

@@ -17,7 +17,7 @@ func Write(tree *RegexTree) (*Code, error) {
 
 	code, err := w.codeFromTree(tree)
 
-	if tree.options&Debug > 0 && code != nil {
+	if tree.Options&Debug > 0 && code != nil {
 		os.Stdout.WriteString(code.Dump())
 		os.Stdout.WriteString("\n")
 	}
@@ -41,8 +41,8 @@ type writer struct {
 }
 
 const (
-	beforeChild nodeType = 64
-	afterChild           = 128
+	BeforeChild NodeType = 64
+	AfterChild  NodeType = 128
 	//MaxPrefixSize is the largest number of runes we'll use for a BoyerMoyer prefix
 	MaxPrefixSize = 50
 )
@@ -58,20 +58,20 @@ const (
 // to just generate the code and grow the array as we go.
 func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 	var (
-		curNode  *regexNode
+		curNode  *RegexNode
 		curChild int
 		capsize  int
 	)
 	// construct sparse capnum mapping if some numbers are unused
 
-	if tree.capnumlist == nil || tree.captop == len(tree.capnumlist) {
-		capsize = tree.captop
+	if tree.Capnumlist == nil || tree.Captop == len(tree.Capnumlist) {
+		capsize = tree.Captop
 		w.caps = nil
 	} else {
-		capsize = len(tree.capnumlist)
-		w.caps = tree.caps
-		for i := 0; i < len(tree.capnumlist); i++ {
-			w.caps[tree.capnumlist[i]] = i
+		capsize = len(tree.Capnumlist)
+		w.caps = tree.Caps
+		for i := 0; i < len(tree.Capnumlist); i++ {
+			w.caps[tree.Capnumlist[i]] = i
 		}
 	}
 
@@ -82,18 +82,18 @@ func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 			w.emitted = make([]int, w.count)
 		}
 
-		curNode = tree.root
+		curNode = tree.Root
 		curChild = 0
 
 		w.emit1(Lazybranch, 0)
 
 		for {
-			if len(curNode.children) == 0 {
-				w.emitFragment(curNode.t, curNode, 0)
-			} else if curChild < len(curNode.children) {
-				w.emitFragment(curNode.t|beforeChild, curNode, curChild)
+			if len(curNode.Children) == 0 {
+				w.emitFragment(curNode.T, curNode, 0)
+			} else if curChild < len(curNode.Children) {
+				w.emitFragment(curNode.T|BeforeChild, curNode, curChild)
 
-				curNode = curNode.children[curChild]
+				curNode = curNode.Children[curChild]
 
 				w.pushInt(curChild)
 				curChild = 0
@@ -105,9 +105,9 @@ func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 			}
 
 			curChild = w.popInt()
-			curNode = curNode.next
+			curNode = curNode.Next
 
-			w.emitFragment(curNode.t|afterChild, curNode, curChild)
+			w.emitFragment(curNode.T|AfterChild, curNode, curChild)
 			curChild++
 		}
 
@@ -123,7 +123,7 @@ func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 
 	fcPrefix := getFirstCharsPrefix(tree)
 	prefix := getPrefix(tree)
-	rtl := (tree.options & RightToLeft) != 0
+	rtl := (tree.Options & RightToLeft) != 0
 
 	var bmPrefix *BmPrefix
 	//TODO: benchmark string prefixes
@@ -154,31 +154,31 @@ func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 // The main RegexCode generator. It does a depth-first walk
 // through the tree and calls EmitFragment to emits code before
 // and after each child of an interior node, and at each leaf.
-func (w *writer) emitFragment(nodetype nodeType, node *regexNode, curIndex int) error {
+func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) error {
 	bits := InstOp(0)
 
-	if nodetype <= ntRef {
-		if (node.options & RightToLeft) != 0 {
+	if nodetype <= NtRef {
+		if (node.Options & RightToLeft) != 0 {
 			bits |= Rtl
 		}
-		if (node.options & IgnoreCase) != 0 {
+		if (node.Options & IgnoreCase) != 0 {
 			bits |= Ci
 		}
 	}
-	ntBits := nodeType(bits)
+	ntBits := NodeType(bits)
 
 	switch nodetype {
-	case ntConcatenate | beforeChild, ntConcatenate | afterChild, ntEmpty:
+	case NtConcatenate | BeforeChild, NtConcatenate | AfterChild, NtEmpty:
 		break
 
-	case ntAlternate | beforeChild:
-		if curIndex < len(node.children)-1 {
+	case NtAlternate | BeforeChild:
+		if curIndex < len(node.Children)-1 {
 			w.pushInt(w.curPos())
 			w.emit1(Lazybranch, 0)
 		}
 
-	case ntAlternate | afterChild:
-		if curIndex < len(node.children)-1 {
+	case NtAlternate | AfterChild:
+		if curIndex < len(node.Children)-1 {
 			lbPos := w.popInt()
 			w.pushInt(w.curPos())
 			w.emit1(Goto, 0)
@@ -190,30 +190,30 @@ func (w *writer) emitFragment(nodetype nodeType, node *regexNode, curIndex int) 
 		}
 		break
 
-	case ntTestref | beforeChild:
+	case NtTestref | BeforeChild:
 		if curIndex == 0 {
 			w.emit(Setjump)
 			w.pushInt(w.curPos())
 			w.emit1(Lazybranch, 0)
-			w.emit1(Testref, w.mapCapnum(node.m))
+			w.emit1(Testref, w.mapCapnum(node.M))
 			w.emit(Forejump)
 		}
 
-	case ntTestref | afterChild:
+	case NtTestref | AfterChild:
 		if curIndex == 0 {
 			branchpos := w.popInt()
 			w.pushInt(w.curPos())
 			w.emit1(Goto, 0)
 			w.patchJump(branchpos, w.curPos())
 			w.emit(Forejump)
-			if len(node.children) <= 1 {
+			if len(node.Children) <= 1 {
 				w.patchJump(w.popInt(), w.curPos())
 			}
 		} else if curIndex == 1 {
 			w.patchJump(w.popInt(), w.curPos())
 		}
 
-	case ntTestgroup | beforeChild:
+	case NtTestgroup | BeforeChild:
 		if curIndex == 0 {
 			w.emit(Setjump)
 			w.emit(Setmark)
@@ -221,7 +221,7 @@ func (w *writer) emitFragment(nodetype nodeType, node *regexNode, curIndex int) 
 			w.emit1(Lazybranch, 0)
 		}
 
-	case ntTestgroup | afterChild:
+	case NtTestgroup | AfterChild:
 		if curIndex == 0 {
 			w.emit(Getmark)
 			w.emit(Forejump)
@@ -232,132 +232,132 @@ func (w *writer) emitFragment(nodetype nodeType, node *regexNode, curIndex int) 
 			w.patchJump(Branchpos, w.curPos())
 			w.emit(Getmark)
 			w.emit(Forejump)
-			if len(node.children) <= 2 {
+			if len(node.Children) <= 2 {
 				w.patchJump(w.popInt(), w.curPos())
 			}
 		} else if curIndex == 2 {
 			w.patchJump(w.popInt(), w.curPos())
 		}
 
-	case ntLoop | beforeChild, ntLazyloop | beforeChild:
+	case NtLoop | BeforeChild, NtLazyloop | BeforeChild:
 
-		if node.n < math.MaxInt32 || node.m > 1 {
-			if node.m == 0 {
+		if node.N < math.MaxInt32 || node.M > 1 {
+			if node.M == 0 {
 				w.emit1(Nullcount, 0)
 			} else {
-				w.emit1(Setcount, 1-node.m)
+				w.emit1(Setcount, 1-node.M)
 			}
-		} else if node.m == 0 {
+		} else if node.M == 0 {
 			w.emit(Nullmark)
 		} else {
 			w.emit(Setmark)
 		}
 
-		if node.m == 0 {
+		if node.M == 0 {
 			w.pushInt(w.curPos())
 			w.emit1(Goto, 0)
 		}
 		w.pushInt(w.curPos())
 
-	case ntLoop | afterChild, ntLazyloop | afterChild:
+	case NtLoop | AfterChild, NtLazyloop | AfterChild:
 
 		startJumpPos := w.curPos()
-		lazy := (nodetype - (ntLoop | afterChild))
+		lazy := InstOp(nodetype - (NtLoop | AfterChild))
 
-		if node.n < math.MaxInt32 || node.m > 1 {
-			if node.n == math.MaxInt32 {
-				w.emit2(InstOp(Branchcount+lazy), w.popInt(), math.MaxInt32)
+		if node.N < math.MaxInt32 || node.M > 1 {
+			if node.N == math.MaxInt32 {
+				w.emit2(Branchcount+lazy, w.popInt(), math.MaxInt32)
 			} else {
-				w.emit2(InstOp(Branchcount+lazy), w.popInt(), node.n-node.m)
+				w.emit2(Branchcount+lazy, w.popInt(), node.N-node.M)
 			}
 		} else {
-			w.emit1(InstOp(Branchmark+lazy), w.popInt())
+			w.emit1(Branchmark+lazy, w.popInt())
 		}
 
-		if node.m == 0 {
+		if node.M == 0 {
 			w.patchJump(w.popInt(), startJumpPos)
 		}
 
-	case ntGroup | beforeChild, ntGroup | afterChild:
+	case NtGroup | BeforeChild, NtGroup | AfterChild:
 
-	case ntCapture | beforeChild:
+	case NtCapture | BeforeChild:
 		w.emit(Setmark)
 
-	case ntCapture | afterChild:
-		w.emit2(Capturemark, w.mapCapnum(node.m), w.mapCapnum(node.n))
+	case NtCapture | AfterChild:
+		w.emit2(Capturemark, w.mapCapnum(node.M), w.mapCapnum(node.N))
 
-	case ntRequire | beforeChild:
+	case NtRequire | BeforeChild:
 		// NOTE: the following line causes lookahead/lookbehind to be
 		// NON-BACKTRACKING. It can be commented out with (*)
 		w.emit(Setjump)
 
 		w.emit(Setmark)
 
-	case ntRequire | afterChild:
+	case NtRequire | AfterChild:
 		w.emit(Getmark)
 
 		// NOTE: the following line causes lookahead/lookbehind to be
 		// NON-BACKTRACKING. It can be commented out with (*)
 		w.emit(Forejump)
 
-	case ntPrevent | beforeChild:
+	case NtPrevent | BeforeChild:
 		w.emit(Setjump)
 		w.pushInt(w.curPos())
 		w.emit1(Lazybranch, 0)
 
-	case ntPrevent | afterChild:
+	case NtPrevent | AfterChild:
 		w.emit(Backjump)
 		w.patchJump(w.popInt(), w.curPos())
 		w.emit(Forejump)
 
-	case ntGreedy | beforeChild:
+	case NtGreedy | BeforeChild:
 		w.emit(Setjump)
 
-	case ntGreedy | afterChild:
+	case NtGreedy | AfterChild:
 		w.emit(Forejump)
 
-	case ntOne, ntNotone:
-		w.emit1(InstOp(node.t|ntBits), int(node.ch))
+	case NtOne, NtNotone:
+		w.emit1(InstOp(node.T|ntBits), int(node.Ch))
 
-	case ntNotoneloop, ntNotonelazy, ntOneloop, ntOnelazy:
-		if node.m > 0 {
-			if node.t == ntOneloop || node.t == ntOnelazy {
-				w.emit2(Onerep|bits, int(node.ch), node.m)
+	case NtNotoneloop, NtNotonelazy, NtOneloop, NtOnelazy:
+		if node.M > 0 {
+			if node.T == NtOneloop || node.T == NtOnelazy {
+				w.emit2(Onerep|bits, int(node.Ch), node.M)
 			} else {
-				w.emit2(Notonerep|bits, int(node.ch), node.m)
+				w.emit2(Notonerep|bits, int(node.Ch), node.M)
 			}
 		}
-		if node.n > node.m {
-			if node.n == math.MaxInt32 {
-				w.emit2(InstOp(node.t|ntBits), int(node.ch), math.MaxInt32)
+		if node.N > node.M {
+			if node.N == math.MaxInt32 {
+				w.emit2(InstOp(node.T|ntBits), int(node.Ch), math.MaxInt32)
 			} else {
-				w.emit2(InstOp(node.t|ntBits), int(node.ch), node.n-node.m)
-			}
-		}
-
-	case ntSetloop, ntSetlazy:
-		if node.m > 0 {
-			w.emit2(Setrep|bits, w.setCode(node.set), node.m)
-		}
-		if node.n > node.m {
-			if node.n == math.MaxInt32 {
-				w.emit2(InstOp(node.t|ntBits), w.setCode(node.set), math.MaxInt32)
-			} else {
-				w.emit2(InstOp(node.t|ntBits), w.setCode(node.set), node.n-node.m)
+				w.emit2(InstOp(node.T|ntBits), int(node.Ch), node.N-node.M)
 			}
 		}
 
-	case ntMulti:
-		w.emit1(InstOp(node.t|ntBits), w.stringCode(node.str))
+	case NtSetloop, NtSetlazy:
+		if node.M > 0 {
+			w.emit2(Setrep|bits, w.setCode(node.Set), node.M)
+		}
+		if node.N > node.M {
+			if node.N == math.MaxInt32 {
+				w.emit2(InstOp(node.T|ntBits), w.setCode(node.Set), math.MaxInt32)
+			} else {
+				w.emit2(InstOp(node.T|ntBits), w.setCode(node.Set), node.N-node.M)
+			}
+		}
 
-	case ntSet:
-		w.emit1(InstOp(node.t|ntBits), w.setCode(node.set))
+	case NtMulti:
+		w.emit1(InstOp(node.T|ntBits), w.stringCode(node.Str))
 
-	case ntRef:
-		w.emit1(InstOp(node.t|ntBits), w.mapCapnum(node.m))
+	case NtSet:
+		w.emit1(InstOp(node.T|ntBits), w.setCode(node.Set))
 
-	case ntNothing, ntBol, ntEol, ntBoundary, ntNonboundary, ntECMABoundary, ntNonECMABoundary, ntBeginning, ntStart, ntEndZ, ntEnd:
-		w.emit(InstOp(node.t))
+	case NtRef:
+		w.emit1(InstOp(node.T|ntBits), w.mapCapnum(node.M))
+
+	case NtNothing, NtBol, NtEol, NtBoundary, NtNonboundary, NtECMABoundary, NtNonECMABoundary, NtBeginning, NtStart, NtEndZ, NtEnd:
+		w.emit(InstOp(node.T))
 
 	default:
 		return fmt.Errorf("unexpected opcode in regular expression generation: %v", nodetype)

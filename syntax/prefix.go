@@ -45,19 +45,19 @@ type regexFcd struct {
  * and after each child of an interior node, and at each leaf.
  */
 func (s *regexFcd) regexFCFromRegexTree(tree *RegexTree) *regexFc {
-	curNode := tree.root
+	curNode := tree.Root
 	curChild := 0
 
 	for {
-		if len(curNode.children) == 0 {
+		if len(curNode.Children) == 0 {
 			// This is a leaf node
-			s.calculateFC(curNode.t, curNode, 0)
-		} else if curChild < len(curNode.children) && !s.skipAllChildren {
+			s.calculateFC(curNode.T, curNode, 0)
+		} else if curChild < len(curNode.Children) && !s.skipAllChildren {
 			// This is an interior node, and we have more children to analyze
-			s.calculateFC(curNode.t|beforeChild, curNode, curChild)
+			s.calculateFC(curNode.T|BeforeChild, curNode, curChild)
 
 			if !s.skipchild {
-				curNode = curNode.children[curChild]
+				curNode = curNode.Children[curChild]
 				// this stack is how we get a depth first walk of the tree.
 				s.pushInt(curChild)
 				curChild = 0
@@ -77,9 +77,9 @@ func (s *regexFcd) regexFCFromRegexTree(tree *RegexTree) *regexFc {
 		}
 
 		curChild = s.popInt()
-		curNode = curNode.next
+		curNode = curNode.Next
 
-		s.calculateFC(curNode.t|afterChild, curNode, curChild)
+		s.calculateFC(curNode.T|AfterChild, curNode, curChild)
 		if s.failed {
 			return nil
 		}
@@ -153,35 +153,35 @@ func (s *regexFcd) skipChild() {
 }
 
 // FC computation and shortcut cases for each node type
-func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
+func (s *regexFcd) calculateFC(nt NodeType, node *RegexNode, CurIndex int) {
 	//fmt.Printf("NodeType: %v, CurIndex: %v, Desc: %v\n", nt, CurIndex, node.description())
 	ci := false
 	rtl := false
 
-	if nt <= ntRef {
-		if (node.options & IgnoreCase) != 0 {
+	if nt <= NtRef {
+		if (node.Options & IgnoreCase) != 0 {
 			ci = true
 		}
-		if (node.options & RightToLeft) != 0 {
+		if (node.Options & RightToLeft) != 0 {
 			rtl = true
 		}
 	}
 
 	switch nt {
-	case ntConcatenate | beforeChild, ntAlternate | beforeChild, ntTestref | beforeChild, ntLoop | beforeChild, ntLazyloop | beforeChild:
+	case NtConcatenate | BeforeChild, NtAlternate | BeforeChild, NtTestref | BeforeChild, NtLoop | BeforeChild, NtLazyloop | BeforeChild:
 		break
 
-	case ntTestgroup | beforeChild:
+	case NtTestgroup | BeforeChild:
 		if CurIndex == 0 {
 			s.skipChild()
 		}
 		break
 
-	case ntEmpty:
+	case NtEmpty:
 		s.pushFC(regexFc{nullable: true})
 		break
 
-	case ntConcatenate | afterChild:
+	case NtConcatenate | AfterChild:
 		if CurIndex != 0 {
 			child := s.popFC()
 			cumul := s.topFC()
@@ -195,7 +195,7 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 		}
 		break
 
-	case ntTestgroup | afterChild:
+	case NtTestgroup | AfterChild:
 		if CurIndex > 1 {
 			child := s.popFC()
 			cumul := s.topFC()
@@ -204,7 +204,7 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 		}
 		break
 
-	case ntAlternate | afterChild, ntTestref | afterChild:
+	case NtAlternate | AfterChild, NtTestref | AfterChild:
 		if CurIndex != 0 {
 			child := s.popFC()
 			cumul := s.topFC()
@@ -213,59 +213,59 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 		}
 		break
 
-	case ntLoop | afterChild, ntLazyloop | afterChild:
-		if node.m == 0 {
+	case NtLoop | AfterChild, NtLazyloop | AfterChild:
+		if node.M == 0 {
 			fc := s.topFC()
 			fc.nullable = true
 		}
 		break
 
-	case ntGroup | beforeChild, ntGroup | afterChild, ntCapture | beforeChild, ntCapture | afterChild, ntGreedy | beforeChild, ntGreedy | afterChild:
+	case NtGroup | BeforeChild, NtGroup | AfterChild, NtCapture | BeforeChild, NtCapture | AfterChild, NtGreedy | BeforeChild, NtGreedy | AfterChild:
 		break
 
-	case ntRequire | beforeChild, ntPrevent | beforeChild:
+	case NtRequire | BeforeChild, NtPrevent | BeforeChild:
 		s.skipChild()
 		s.pushFC(regexFc{nullable: true})
 		break
 
-	case ntRequire | afterChild, ntPrevent | afterChild:
+	case NtRequire | AfterChild, NtPrevent | AfterChild:
 		break
 
-	case ntOne, ntNotone:
-		s.pushFC(newRegexFc(node.ch, nt == ntNotone, false, ci))
+	case NtOne, NtNotone:
+		s.pushFC(newRegexFc(node.Ch, nt == NtNotone, false, ci))
 		break
 
-	case ntOneloop, ntOnelazy:
-		s.pushFC(newRegexFc(node.ch, false, node.m == 0, ci))
+	case NtOneloop, NtOnelazy:
+		s.pushFC(newRegexFc(node.Ch, false, node.M == 0, ci))
 		break
 
-	case ntNotoneloop, ntNotonelazy:
-		s.pushFC(newRegexFc(node.ch, true, node.m == 0, ci))
+	case NtNotoneloop, NtNotonelazy:
+		s.pushFC(newRegexFc(node.Ch, true, node.M == 0, ci))
 		break
 
-	case ntMulti:
-		if len(node.str) == 0 {
+	case NtMulti:
+		if len(node.Str) == 0 {
 			s.pushFC(regexFc{nullable: true})
 		} else if !rtl {
-			s.pushFC(newRegexFc(node.str[0], false, false, ci))
+			s.pushFC(newRegexFc(node.Str[0], false, false, ci))
 		} else {
-			s.pushFC(newRegexFc(node.str[len(node.str)-1], false, false, ci))
+			s.pushFC(newRegexFc(node.Str[len(node.Str)-1], false, false, ci))
 		}
 		break
 
-	case ntSet:
-		s.pushFC(regexFc{cc: node.set.Copy(), nullable: false, caseInsensitive: ci})
+	case NtSet:
+		s.pushFC(regexFc{cc: node.Set.Copy(), nullable: false, caseInsensitive: ci})
 		break
 
-	case ntSetloop, ntSetlazy:
-		s.pushFC(regexFc{cc: node.set.Copy(), nullable: node.m == 0, caseInsensitive: ci})
+	case NtSetloop, NtSetlazy:
+		s.pushFC(regexFc{cc: node.Set.Copy(), nullable: node.M == 0, caseInsensitive: ci})
 		break
 
-	case ntRef:
+	case NtRef:
 		s.pushFC(regexFc{cc: *AnyClass(), nullable: true, caseInsensitive: false})
 		break
 
-	case ntNothing, ntBol, ntEol, ntBoundary, ntNonboundary, ntECMABoundary, ntNonECMABoundary, ntBeginning, ntStart, ntEndZ, ntEnd:
+	case NtNothing, NtBol, NtEol, NtBoundary, NtNonboundary, NtECMABoundary, NtNonECMABoundary, NtBeginning, NtStart, NtEndZ, NtEnd:
 		s.pushFC(regexFc{nullable: true})
 		break
 
@@ -334,57 +334,57 @@ func (r *regexFc) addFC(fc regexFc, concatenate bool) bool {
 // This is a related computation: it takes a RegexTree and computes the
 // leading substring if it sees one. It's quite trivial and gives up easily.
 func getPrefix(tree *RegexTree) *Prefix {
-	var concatNode *regexNode
+	var concatNode *RegexNode
 	nextChild := 0
 
-	curNode := tree.root
+	curNode := tree.Root
 
 	for {
-		switch curNode.t {
-		case ntConcatenate:
-			if len(curNode.children) > 0 {
+		switch curNode.T {
+		case NtConcatenate:
+			if len(curNode.Children) > 0 {
 				concatNode = curNode
 				nextChild = 0
 			}
 
-		case ntGreedy, ntCapture:
-			curNode = curNode.children[0]
+		case NtGreedy, NtCapture:
+			curNode = curNode.Children[0]
 			concatNode = nil
 			continue
 
-		case ntOneloop, ntOnelazy:
-			if curNode.m > 0 {
+		case NtOneloop, NtOnelazy:
+			if curNode.M > 0 {
 				return &Prefix{
-					PrefixStr:       repeat(curNode.ch, curNode.m),
-					CaseInsensitive: (curNode.options & IgnoreCase) != 0,
+					PrefixStr:       repeat(curNode.Ch, curNode.M),
+					CaseInsensitive: (curNode.Options & IgnoreCase) != 0,
 				}
 			}
 			return nil
 
-		case ntOne:
+		case NtOne:
 			return &Prefix{
-				PrefixStr:       []rune{curNode.ch},
-				CaseInsensitive: (curNode.options & IgnoreCase) != 0,
+				PrefixStr:       []rune{curNode.Ch},
+				CaseInsensitive: (curNode.Options & IgnoreCase) != 0,
 			}
 
-		case ntMulti:
+		case NtMulti:
 			return &Prefix{
-				PrefixStr:       curNode.str,
-				CaseInsensitive: (curNode.options & IgnoreCase) != 0,
+				PrefixStr:       curNode.Str,
+				CaseInsensitive: (curNode.Options & IgnoreCase) != 0,
 			}
 
-		case ntBol, ntEol, ntBoundary, ntECMABoundary, ntBeginning, ntStart,
-			ntEndZ, ntEnd, ntEmpty, ntRequire, ntPrevent:
+		case NtBol, NtEol, NtBoundary, NtECMABoundary, NtBeginning, NtStart,
+			NtEndZ, NtEnd, NtEmpty, NtRequire, NtPrevent:
 
 		default:
 			return nil
 		}
 
-		if concatNode == nil || nextChild >= len(concatNode.children) {
+		if concatNode == nil || nextChild >= len(concatNode.Children) {
 			return nil
 		}
 
-		curNode = concatNode.children[nextChild]
+		curNode = concatNode.Children[nextChild]
 		nextChild++
 	}
 }
@@ -799,60 +799,60 @@ const (
 
 func getAnchors(tree *RegexTree) AnchorLoc {
 
-	var concatNode *regexNode
+	var concatNode *RegexNode
 	nextChild, result := 0, AnchorLoc(0)
 
-	curNode := tree.root
+	curNode := tree.Root
 
 	for {
-		switch curNode.t {
-		case ntConcatenate:
-			if len(curNode.children) > 0 {
+		switch curNode.T {
+		case NtConcatenate:
+			if len(curNode.Children) > 0 {
 				concatNode = curNode
 				nextChild = 0
 			}
 
-		case ntGreedy, ntCapture:
-			curNode = curNode.children[0]
+		case NtGreedy, NtCapture:
+			curNode = curNode.Children[0]
 			concatNode = nil
 			continue
 
-		case ntBol, ntEol, ntBoundary, ntECMABoundary, ntBeginning,
-			ntStart, ntEndZ, ntEnd:
-			return result | anchorFromType(curNode.t)
+		case NtBol, NtEol, NtBoundary, NtECMABoundary, NtBeginning,
+			NtStart, NtEndZ, NtEnd:
+			return result | anchorFromType(curNode.T)
 
-		case ntEmpty, ntRequire, ntPrevent:
+		case NtEmpty, NtRequire, NtPrevent:
 
 		default:
 			return result
 		}
 
-		if concatNode == nil || nextChild >= len(concatNode.children) {
+		if concatNode == nil || nextChild >= len(concatNode.Children) {
 			return result
 		}
 
-		curNode = concatNode.children[nextChild]
+		curNode = concatNode.Children[nextChild]
 		nextChild++
 	}
 }
 
-func anchorFromType(t nodeType) AnchorLoc {
+func anchorFromType(t NodeType) AnchorLoc {
 	switch t {
-	case ntBol:
+	case NtBol:
 		return AnchorBol
-	case ntEol:
+	case NtEol:
 		return AnchorEol
-	case ntBoundary:
+	case NtBoundary:
 		return AnchorBoundary
-	case ntECMABoundary:
+	case NtECMABoundary:
 		return AnchorECMABoundary
-	case ntBeginning:
+	case NtBeginning:
 		return AnchorBeginning
-	case ntStart:
+	case NtStart:
 		return AnchorStart
-	case ntEndZ:
+	case NtEndZ:
 		return AnchorEndZ
-	case ntEnd:
+	case NtEnd:
 		return AnchorEnd
 	default:
 		return 0
