@@ -168,10 +168,10 @@ func (s *regexFcd) calculateFC(nt NodeType, node *RegexNode, CurIndex int) {
 	}
 
 	switch nt {
-	case NtConcatenate | BeforeChild, NtAlternate | BeforeChild, NtTestref | BeforeChild, NtLoop | BeforeChild, NtLazyloop | BeforeChild:
+	case NtConcatenate | BeforeChild, NtAlternate | BeforeChild, NtBackRefCond | BeforeChild, NtLoop | BeforeChild, NtLazyloop | BeforeChild:
 		break
 
-	case NtTestgroup | BeforeChild:
+	case NtExprCond | BeforeChild:
 		if CurIndex == 0 {
 			s.skipChild()
 		}
@@ -195,7 +195,7 @@ func (s *regexFcd) calculateFC(nt NodeType, node *RegexNode, CurIndex int) {
 		}
 		break
 
-	case NtTestgroup | AfterChild:
+	case NtExprCond | AfterChild:
 		if CurIndex > 1 {
 			child := s.popFC()
 			cumul := s.topFC()
@@ -204,7 +204,7 @@ func (s *regexFcd) calculateFC(nt NodeType, node *RegexNode, CurIndex int) {
 		}
 		break
 
-	case NtAlternate | AfterChild, NtTestref | AfterChild:
+	case NtAlternate | AfterChild, NtBackRefCond | AfterChild:
 		if CurIndex != 0 {
 			child := s.popFC()
 			cumul := s.topFC()
@@ -220,15 +220,15 @@ func (s *regexFcd) calculateFC(nt NodeType, node *RegexNode, CurIndex int) {
 		}
 		break
 
-	case NtGroup | BeforeChild, NtGroup | AfterChild, NtCapture | BeforeChild, NtCapture | AfterChild, NtGreedy | BeforeChild, NtGreedy | AfterChild:
+	case NtGroup | BeforeChild, NtGroup | AfterChild, NtCapture | BeforeChild, NtCapture | AfterChild, NtAtomic | BeforeChild, NtAtomic | AfterChild:
 		break
 
-	case NtRequire | BeforeChild, NtPrevent | BeforeChild:
+	case NtPosLook | BeforeChild, NtNegLook | BeforeChild:
 		s.skipChild()
 		s.pushFC(regexFc{nullable: true})
 		break
 
-	case NtRequire | AfterChild, NtPrevent | AfterChild:
+	case NtPosLook | AfterChild, NtNegLook | AfterChild:
 		break
 
 	case NtOne, NtNotone:
@@ -347,7 +347,7 @@ func getPrefix(tree *RegexTree) *Prefix {
 				nextChild = 0
 			}
 
-		case NtGreedy, NtCapture:
+		case NtAtomic, NtCapture:
 			curNode = curNode.Children[0]
 			concatNode = nil
 			continue
@@ -374,7 +374,7 @@ func getPrefix(tree *RegexTree) *Prefix {
 			}
 
 		case NtBol, NtEol, NtBoundary, NtECMABoundary, NtBeginning, NtStart,
-			NtEndZ, NtEnd, NtEmpty, NtRequire, NtPrevent:
+			NtEndZ, NtEnd, NtEmpty, NtPosLook, NtNegLook:
 
 		default:
 			return nil
@@ -812,7 +812,7 @@ func getAnchors(tree *RegexTree) AnchorLoc {
 				nextChild = 0
 			}
 
-		case NtGreedy, NtCapture:
+		case NtAtomic, NtCapture:
 			curNode = curNode.Children[0]
 			concatNode = nil
 			continue
@@ -821,7 +821,7 @@ func getAnchors(tree *RegexTree) AnchorLoc {
 			NtStart, NtEndZ, NtEnd:
 			return result | anchorFromType(curNode.T)
 
-		case NtEmpty, NtRequire, NtPrevent:
+		case NtEmpty, NtPosLook, NtNegLook:
 
 		default:
 			return result
@@ -893,4 +893,69 @@ func (anchors AnchorLoc) String() string {
 		return buf.String()[2:]
 	}
 	return "None"
+}
+
+func findLeadingOrTrailingAnchor(node *RegexNode, leading bool) NodeType {
+	for {
+		switch node.T {
+		case NtBol, NtEol, NtBeginning, NtStart, NtEndZ, NtEnd, NtBoundary, NtECMABoundary:
+			// anchor found
+			return node.T
+		case NtAtomic, NtCapture:
+			// For groups, continue exploring the sole child.
+			node = node.Children[0]
+			continue
+		case NtConcatenate:
+			// For concatenations, we expect primarily to explore its first (for leading) or last (for trailing) child,
+			// but we can also skip over certain kinds of nodes (e.g. Empty), and thus iterate through its children backward
+			// looking for the last we shouldn't skip.
+			var child *RegexNode
+
+			if leading {
+				for i := 0; i < len(node.Children); i++ {
+					t := node.Children[0].T
+					if t != NtEmpty && t != NtPosLook && t != NtNegLook {
+						child = node.Children[i]
+						break
+					}
+				}
+			} else {
+				for i := len(node.Children) - 1; i >= 0; i-- {
+					t := node.Children[0].T
+					if t != NtEmpty && t != NtPosLook && t != NtNegLook {
+						child = node.Children[i]
+						break
+					}
+				}
+			}
+			if child != nil {
+				node = child
+				continue
+			}
+
+		case NtAlternate:
+			// For alternations, every branch needs to lead or trail with the same anchor.
+
+			// Get the leading/trailing anchor of the first branch.  If there isn't one, bail.
+			anchor := findLeadingOrTrailingAnchor(node.Children[0], leading)
+			if anchor == NtUnknown {
+				return NtUnknown
+			}
+
+			// Look at each subsequent branch and validate it has the same leading or trailing
+			// anchor.  If any doesn't, bail.
+			for i := 1; i < len(node.Children); i++ {
+				if findLeadingOrTrailingAnchor(node.Children[i], leading) != anchor {
+					return NtUnknown
+				}
+			}
+
+			// All branches have the same leading/trailing anchor.  Return it.
+			return anchor
+
+		}
+
+		// no anchor
+		return NtUnknown
+	}
 }

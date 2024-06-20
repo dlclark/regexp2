@@ -8,13 +8,14 @@ import (
 )
 
 type RegexTree struct {
-	Root       *RegexNode
-	Caps       map[int]int
-	Capnumlist []int
-	Captop     int
-	Capnames   map[string]int
-	Caplist    []string
-	Options    RegexOptions
+	Root              *RegexNode
+	Caps              map[int]int
+	Capnumlist        []int
+	Captop            int
+	Capnames          map[string]int
+	Caplist           []string
+	Options           RegexOptions
+	FindOptimizations *FindOptimizations
 }
 
 // It is built into a parsed tree for a regular expression.
@@ -68,7 +69,7 @@ type NodeType int32
 
 const (
 	// The following are leaves, and correspond to primitive operations
-
+	NtUnknown     NodeType = -1
 	NtOnerep      NodeType = 0  // lef,back char,min,max    a {n}
 	NtNotonerep   NodeType = 1  // lef,back char,min,max    .{n}
 	NtSetrep      NodeType = 2  // lef,back set,min,max     [\d]{n}
@@ -105,11 +106,11 @@ const (
 	NtLazyloop    NodeType = 27 // m,x      *? +? ?? {,}?
 	NtCapture     NodeType = 28 // n        ()
 	NtGroup       NodeType = 29 //          (?:)
-	NtRequire     NodeType = 30 //          (?=) (?<=)
-	NtPrevent     NodeType = 31 //          (?!) (?<!)
-	NtGreedy      NodeType = 32 //          (?>) (?<)
-	NtTestref     NodeType = 33 //          (?(n) | )
-	NtTestgroup   NodeType = 34 //          (?(...) | )
+	NtPosLook     NodeType = 30 //          (?=) (?<=)
+	NtNegLook     NodeType = 31 //          (?!) (?<!)
+	NtAtomic      NodeType = 32 //          (?>) (?<)
+	NtBackRefCond NodeType = 33 //          (?(n) | )
+	NtExprCond    NodeType = 34 //          (?(...) | )
 
 	NtECMABoundary    NodeType = 41 //                          \b
 	NtNonECMABoundary NodeType = 42 //                          \B
@@ -530,6 +531,176 @@ func (n *RegexNode) makeQuantifier(lazy bool, min, max int) *RegexNode {
 	}
 }
 
+// Computes a min bound on the required length of any string that could possibly match.
+// If the result is 0, there is no minimum we can enforce.
+func (n *RegexNode) computeMinLength() int {
+	switch n.T {
+	case NtOne, NtNotone, NtSet:
+		// single char
+		return 1
+	case NtMulti:
+		// Every character in the string needs to match.
+		return len(n.Str)
+	case NtNotonelazy, NtNotoneloop, //NtNotoneloopatomic,
+		NtOnelazy, NtOneloop /*NtOneloopatomic,*/, NtSetlazy, NtSetloop /*,NtSetloopatomics*/ :
+		// One character repeated at least M times.
+		return n.M
+	case NtLazyloop, NtLoop:
+		// A node graph repeated at least M times.
+		return n.M * n.Children[0].computeMinLength()
+	case NtAlternate:
+		// The minimum required length for any of the alternation's branches.
+		childCount := len(n.Children)
+		min := n.Children[0].computeMinLength()
+		for i := 1; i < childCount && min > 0; i++ {
+			newMin := n.Children[i].computeMinLength()
+			if newMin < min {
+				min = newMin
+			}
+		}
+		return min
+	case NtBackRefCond:
+		// Minimum of its yes and no branches.  The backreference doesn't add to the length.
+		b1 := n.Children[0].computeMinLength()
+		b2 := n.Children[1].computeMinLength()
+		if b1 < b2 {
+			return b1
+		}
+		return b2
+	case NtExprCond:
+		// Minimum of its yes and no branches.  The condition is a zero-width assertion.
+		if len(n.Children) == 2 {
+			return n.Children[1].computeMinLength()
+		}
+		b1 := n.Children[1].computeMinLength()
+		b2 := n.Children[2].computeMinLength()
+		if b1 < b2 {
+			return b1
+		}
+		return b2
+	case NtConcatenate:
+		// The sum of all of the concatenation's children.
+		sum := 0
+		for i := 0; i < len(n.Children); i++ {
+			sum += n.Children[0].computeMinLength()
+		}
+		return sum
+	case NtAtomic, NtCapture, NtGroup:
+		// For groups, we just delegate to the sole child.
+		return n.Children[0].computeMinLength()
+	case NtEmpty, NtNothing,
+		NtBeginning, NtBol, NtBoundary, NtECMABoundary, NtEnd, NtEndZ, NtEol,
+		NtNonboundary, NtNonECMABoundary, NtStart, NtNegLook, NtPosLook, NtRef:
+		// Nothing to match. In the future, we could potentially use Nothing to say that the min length
+		// is infinite, but that would require a different structure, as that would only apply if the
+		// Nothing match is required in all cases (rather than, say, as one branch of an alternation).
+	}
+	return 0
+}
+
+// Computes a maximum length of any string that could possibly match.
+// or -1 if the length may not always be the same.
+func (n *RegexNode) computeMaxLength() int {
+	switch n.T {
+	case NtOne, NtNotone, NtSet:
+		return 1
+	case NtMulti:
+		return len(n.Str)
+	case NtNotonelazy, NtNotoneloop, //NtNotoneloopatomic,
+		NtOnelazy, NtOneloop /*NtOneloopatomic,*/, NtSetlazy, NtSetloop /*,NtSetloopatomics*/ :
+		// Return the max number of iterations if there's an upper bound, or null if it's infinite
+		if n.N == math.MaxInt32 {
+			return -1
+		}
+		return n.N
+	case NtLazyloop, NtLoop:
+		if n.N == math.MaxInt32 {
+			return -1
+		}
+		// A node graph repeated a fixed number of times
+		if c := n.Children[0].computeMaxLength(); c >= 0 {
+			maxLen := n.N * c
+			if maxLen >= math.MaxInt32 {
+				return -1
+			}
+			return maxLen
+		}
+	case NtAlternate:
+		// The maximum length of any child branch, as long as they all have one.
+		c := n.Children[0].computeMaxLength()
+
+		if c < 0 {
+			return -1
+		}
+		for i := 1; i < len(n.Children); i++ {
+			c2 := n.Children[0].computeMaxLength()
+			if c2 < 0 {
+				return -1
+			}
+			if c2 > c {
+				c = c2
+			}
+		}
+		return c
+	case NtBackRefCond:
+		// The maximum length of either child branch, as long as they both have one.
+		b1 := n.Children[0].computeMaxLength()
+		if b1 < 0 {
+			return -1
+		}
+		b2 := n.Children[1].computeMaxLength()
+		if b2 < 0 {
+			return b2
+		}
+		if b1 > b2 {
+			return b1
+		}
+		return b2
+	case NtExprCond:
+		// The condition for an expression conditional is a zero-width assertion.
+		b1 := n.Children[1].computeMaxLength()
+		if b1 < 0 {
+			return -1
+		}
+		b2 := n.Children[2].computeMaxLength()
+		if b2 < 0 {
+			return b2
+		}
+		if b1 > b2 {
+			return b1
+		}
+		return b2
+	case NtConcatenate:
+		// The sum of all of the concatenation's children's max lengths, as long as they all have one.
+		sum := 0
+		for i := 0; i < len(n.Children); i++ {
+			c := n.Children[i].computeMaxLength()
+			if c < 0 {
+				return -1
+			}
+			sum += c
+		}
+		return sum
+
+	case NtAtomic, NtCapture:
+		// For groups, we just delegate to the sole child.
+		return n.Children[0].computeMaxLength()
+	case NtEmpty, NtNothing,
+		NtBeginning, NtBol, NtBoundary, NtECMABoundary, NtEnd, NtEndZ, NtEol,
+		NtNonboundary, NtNonECMABoundary, NtStart, NtNegLook, NtPosLook:
+		//zero-width
+		return 0
+
+	case NtRef:
+		// Requires matching data available only at run-time.  In the future, we could choose to find
+		// and follow the capture group this aligns with, while being careful not to end up in an
+		// infinite cycle.
+		return -1
+	}
+
+	return -1
+}
+
 // debug functions
 
 var typeStr = []string{
@@ -584,7 +755,7 @@ func (n *RegexNode) description() string {
 	case NtCapture:
 		buf.WriteString("(index = " + strconv.Itoa(n.M) + ", unindex = " + strconv.Itoa(n.N) + ")")
 		break
-	case NtRef, NtTestref:
+	case NtRef, NtBackRefCond:
 		buf.WriteString("(index = " + strconv.Itoa(n.M) + ")")
 		break
 	case NtMulti:

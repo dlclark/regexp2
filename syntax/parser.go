@@ -175,6 +175,7 @@ func Parse(re string, op RegexOptions) (*RegexTree, error) {
 		Caplist:    p.capnamelist,
 		Options:    op,
 	}
+	tree.FindOptimizations = newFindOptimizations(tree, op)
 
 	if tree.Options&Debug > 0 {
 		os.Stdout.WriteString(tree.Dump())
@@ -854,14 +855,14 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 
 		case '=':
 			p.options &= ^RightToLeft
-			nt = NtRequire
+			nt = NtPosLook
 
 		case '!':
 			p.options &= ^RightToLeft
-			nt = NtPrevent
+			nt = NtNegLook
 
 		case '>':
-			nt = NtGreedy
+			nt = NtAtomic
 
 		case '\'':
 			close = '\''
@@ -879,7 +880,7 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 				}
 
 				p.options |= RightToLeft
-				nt = NtRequire
+				nt = NtPosLook
 
 			case '!':
 				if close == '\'' {
@@ -887,7 +888,7 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 				}
 
 				p.options |= RightToLeft
-				nt = NtPrevent
+				nt = NtNegLook
 
 			default:
 				p.moveLeft()
@@ -996,7 +997,7 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 					}
 					if p.charsRight() > 0 && p.moveRightGetChar() == ')' {
 						if p.isCaptureSlot(capnum) {
-							return newRegexNodeM(NtTestref, p.options, capnum), nil
+							return newRegexNodeM(NtBackRefCond, p.options, capnum), nil
 						}
 						return nil, p.getErr(ErrUndefinedReference, capnum)
 					}
@@ -1007,12 +1008,12 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 					capname := p.scanCapname()
 
 					if p.isCaptureName(capname) && p.charsRight() > 0 && p.moveRightGetChar() == ')' {
-						return newRegexNodeM(NtTestref, p.options, p.captureSlotFromName(capname)), nil
+						return newRegexNodeM(NtBackRefCond, p.options, p.captureSlotFromName(capname)), nil
 					}
 				}
 			}
 			// not a backref
-			nt = NtTestgroup
+			nt = NtExprCond
 			p.textto(parenPos - 1)   // jump to the start of the parentheses
 			p.ignoreNextParen = true // but make sure we don't try to capture the insides
 
@@ -1083,7 +1084,7 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 
 			nt = NtGroup
 			// disallow options in the children of a testgroup node
-			if p.group.T != NtTestgroup {
+			if p.group.T != NtExprCond {
 				p.scanOptions()
 			}
 			if p.charsRight() == 0 {
@@ -2050,9 +2051,9 @@ func (p *parser) addUnitType(t NodeType) {
 
 // Finish the current group (in response to a ')' or end)
 func (p *parser) addGroup() error {
-	if p.group.T == NtTestgroup || p.group.T == NtTestref {
+	if p.group.T == NtExprCond || p.group.T == NtBackRefCond {
 		p.group.addChild(p.concatenation.reverseLeft())
-		if (p.group.T == NtTestref && len(p.group.Children) > 2) || len(p.group.Children) > 3 {
+		if (p.group.T == NtBackRefCond && len(p.group.Children) > 2) || len(p.group.Children) > 3 {
 			return p.getErr(ErrTooManyAlternates)
 		}
 	} else {
@@ -2135,7 +2136,7 @@ func (p *parser) popGroup() error {
 	p.stack = p.group.Next
 
 	// The first () inside a Testgroup group goes directly to the group
-	if p.group.T == NtTestgroup && len(p.group.Children) == 0 {
+	if p.group.T == NtExprCond && len(p.group.Children) == 0 {
 		if p.unit == nil {
 			return p.getErr(ErrConditionalExpression)
 		}
@@ -2162,7 +2163,7 @@ func (p *parser) startGroup(openGroup *RegexNode) {
 func (p *parser) addAlternate() {
 	// The | parts inside a Testgroup group go directly to the group
 
-	if p.group.T == NtTestgroup || p.group.T == NtTestref {
+	if p.group.T == NtExprCond || p.group.T == NtBackRefCond {
 		p.group.addChild(p.concatenation.reverseLeft())
 	} else {
 		p.alternation.addChild(p.concatenation.reverseLeft())

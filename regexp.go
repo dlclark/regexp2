@@ -47,9 +47,12 @@ type Regexp struct {
 	code *syntax.Code // compiled program
 
 	// cache of machines for running regexp
-	muRun     *sync.Mutex
-	runner    []RegexRunner
-	newRunner func() RegexRunner // a hook point to override the runner
+	muRun  *sync.Mutex
+	runner []*Runner
+
+	// hook points to override runner functions
+	findFirstChar func(r *Runner) bool
+	execute       func(r *Runner) error
 }
 
 // Compile parses a regular expression and returns, if successful,
@@ -78,12 +81,6 @@ func Compile(expr string, opt RegexOptions) (*Regexp, error) {
 		code:         code,
 		MatchTimeout: DefaultMatchTimeout,
 		muRun:        &sync.Mutex{},
-	}
-	re.newRunner = func() RegexRunner {
-		return &runner{
-			re:   re,
-			code: re.code,
-		}
 	}
 	return re, nil
 }

@@ -190,7 +190,7 @@ func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) 
 		}
 		break
 
-	case NtTestref | BeforeChild:
+	case NtBackRefCond | BeforeChild:
 		if curIndex == 0 {
 			w.emit(Setjump)
 			w.pushInt(w.curPos())
@@ -199,7 +199,7 @@ func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) 
 			w.emit(Forejump)
 		}
 
-	case NtTestref | AfterChild:
+	case NtBackRefCond | AfterChild:
 		if curIndex == 0 {
 			branchpos := w.popInt()
 			w.pushInt(w.curPos())
@@ -213,7 +213,7 @@ func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) 
 			w.patchJump(w.popInt(), w.curPos())
 		}
 
-	case NtTestgroup | BeforeChild:
+	case NtExprCond | BeforeChild:
 		if curIndex == 0 {
 			w.emit(Setjump)
 			w.emit(Setmark)
@@ -221,7 +221,7 @@ func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) 
 			w.emit1(Lazybranch, 0)
 		}
 
-	case NtTestgroup | AfterChild:
+	case NtExprCond | AfterChild:
 		if curIndex == 0 {
 			w.emit(Getmark)
 			w.emit(Forejump)
@@ -286,34 +286,34 @@ func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) 
 	case NtCapture | AfterChild:
 		w.emit2(Capturemark, w.mapCapnum(node.M), w.mapCapnum(node.N))
 
-	case NtRequire | BeforeChild:
+	case NtPosLook | BeforeChild:
 		// NOTE: the following line causes lookahead/lookbehind to be
 		// NON-BACKTRACKING. It can be commented out with (*)
 		w.emit(Setjump)
 
 		w.emit(Setmark)
 
-	case NtRequire | AfterChild:
+	case NtPosLook | AfterChild:
 		w.emit(Getmark)
 
 		// NOTE: the following line causes lookahead/lookbehind to be
 		// NON-BACKTRACKING. It can be commented out with (*)
 		w.emit(Forejump)
 
-	case NtPrevent | BeforeChild:
+	case NtNegLook | BeforeChild:
 		w.emit(Setjump)
 		w.pushInt(w.curPos())
 		w.emit1(Lazybranch, 0)
 
-	case NtPrevent | AfterChild:
+	case NtNegLook | AfterChild:
 		w.emit(Backjump)
 		w.patchJump(w.popInt(), w.curPos())
 		w.emit(Forejump)
 
-	case NtGreedy | BeforeChild:
+	case NtAtomic | BeforeChild:
 		w.emit(Setjump)
 
-	case NtGreedy | AfterChild:
+	case NtAtomic | AfterChild:
 		w.emit(Forejump)
 
 	case NtOne, NtNotone:

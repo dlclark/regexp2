@@ -2,7 +2,6 @@ package regexp2
 
 import (
 	"sync"
-	"time"
 )
 
 type RuntimeEngine interface {
@@ -10,34 +9,32 @@ type RuntimeEngine interface {
 	CapNames() map[string]int // cap group name -> index
 	CapsList() []string       //sorted list of capture group names
 	CapSize() int             // size of the capture array
-	NewRunner() RegexRunner   // return a new regex runner, these are cached
-}
-
-type RegexRunner interface {
-	Scan(rt []rune, textstart int, quick bool, timeout time.Duration) (*Match, error)
+	FindFirstChar(r *Runner) bool
+	Execute(r *Runner) error
 }
 
 type cacheKey struct {
-	expr string
-	opt  RegexOptions
+	pattern string
+	opt     RegexOptions
 }
 
-func RegisterEngine(expr string, opt RegexOptions, engine RuntimeEngine) {
-	engines[cacheKey{expr, opt}] = &Regexp{
-		pattern:      expr,
-		options:      opt,
-		caps:         engine.Caps(),
-		capnames:     engine.CapNames(),
-		capslist:     engine.CapsList(),
-		capsize:      engine.CapSize(),
-		MatchTimeout: DefaultMatchTimeout,
-		muRun:        &sync.Mutex{},
-		newRunner:    engine.NewRunner,
+func RegisterEngine(pattern string, opt RegexOptions, engine RuntimeEngine) {
+	engines[cacheKey{pattern, opt}] = &Regexp{
+		pattern:       pattern,
+		options:       opt,
+		caps:          engine.Caps(),
+		capnames:      engine.CapNames(),
+		capslist:      engine.CapsList(),
+		capsize:       engine.CapSize(),
+		MatchTimeout:  DefaultMatchTimeout,
+		muRun:         &sync.Mutex{},
+		findFirstChar: engine.FindFirstChar,
+		execute:       engine.Execute,
 	}
 }
 
-func getEngineRegexp(expr string, opt RegexOptions) *Regexp {
-	val, ok := engines[cacheKey{expr, opt}]
+func getEngineRegexp(pattern string, opt RegexOptions) *Regexp {
+	val, ok := engines[cacheKey{pattern, opt}]
 	if !ok {
 		return nil
 	}
