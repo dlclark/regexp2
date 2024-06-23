@@ -3,5 +3,5 @@ arch:
   - AMD64
   - ppc64le
 go:
-  - 1.9
+  - 1.18
   - tip

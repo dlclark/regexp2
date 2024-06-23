@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
+	"unicode"
+
+	"slices"
 )
 
 type RegexTree struct {
@@ -114,6 +118,8 @@ const (
 
 	NtECMABoundary    NodeType = 41 //                          \b
 	NtNonECMABoundary NodeType = 42 //                          \B
+
+	NtUpdateBumpalong NodeType = 43
 )
 
 func newRegexNode(t NodeType, opt RegexOptions) *RegexNode {
@@ -161,6 +167,16 @@ func newRegexNodeMN(t NodeType, opt RegexOptions, m, n int) *RegexNode {
 		M:       m,
 		N:       n,
 	}
+}
+
+func (n *RegexNode) IsSetFamily() bool {
+	return n.T == NtSet || n.T == NtSetloop || n.T == NtSetlazy /*|| n.T == NtSetloopatomic*/
+}
+func (n *RegexNode) IsOneFamily() bool {
+	return n.T == NtOne || n.T == NtOneloop || n.T == NtOnelazy /*|| n.T == NtOneloopatomic*/
+}
+func (n *RegexNode) IsNotoneFamily() bool {
+	return n.T == NtNotone || n.T == NtNotoneloop || n.T == NtNotonelazy /*|| n.T == NtNotoneloopatomic*/
 }
 
 func (n *RegexNode) writeStrToBuf(buf *bytes.Buffer) {
@@ -822,4 +838,131 @@ func (n *RegexNode) dump() string {
 		}
 	}
 	return buf.String()
+}
+
+// Determines whether the specified child index of a concatenation begins a sequence whose values
+// should be used to perform an ordinal case-insensitive comparison.
+//
+// When consumeZeroWidthNodes is false, the consumer needs the semantics of matching the produced string to fully represent
+// the semantics of all the consumed nodes, which means nodes can be consumed iff they produce text that's represented
+// by the resulting string. When true, the resulting string needs to fully represent all valid matches at that position,
+// but it can have false positives, which means the resulting string doesn't need to fully represent all zero-width nodes
+// consumed. true is only valid when used as part of a search to determine where to try a full match, not as part of
+// actual matching logic.
+// consumeZeroWidthNodes = false
+func (n *RegexNode) TryGetOrdinalCaseInsensitiveString(childIndex int, exclusiveChildBound int, consumeZeroWidthNodes bool) (success bool, nodesConsumed int, caseInsensitiveString string) {
+	vsb := &strings.Builder{}
+
+	// We're looking in particular for sets of ASCII characters, so we focus only on sets with two characters in them, e.g. [Aa].
+	twoChars := make([]rune, 0, 2)
+
+	// Iterate from the child index to the exclusive upper bound.
+	var i int
+	for i = childIndex; i < exclusiveChildBound; i++ {
+		child := n.Children[i]
+
+		if child.T == NtOne {
+			// We only want to include ASCII characters, and only if they don't participate in case conversion
+			// such that they only case to themselves and nothing other cases to them.  Otherwise, including
+			// them would potentially cause us to match against things not allowed by the pattern.
+			if child.Ch >= unicode.MaxASCII || participatesInCaseConversion(child.Ch) {
+				break
+			}
+
+			vsb.WriteRune(child.Ch)
+		} else if child.T == NtMulti {
+			// As with NtOne, the string needs to be composed solely of ASCII characters that
+			// don't participate in case conversion.
+			hasNonAscii := slices.ContainsFunc(child.Str, func(ch rune) bool { return ch > unicode.MaxASCII })
+			if hasNonAscii || anyParticipatesInCaseConversion(string(child.Str)) {
+				break
+			}
+
+			vsb.WriteString(string(child.Str))
+		} else if child.T == NtSet ||
+			((child.T == NtSetloop || child.T == NtSetlazy /*|| child.T == NtSetloopatomic*/) && child.M == child.N) {
+			// In particular we want to look for sets that contain only the upper and lowercase variant
+			// of the same ASCII letter.
+			if !child.Set.containsAsciiIgnoreCaseCharacter(twoChars) {
+				break
+			}
+
+			count := child.M
+			if child.T == NtSet {
+				count = 1
+			}
+			vsb.WriteString(strings.Repeat(string(twoChars[0]|0x20), count))
+		} else if child.T == NtEmpty {
+			// Skip over empty nodes, as they're pure nops. They would ideally have been optimized away,
+			// but can still remain in some situations.
+		} else if consumeZeroWidthNodes &&
+			// anchors
+			(child.T == NtBeginning || child.T == NtBol || child.T == NtStart ||
+				// boundaries
+				child.T == NtBoundary || child.T == NtECMABoundary || child.T == NtNonboundary || child.T == NtNonECMABoundary ||
+				// lookarounds
+				child.T == NtNegLook || child.T == NtPosLook ||
+				// logic
+				child.T == NtUpdateBumpalong) {
+			// Skip over zero-width nodes that might be reasonable at the beginning of or within a substring.
+			// We can only do these if consumeZeroWidthNodes is true, as otherwise we'd be producing a string that
+			// may not fully represent the semantics of this portion of the pattern.
+		} else {
+			break
+		}
+	}
+
+	// If we found at least two characters, consider it a sequence found.  It's possible
+	// they all came from the same node, so this could be a sequence of just one node.
+	if vsb.Len() >= 2 {
+		return true, i - childIndex, vsb.String()
+	}
+
+	// No sequence found.
+	return false, 0, ""
+}
+
+func (child *RegexNode) canJoinLengthCheck() bool {
+	return child.T == NtOne || child.T == NtNotone || child.T == NtSet ||
+		child.T == NtMulti || child.T == NtOneloop || child.T == NtOnelazy ||
+		child.T == NtNotoneloop || child.T == NtNotonelazy ||
+		child.T == NtSetloop || child.T == NtSetlazy
+}
+
+// Determine whether the specified child node is the beginning of a sequence that can
+// trivially have length checks combined in order to avoid bounds checks.
+// requiredLength is The sum of all the fixed lengths for the nodes in the sequence.</param>
+// exclusiveEnd is The index of the node just after the last one in the sequence.</param>
+// returns true if more than one node can have their length checks combined; otherwise, false.</returns>
+//
+// There are additional node types for which we can prove a fixed length, e.g. examining all branches
+// of an alternation and returning true if all their lengths are equal.  However, the primary purpose
+// of this method is to avoid bounds checks by consolidating length checks that guard accesses to
+// strings/spans for which the JIT can see a fixed index within bounds, and alternations employ
+// patterns that defeat that (e.g. reassigning the span in question).  As such, the implementation
+// remains focused on only a core subset of nodes that are a) likely to be used in concatenations and
+// b) employ simple patterns of checks.
+func (n *RegexNode) TryGetJoinableLengthCheckChildRange(childIndex int, requiredLength *int, exclusiveEnd *int) bool {
+
+	child := n.Children[childIndex]
+	if child.canJoinLengthCheck() {
+		*requiredLength = child.computeMinLength()
+
+		for *exclusiveEnd = childIndex + 1; *exclusiveEnd < len(n.Children); *exclusiveEnd++ {
+			child = n.Children[*exclusiveEnd]
+			if !child.canJoinLengthCheck() {
+				break
+			}
+
+			*requiredLength += child.computeMinLength()
+		}
+
+		if *exclusiveEnd-childIndex > 1 {
+			return true
+		}
+	}
+
+	*requiredLength = 0
+	*exclusiveEnd = 0
+	return false
 }

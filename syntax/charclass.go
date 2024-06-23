@@ -11,26 +11,26 @@ import (
 
 // CharSet combines start-end rune ranges and unicode categories representing a set of characters
 type CharSet struct {
-	ranges     []singleRange
-	categories []category
+	ranges     []SingleRange
+	categories []Category
 	sub        *CharSet //optional subtractor
 	negate     bool
 	anything   bool
 }
 
-type category struct {
-	negate bool
-	cat    string
+type Category struct {
+	Negate bool
+	Cat    string
 }
 
-type singleRange struct {
-	first rune
-	last  rune
+type SingleRange struct {
+	First rune
+	Last  rune
 }
 
 const (
-	spaceCategoryText = " "
-	wordCategoryText  = "W"
+	SpaceCategoryText = " "
+	WordCategoryText  = "W"
 )
 
 var (
@@ -52,15 +52,17 @@ var (
 	ECMADigitClass    = getCharSetFromOldString(ecmaDigit, false)
 	NotECMADigitClass = getCharSetFromOldString(ecmaDigit, true)
 
-	WordClass     = getCharSetFromCategoryString(false, false, wordCategoryText)
-	NotWordClass  = getCharSetFromCategoryString(true, false, wordCategoryText)
-	SpaceClass    = getCharSetFromCategoryString(false, false, spaceCategoryText)
-	NotSpaceClass = getCharSetFromCategoryString(true, false, spaceCategoryText)
+	WordClass     = getCharSetFromCategoryString(false, false, WordCategoryText)
+	NotWordClass  = getCharSetFromCategoryString(true, false, WordCategoryText)
+	SpaceClass    = getCharSetFromCategoryString(false, false, SpaceCategoryText)
+	NotSpaceClass = getCharSetFromCategoryString(true, false, SpaceCategoryText)
 	DigitClass    = getCharSetFromCategoryString(false, false, "Nd")
 	NotDigitClass = getCharSetFromCategoryString(false, true, "Nd")
 
 	RE2SpaceClass    = getCharSetFromOldString(re2Space, false)
 	NotRE2SpaceClass = getCharSetFromOldString(re2Space, true)
+
+	NotNewLineClass = getCharSetFromOldString([]rune{0x0a, 0x0b}, true)
 )
 
 var unicodeCategories = func() map[string]*unicode.RangeTable {
@@ -84,9 +86,9 @@ func getCharSetFromCategoryString(negateSet bool, negateCat bool, cats ...string
 
 	c := CharSet{negate: negateSet}
 
-	c.categories = make([]category, len(cats))
+	c.categories = make([]Category, len(cats))
 	for i, cat := range cats {
-		c.categories[i] = category{cat: cat, negate: negateCat}
+		c.categories[i] = Category{Cat: cat, Negate: negateCat}
 	}
 	return func() *CharSet {
 		//make a copy each time
@@ -111,14 +113,14 @@ func getCharSetFromOldString(setText []rune, negate bool) func() *CharSet {
 		}
 
 		if l%2 == 0 {
-			c.ranges = make([]singleRange, l/2)
+			c.ranges = make([]SingleRange, l/2)
 		} else {
-			c.ranges = make([]singleRange, l/2+1)
+			c.ranges = make([]SingleRange, l/2+1)
 		}
 
 		first := true
 		if fillFirst {
-			c.ranges[0] = singleRange{first: 0}
+			c.ranges[0] = SingleRange{First: 0}
 			first = false
 		}
 
@@ -126,16 +128,16 @@ func getCharSetFromOldString(setText []rune, negate bool) func() *CharSet {
 		for _, r := range setText {
 			if first {
 				// lower bound in a new range
-				c.ranges[i] = singleRange{first: r}
+				c.ranges[i] = SingleRange{First: r}
 				first = false
 			} else {
-				c.ranges[i].last = r - 1
+				c.ranges[i].Last = r - 1
 				i++
 				first = true
 			}
 		}
 		if !first {
-			c.ranges[i].last = utf8.MaxRune
+			c.ranges[i].Last = utf8.MaxRune
 		}
 	}
 
@@ -174,13 +176,13 @@ func (c CharSet) String() string {
 
 	for _, r := range c.ranges {
 
-		buf.WriteString(CharDescription(r.first))
-		if r.first != r.last {
-			if r.last-r.first != 1 {
+		buf.WriteString(CharDescription(r.First))
+		if r.First != r.Last {
+			if r.Last-r.First != 1 {
 				//groups that are 1 char apart skip the dash
 				buf.WriteRune('-')
 			}
-			buf.WriteString(CharDescription(r.last))
+			buf.WriteString(CharDescription(r.Last))
 		}
 	}
 
@@ -209,12 +211,12 @@ func (c CharSet) mapHashFill(buf *bytes.Buffer) {
 	binary.Write(buf, binary.LittleEndian, len(c.ranges))
 	binary.Write(buf, binary.LittleEndian, len(c.categories))
 	for _, r := range c.ranges {
-		buf.WriteRune(r.first)
-		buf.WriteRune(r.last)
+		buf.WriteRune(r.First)
+		buf.WriteRune(r.Last)
 	}
 	for _, ct := range c.categories {
-		buf.WriteString(ct.cat)
-		if ct.negate {
+		buf.WriteString(ct.Cat)
+		if ct.Negate {
 			buf.WriteByte(1)
 		} else {
 			buf.WriteByte(0)
@@ -234,10 +236,10 @@ func (c CharSet) CharIn(ch rune) bool {
 
 	//check ranges
 	for _, r := range c.ranges {
-		if ch < r.first {
+		if ch < r.First {
 			continue
 		}
-		if ch <= r.last {
+		if ch <= r.Last {
 			val = true
 			break
 		}
@@ -247,31 +249,31 @@ func (c CharSet) CharIn(ch rune) bool {
 	if !val && len(c.categories) > 0 {
 		for _, ct := range c.categories {
 			// special categories...then unicode
-			if ct.cat == spaceCategoryText {
+			if ct.Cat == SpaceCategoryText {
 				if unicode.IsSpace(ch) {
 					// we found a space so we're done
 					// negate means this is a "bad" thing
-					val = !ct.negate
+					val = !ct.Negate
 					break
-				} else if ct.negate {
+				} else if ct.Negate {
 					val = true
 					break
 				}
-			} else if ct.cat == wordCategoryText {
+			} else if ct.Cat == WordCategoryText {
 				if IsWordChar(ch) {
-					val = !ct.negate
+					val = !ct.Negate
 					break
-				} else if ct.negate {
+				} else if ct.Negate {
 					val = true
 					break
 				}
-			} else if unicode.Is(unicodeCategories[ct.cat], ch) {
+			} else if unicode.Is(unicodeCategories[ct.Cat], ch) {
 				// if we're in this unicode category then we're done
 				// if negate=true on this category then we "failed" our test
 				// otherwise we're good that we found it
-				val = !ct.negate
+				val = !ct.Negate
 				break
-			} else if ct.negate {
+			} else if ct.Negate {
 				val = true
 				break
 			}
@@ -292,27 +294,27 @@ func (c CharSet) CharIn(ch rune) bool {
 	return val
 }
 
-func (c category) String() string {
-	switch c.cat {
-	case spaceCategoryText:
-		if c.negate {
+func (c Category) String() string {
+	switch c.Cat {
+	case SpaceCategoryText:
+		if c.Negate {
 			return "\\S"
 		}
 		return "\\s"
-	case wordCategoryText:
-		if c.negate {
+	case WordCategoryText:
+		if c.Negate {
 			return "\\W"
 		}
 		return "\\w"
 	}
-	if _, ok := unicodeCategories[c.cat]; ok {
+	if _, ok := unicodeCategories[c.Cat]; ok {
 
-		if c.negate {
-			return "\\P{" + c.cat + "}"
+		if c.Negate {
+			return "\\P{" + c.Cat + "}"
 		}
-		return "\\p{" + c.cat + "}"
+		return "\\p{" + c.Cat + "}"
 	}
-	return "Unknown category: " + c.cat
+	return "Unknown category: " + c.Cat
 }
 
 // CharDescription Produces a human-readable description for a single character.
@@ -357,21 +359,21 @@ func IsECMAWordChar(r rune) bool {
 // SingletonChar will return the char from the first range without validation.
 // It assumes you have checked for IsSingleton or IsSingletonInverse and will panic given bad input
 func (c CharSet) SingletonChar() rune {
-	return c.ranges[0].first
+	return c.ranges[0].First
 }
 
 func (c CharSet) IsSingleton() bool {
 	return !c.negate && //negated is multiple chars
 		len(c.categories) == 0 && len(c.ranges) == 1 && // multiple ranges and unicode classes represent multiple chars
 		c.sub == nil && // subtraction means we've got multiple chars
-		c.ranges[0].first == c.ranges[0].last // first and last equal means we're just 1 char
+		c.ranges[0].First == c.ranges[0].Last // first and last equal means we're just 1 char
 }
 
 func (c CharSet) IsSingletonInverse() bool {
 	return c.negate && //same as above, but requires negated
 		len(c.categories) == 0 && len(c.ranges) == 1 && // multiple ranges and unicode classes represent multiple chars
 		c.sub == nil && // subtraction means we've got multiple chars
-		c.ranges[0].first == c.ranges[0].last // first and last equal means we're just 1 char
+		c.ranges[0].First == c.ranges[0].Last // first and last equal means we're just 1 char
 }
 
 func (c CharSet) IsMergeable() bool {
@@ -390,6 +392,10 @@ func (c CharSet) IsEmpty() bool {
 	return len(c.ranges) == 0 && len(c.categories) == 0 && c.sub == nil
 }
 
+func (c CharSet) IsAnything() bool {
+	return c.anything
+}
+
 func (c *CharSet) addDigit(ecma, negate bool, pattern string) {
 	if ecma {
 		if negate {
@@ -398,7 +404,7 @@ func (c *CharSet) addDigit(ecma, negate bool, pattern string) {
 			c.addRanges(ECMADigitClass().ranges)
 		}
 	} else {
-		c.addCategories(category{cat: "Nd", negate: negate})
+		c.addCategories(Category{Cat: "Nd", Negate: negate})
 	}
 }
 
@@ -420,7 +426,7 @@ func (c *CharSet) addSpace(ecma, re2, negate bool) {
 			c.addRanges(RE2SpaceClass().ranges)
 		}
 	} else {
-		c.addCategories(category{cat: spaceCategoryText, negate: negate})
+		c.addCategories(Category{Cat: SpaceCategoryText, Negate: negate})
 	}
 }
 
@@ -432,7 +438,7 @@ func (c *CharSet) addWord(ecma, negate bool) {
 			c.addRanges(ECMAWordClass().ranges)
 		}
 	} else {
-		c.addCategories(category{cat: wordCategoryText, negate: negate})
+		c.addCategories(Category{Cat: WordCategoryText, Negate: negate})
 	}
 }
 
@@ -453,11 +459,11 @@ func (c *CharSet) addSet(set CharSet) {
 
 func (c *CharSet) makeAnything() {
 	c.anything = true
-	c.categories = []category{}
+	c.categories = []Category{}
 	c.ranges = AnyClass().ranges
 }
 
-func (c *CharSet) addCategories(cats ...category) {
+func (c *CharSet) addCategories(cats ...Category) {
 	// don't add dupes and remove positive+negative
 	if c.anything {
 		// if we've had a previous positive+negative group then
@@ -468,8 +474,8 @@ func (c *CharSet) addCategories(cats ...category) {
 	for _, ct := range cats {
 		found := false
 		for _, ct2 := range c.categories {
-			if ct.cat == ct2.cat {
-				if ct.negate != ct2.negate {
+			if ct.Cat == ct2.Cat {
+				if ct.Negate != ct2.Negate {
 					// oposite negations...this mean we just
 					// take us as anything and move on
 					c.makeAnything()
@@ -487,7 +493,7 @@ func (c *CharSet) addCategories(cats ...category) {
 }
 
 // Merges new ranges to our own
-func (c *CharSet) addRanges(ranges []singleRange) {
+func (c *CharSet) addRanges(ranges []SingleRange) {
 	if c.anything {
 		return
 	}
@@ -496,7 +502,7 @@ func (c *CharSet) addRanges(ranges []singleRange) {
 }
 
 // Merges everything but the new ranges into our own
-func (c *CharSet) addNegativeRanges(ranges []singleRange) {
+func (c *CharSet) addNegativeRanges(ranges []SingleRange) {
 	if c.anything {
 		return
 	}
@@ -505,14 +511,14 @@ func (c *CharSet) addNegativeRanges(ranges []singleRange) {
 
 	// convert incoming ranges into opposites, assume they are in order
 	for _, r := range ranges {
-		if hi < r.first {
-			c.ranges = append(c.ranges, singleRange{hi, r.first - 1})
+		if hi < r.First {
+			c.ranges = append(c.ranges, SingleRange{hi, r.First - 1})
 		}
-		hi = r.last + 1
+		hi = r.Last + 1
 	}
 
 	if hi < utf8.MaxRune {
-		c.ranges = append(c.ranges, singleRange{hi, utf8.MaxRune})
+		c.ranges = append(c.ranges, SingleRange{hi, utf8.MaxRune})
 	}
 
 	c.canonicalize()
@@ -533,11 +539,11 @@ func (c *CharSet) addCategory(categoryName string, negate, caseInsensitive bool,
 	if caseInsensitive && (categoryName == "Ll" || categoryName == "Lu" || categoryName == "Lt") {
 		// when RegexOptions.IgnoreCase is specified then {Ll} {Lu} and {Lt} cases should all match
 		c.addCategories(
-			category{cat: "Ll", negate: negate},
-			category{cat: "Lu", negate: negate},
-			category{cat: "Lt", negate: negate})
+			Category{Cat: "Ll", Negate: negate},
+			Category{Cat: "Lu", Negate: negate},
+			Category{Cat: "Lt", Negate: negate})
 	}
-	c.addCategories(category{cat: categoryName, negate: negate})
+	c.addCategories(Category{Cat: categoryName, Negate: negate})
 }
 
 func (c *CharSet) addSubtraction(sub *CharSet) {
@@ -545,42 +551,42 @@ func (c *CharSet) addSubtraction(sub *CharSet) {
 }
 
 func (c *CharSet) addRange(chMin, chMax rune) {
-	c.ranges = append(c.ranges, singleRange{first: chMin, last: chMax})
+	c.ranges = append(c.ranges, SingleRange{First: chMin, Last: chMax})
 	c.canonicalize()
 }
 
 func (c *CharSet) addNamedASCII(name string, negate bool) bool {
-	var rs []singleRange
+	var rs []SingleRange
 
 	switch name {
 	case "alnum":
-		rs = []singleRange{singleRange{'0', '9'}, singleRange{'A', 'Z'}, singleRange{'a', 'z'}}
+		rs = []SingleRange{SingleRange{'0', '9'}, SingleRange{'A', 'Z'}, SingleRange{'a', 'z'}}
 	case "alpha":
-		rs = []singleRange{singleRange{'A', 'Z'}, singleRange{'a', 'z'}}
+		rs = []SingleRange{SingleRange{'A', 'Z'}, SingleRange{'a', 'z'}}
 	case "ascii":
-		rs = []singleRange{singleRange{0, 0x7f}}
+		rs = []SingleRange{SingleRange{0, 0x7f}}
 	case "blank":
-		rs = []singleRange{singleRange{'\t', '\t'}, singleRange{' ', ' '}}
+		rs = []SingleRange{SingleRange{'\t', '\t'}, SingleRange{' ', ' '}}
 	case "cntrl":
-		rs = []singleRange{singleRange{0, 0x1f}, singleRange{0x7f, 0x7f}}
+		rs = []SingleRange{SingleRange{0, 0x1f}, SingleRange{0x7f, 0x7f}}
 	case "digit":
 		c.addDigit(false, negate, "")
 	case "graph":
-		rs = []singleRange{singleRange{'!', '~'}}
+		rs = []SingleRange{SingleRange{'!', '~'}}
 	case "lower":
-		rs = []singleRange{singleRange{'a', 'z'}}
+		rs = []SingleRange{SingleRange{'a', 'z'}}
 	case "print":
-		rs = []singleRange{singleRange{' ', '~'}}
+		rs = []SingleRange{SingleRange{' ', '~'}}
 	case "punct": //[!-/:-@[-`{-~]
-		rs = []singleRange{singleRange{'!', '/'}, singleRange{':', '@'}, singleRange{'[', '`'}, singleRange{'{', '~'}}
+		rs = []SingleRange{SingleRange{'!', '/'}, SingleRange{':', '@'}, SingleRange{'[', '`'}, SingleRange{'{', '~'}}
 	case "space":
 		c.addSpace(true, false, negate)
 	case "upper":
-		rs = []singleRange{singleRange{'A', 'Z'}}
+		rs = []SingleRange{SingleRange{'A', 'Z'}}
 	case "word":
 		c.addWord(true, negate)
 	case "xdigit":
-		rs = []singleRange{singleRange{'0', '9'}, singleRange{'A', 'F'}, singleRange{'a', 'f'}}
+		rs = []SingleRange{SingleRange{'0', '9'}, SingleRange{'A', 'F'}, SingleRange{'a', 'f'}}
 	default:
 		return false
 	}
@@ -596,10 +602,10 @@ func (c *CharSet) addNamedASCII(name string, negate bool) bool {
 	return true
 }
 
-type singleRangeSorter []singleRange
+type singleRangeSorter []SingleRange
 
 func (p singleRangeSorter) Len() int           { return len(p) }
-func (p singleRangeSorter) Less(i, j int) bool { return p[i].first < p[j].first }
+func (p singleRangeSorter) Less(i, j int) bool { return p[i].First < p[j].First }
 func (p singleRangeSorter) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 // Logic to reduce a character class to a unique, sorted form.
@@ -617,23 +623,23 @@ func (c *CharSet) canonicalize() {
 		done := false
 
 		for i, j = 1, 0; ; i++ {
-			for last = c.ranges[j].last; ; i++ {
+			for last = c.ranges[j].Last; ; i++ {
 				if i == len(c.ranges) || last == utf8.MaxRune {
 					done = true
 					break
 				}
 
 				CurrentRange := c.ranges[i]
-				if CurrentRange.first > last+1 {
+				if CurrentRange.First > last+1 {
 					break
 				}
 
-				if last < CurrentRange.last {
-					last = CurrentRange.last
+				if last < CurrentRange.Last {
+					last = CurrentRange.Last
 				}
 			}
 
-			c.ranges[j] = singleRange{first: c.ranges[j].first, last: last}
+			c.ranges[j] = SingleRange{First: c.ranges[j].First, Last: last}
 
 			j++
 
@@ -656,19 +662,19 @@ func (c *CharSet) addLowercase() {
 	if c.anything {
 		return
 	}
-	toAdd := []singleRange{}
+	toAdd := []SingleRange{}
 	for i := 0; i < len(c.ranges); i++ {
 		r := c.ranges[i]
-		if r.first == r.last {
-			lower := unicode.ToLower(r.first)
-			c.ranges[i] = singleRange{first: lower, last: lower}
+		if r.First == r.Last {
+			lower := unicode.ToLower(r.First)
+			c.ranges[i] = SingleRange{First: lower, Last: lower}
 		} else {
 			toAdd = append(toAdd, r)
 		}
 	}
 
 	for _, r := range toAdd {
-		c.addLowercaseRange(r.first, r.last)
+		c.addLowercaseRange(r.First, r.Last)
 	}
 	c.canonicalize()
 }
@@ -714,100 +720,100 @@ type lcMap struct {
 }
 
 var lcTable = []lcMap{
-	lcMap{'\u0041', '\u005A', LowercaseAdd, 32},
-	lcMap{'\u00C0', '\u00DE', LowercaseAdd, 32},
-	lcMap{'\u0100', '\u012E', LowercaseBor, 0},
-	lcMap{'\u0130', '\u0130', LowercaseSet, 0x0069},
-	lcMap{'\u0132', '\u0136', LowercaseBor, 0},
-	lcMap{'\u0139', '\u0147', LowercaseBad, 0},
-	lcMap{'\u014A', '\u0176', LowercaseBor, 0},
-	lcMap{'\u0178', '\u0178', LowercaseSet, 0x00FF},
-	lcMap{'\u0179', '\u017D', LowercaseBad, 0},
-	lcMap{'\u0181', '\u0181', LowercaseSet, 0x0253},
-	lcMap{'\u0182', '\u0184', LowercaseBor, 0},
-	lcMap{'\u0186', '\u0186', LowercaseSet, 0x0254},
-	lcMap{'\u0187', '\u0187', LowercaseSet, 0x0188},
-	lcMap{'\u0189', '\u018A', LowercaseAdd, 205},
-	lcMap{'\u018B', '\u018B', LowercaseSet, 0x018C},
-	lcMap{'\u018E', '\u018E', LowercaseSet, 0x01DD},
-	lcMap{'\u018F', '\u018F', LowercaseSet, 0x0259},
-	lcMap{'\u0190', '\u0190', LowercaseSet, 0x025B},
-	lcMap{'\u0191', '\u0191', LowercaseSet, 0x0192},
-	lcMap{'\u0193', '\u0193', LowercaseSet, 0x0260},
-	lcMap{'\u0194', '\u0194', LowercaseSet, 0x0263},
-	lcMap{'\u0196', '\u0196', LowercaseSet, 0x0269},
-	lcMap{'\u0197', '\u0197', LowercaseSet, 0x0268},
-	lcMap{'\u0198', '\u0198', LowercaseSet, 0x0199},
-	lcMap{'\u019C', '\u019C', LowercaseSet, 0x026F},
-	lcMap{'\u019D', '\u019D', LowercaseSet, 0x0272},
-	lcMap{'\u019F', '\u019F', LowercaseSet, 0x0275},
-	lcMap{'\u01A0', '\u01A4', LowercaseBor, 0},
-	lcMap{'\u01A7', '\u01A7', LowercaseSet, 0x01A8},
-	lcMap{'\u01A9', '\u01A9', LowercaseSet, 0x0283},
-	lcMap{'\u01AC', '\u01AC', LowercaseSet, 0x01AD},
-	lcMap{'\u01AE', '\u01AE', LowercaseSet, 0x0288},
-	lcMap{'\u01AF', '\u01AF', LowercaseSet, 0x01B0},
-	lcMap{'\u01B1', '\u01B2', LowercaseAdd, 217},
-	lcMap{'\u01B3', '\u01B5', LowercaseBad, 0},
-	lcMap{'\u01B7', '\u01B7', LowercaseSet, 0x0292},
-	lcMap{'\u01B8', '\u01B8', LowercaseSet, 0x01B9},
-	lcMap{'\u01BC', '\u01BC', LowercaseSet, 0x01BD},
-	lcMap{'\u01C4', '\u01C5', LowercaseSet, 0x01C6},
-	lcMap{'\u01C7', '\u01C8', LowercaseSet, 0x01C9},
-	lcMap{'\u01CA', '\u01CB', LowercaseSet, 0x01CC},
-	lcMap{'\u01CD', '\u01DB', LowercaseBad, 0},
-	lcMap{'\u01DE', '\u01EE', LowercaseBor, 0},
-	lcMap{'\u01F1', '\u01F2', LowercaseSet, 0x01F3},
-	lcMap{'\u01F4', '\u01F4', LowercaseSet, 0x01F5},
-	lcMap{'\u01FA', '\u0216', LowercaseBor, 0},
-	lcMap{'\u0386', '\u0386', LowercaseSet, 0x03AC},
-	lcMap{'\u0388', '\u038A', LowercaseAdd, 37},
-	lcMap{'\u038C', '\u038C', LowercaseSet, 0x03CC},
-	lcMap{'\u038E', '\u038F', LowercaseAdd, 63},
-	lcMap{'\u0391', '\u03AB', LowercaseAdd, 32},
-	lcMap{'\u03E2', '\u03EE', LowercaseBor, 0},
-	lcMap{'\u0401', '\u040F', LowercaseAdd, 80},
-	lcMap{'\u0410', '\u042F', LowercaseAdd, 32},
-	lcMap{'\u0460', '\u0480', LowercaseBor, 0},
-	lcMap{'\u0490', '\u04BE', LowercaseBor, 0},
-	lcMap{'\u04C1', '\u04C3', LowercaseBad, 0},
-	lcMap{'\u04C7', '\u04C7', LowercaseSet, 0x04C8},
-	lcMap{'\u04CB', '\u04CB', LowercaseSet, 0x04CC},
-	lcMap{'\u04D0', '\u04EA', LowercaseBor, 0},
-	lcMap{'\u04EE', '\u04F4', LowercaseBor, 0},
-	lcMap{'\u04F8', '\u04F8', LowercaseSet, 0x04F9},
-	lcMap{'\u0531', '\u0556', LowercaseAdd, 48},
-	lcMap{'\u10A0', '\u10C5', LowercaseAdd, 48},
-	lcMap{'\u1E00', '\u1EF8', LowercaseBor, 0},
-	lcMap{'\u1F08', '\u1F0F', LowercaseAdd, -8},
-	lcMap{'\u1F18', '\u1F1F', LowercaseAdd, -8},
-	lcMap{'\u1F28', '\u1F2F', LowercaseAdd, -8},
-	lcMap{'\u1F38', '\u1F3F', LowercaseAdd, -8},
-	lcMap{'\u1F48', '\u1F4D', LowercaseAdd, -8},
-	lcMap{'\u1F59', '\u1F59', LowercaseSet, 0x1F51},
-	lcMap{'\u1F5B', '\u1F5B', LowercaseSet, 0x1F53},
-	lcMap{'\u1F5D', '\u1F5D', LowercaseSet, 0x1F55},
-	lcMap{'\u1F5F', '\u1F5F', LowercaseSet, 0x1F57},
-	lcMap{'\u1F68', '\u1F6F', LowercaseAdd, -8},
-	lcMap{'\u1F88', '\u1F8F', LowercaseAdd, -8},
-	lcMap{'\u1F98', '\u1F9F', LowercaseAdd, -8},
-	lcMap{'\u1FA8', '\u1FAF', LowercaseAdd, -8},
-	lcMap{'\u1FB8', '\u1FB9', LowercaseAdd, -8},
-	lcMap{'\u1FBA', '\u1FBB', LowercaseAdd, -74},
-	lcMap{'\u1FBC', '\u1FBC', LowercaseSet, 0x1FB3},
-	lcMap{'\u1FC8', '\u1FCB', LowercaseAdd, -86},
-	lcMap{'\u1FCC', '\u1FCC', LowercaseSet, 0x1FC3},
-	lcMap{'\u1FD8', '\u1FD9', LowercaseAdd, -8},
-	lcMap{'\u1FDA', '\u1FDB', LowercaseAdd, -100},
-	lcMap{'\u1FE8', '\u1FE9', LowercaseAdd, -8},
-	lcMap{'\u1FEA', '\u1FEB', LowercaseAdd, -112},
-	lcMap{'\u1FEC', '\u1FEC', LowercaseSet, 0x1FE5},
-	lcMap{'\u1FF8', '\u1FF9', LowercaseAdd, -128},
-	lcMap{'\u1FFA', '\u1FFB', LowercaseAdd, -126},
-	lcMap{'\u1FFC', '\u1FFC', LowercaseSet, 0x1FF3},
-	lcMap{'\u2160', '\u216F', LowercaseAdd, 16},
-	lcMap{'\u24B6', '\u24D0', LowercaseAdd, 26},
-	lcMap{'\uFF21', '\uFF3A', LowercaseAdd, 32},
+	{'\u0041', '\u005A', LowercaseAdd, 32},
+	{'\u00C0', '\u00DE', LowercaseAdd, 32},
+	{'\u0100', '\u012E', LowercaseBor, 0},
+	{'\u0130', '\u0130', LowercaseSet, 0x0069},
+	{'\u0132', '\u0136', LowercaseBor, 0},
+	{'\u0139', '\u0147', LowercaseBad, 0},
+	{'\u014A', '\u0176', LowercaseBor, 0},
+	{'\u0178', '\u0178', LowercaseSet, 0x00FF},
+	{'\u0179', '\u017D', LowercaseBad, 0},
+	{'\u0181', '\u0181', LowercaseSet, 0x0253},
+	{'\u0182', '\u0184', LowercaseBor, 0},
+	{'\u0186', '\u0186', LowercaseSet, 0x0254},
+	{'\u0187', '\u0187', LowercaseSet, 0x0188},
+	{'\u0189', '\u018A', LowercaseAdd, 205},
+	{'\u018B', '\u018B', LowercaseSet, 0x018C},
+	{'\u018E', '\u018E', LowercaseSet, 0x01DD},
+	{'\u018F', '\u018F', LowercaseSet, 0x0259},
+	{'\u0190', '\u0190', LowercaseSet, 0x025B},
+	{'\u0191', '\u0191', LowercaseSet, 0x0192},
+	{'\u0193', '\u0193', LowercaseSet, 0x0260},
+	{'\u0194', '\u0194', LowercaseSet, 0x0263},
+	{'\u0196', '\u0196', LowercaseSet, 0x0269},
+	{'\u0197', '\u0197', LowercaseSet, 0x0268},
+	{'\u0198', '\u0198', LowercaseSet, 0x0199},
+	{'\u019C', '\u019C', LowercaseSet, 0x026F},
+	{'\u019D', '\u019D', LowercaseSet, 0x0272},
+	{'\u019F', '\u019F', LowercaseSet, 0x0275},
+	{'\u01A0', '\u01A4', LowercaseBor, 0},
+	{'\u01A7', '\u01A7', LowercaseSet, 0x01A8},
+	{'\u01A9', '\u01A9', LowercaseSet, 0x0283},
+	{'\u01AC', '\u01AC', LowercaseSet, 0x01AD},
+	{'\u01AE', '\u01AE', LowercaseSet, 0x0288},
+	{'\u01AF', '\u01AF', LowercaseSet, 0x01B0},
+	{'\u01B1', '\u01B2', LowercaseAdd, 217},
+	{'\u01B3', '\u01B5', LowercaseBad, 0},
+	{'\u01B7', '\u01B7', LowercaseSet, 0x0292},
+	{'\u01B8', '\u01B8', LowercaseSet, 0x01B9},
+	{'\u01BC', '\u01BC', LowercaseSet, 0x01BD},
+	{'\u01C4', '\u01C5', LowercaseSet, 0x01C6},
+	{'\u01C7', '\u01C8', LowercaseSet, 0x01C9},
+	{'\u01CA', '\u01CB', LowercaseSet, 0x01CC},
+	{'\u01CD', '\u01DB', LowercaseBad, 0},
+	{'\u01DE', '\u01EE', LowercaseBor, 0},
+	{'\u01F1', '\u01F2', LowercaseSet, 0x01F3},
+	{'\u01F4', '\u01F4', LowercaseSet, 0x01F5},
+	{'\u01FA', '\u0216', LowercaseBor, 0},
+	{'\u0386', '\u0386', LowercaseSet, 0x03AC},
+	{'\u0388', '\u038A', LowercaseAdd, 37},
+	{'\u038C', '\u038C', LowercaseSet, 0x03CC},
+	{'\u038E', '\u038F', LowercaseAdd, 63},
+	{'\u0391', '\u03AB', LowercaseAdd, 32},
+	{'\u03E2', '\u03EE', LowercaseBor, 0},
+	{'\u0401', '\u040F', LowercaseAdd, 80},
+	{'\u0410', '\u042F', LowercaseAdd, 32},
+	{'\u0460', '\u0480', LowercaseBor, 0},
+	{'\u0490', '\u04BE', LowercaseBor, 0},
+	{'\u04C1', '\u04C3', LowercaseBad, 0},
+	{'\u04C7', '\u04C7', LowercaseSet, 0x04C8},
+	{'\u04CB', '\u04CB', LowercaseSet, 0x04CC},
+	{'\u04D0', '\u04EA', LowercaseBor, 0},
+	{'\u04EE', '\u04F4', LowercaseBor, 0},
+	{'\u04F8', '\u04F8', LowercaseSet, 0x04F9},
+	{'\u0531', '\u0556', LowercaseAdd, 48},
+	{'\u10A0', '\u10C5', LowercaseAdd, 48},
+	{'\u1E00', '\u1EF8', LowercaseBor, 0},
+	{'\u1F08', '\u1F0F', LowercaseAdd, -8},
+	{'\u1F18', '\u1F1F', LowercaseAdd, -8},
+	{'\u1F28', '\u1F2F', LowercaseAdd, -8},
+	{'\u1F38', '\u1F3F', LowercaseAdd, -8},
+	{'\u1F48', '\u1F4D', LowercaseAdd, -8},
+	{'\u1F59', '\u1F59', LowercaseSet, 0x1F51},
+	{'\u1F5B', '\u1F5B', LowercaseSet, 0x1F53},
+	{'\u1F5D', '\u1F5D', LowercaseSet, 0x1F55},
+	{'\u1F5F', '\u1F5F', LowercaseSet, 0x1F57},
+	{'\u1F68', '\u1F6F', LowercaseAdd, -8},
+	{'\u1F88', '\u1F8F', LowercaseAdd, -8},
+	{'\u1F98', '\u1F9F', LowercaseAdd, -8},
+	{'\u1FA8', '\u1FAF', LowercaseAdd, -8},
+	{'\u1FB8', '\u1FB9', LowercaseAdd, -8},
+	{'\u1FBA', '\u1FBB', LowercaseAdd, -74},
+	{'\u1FBC', '\u1FBC', LowercaseSet, 0x1FB3},
+	{'\u1FC8', '\u1FCB', LowercaseAdd, -86},
+	{'\u1FCC', '\u1FCC', LowercaseSet, 0x1FC3},
+	{'\u1FD8', '\u1FD9', LowercaseAdd, -8},
+	{'\u1FDA', '\u1FDB', LowercaseAdd, -100},
+	{'\u1FE8', '\u1FE9', LowercaseAdd, -8},
+	{'\u1FEA', '\u1FEB', LowercaseAdd, -112},
+	{'\u1FEC', '\u1FEC', LowercaseSet, 0x1FE5},
+	{'\u1FF8', '\u1FF9', LowercaseAdd, -128},
+	{'\u1FFA', '\u1FFB', LowercaseAdd, -126},
+	{'\u1FFC', '\u1FFC', LowercaseSet, 0x1FF3},
+	{'\u2160', '\u216F', LowercaseAdd, 16},
+	{'\u24B6', '\u24D0', LowercaseAdd, 26},
+	{'\uFF21', '\uFF3A', LowercaseAdd, 32},
 }
 
 func (c *CharSet) addLowercaseRange(chMin, chMax rune) {
@@ -843,23 +849,299 @@ func (c *CharSet) addLowercaseRange(chMin, chMax rune) {
 		case LowercaseSet:
 			chMinT = rune(lc.data)
 			chMaxT = rune(lc.data)
-			break
 		case LowercaseAdd:
 			chMinT += lc.data
 			chMaxT += lc.data
-			break
 		case LowercaseBor:
 			chMinT |= 1
 			chMaxT |= 1
-			break
 		case LowercaseBad:
 			chMinT += (chMinT & 1)
 			chMaxT += (chMaxT & 1)
-			break
 		}
 
 		if chMinT < chMin || chMaxT > chMax {
 			c.addRange(chMinT, chMaxT)
 		}
+	}
+}
+
+// Gets all of the characters in the specified set, storing them into the provided span.</summary>
+//
+// Only considers character classes that only contain sets (no categories),
+// just simple sets containing starting/ending pairs (subtraction from those pairs
+// is factored in, however).The returned characters may be negated: if IsNegated(set)
+// is false, then the returned characters are the only ones that match; if it returns
+// true, then the returned characters are the only ones that don't match.
+func (c *CharSet) GetSetChars(chars []rune) []rune {
+	// don't support categories, just ranges
+	if len(c.categories) > 0 || len(c.ranges) > cap(chars) {
+		return nil
+	}
+
+	// Negation with subtraction is too cumbersome to reason about efficiently.
+	if c.IsNegated() && c.HasSubtraction() {
+		return nil
+	}
+
+	maxWork := cap(chars)
+	curWork := 0
+	// Iterate through the pairs of ranges, storing each value in each range
+	// into the supplied span.  If they all won't fit, we give up and return 0.
+	// Otherwise we return the number found.  Note that we don't bother to handle
+	// the corner case where the last range's upper bound is LastChar (\uFFFF),
+	// based on it a) complicating things, and b) it being really unlikely to
+	// be part of a small set.
+	for _, r := range c.ranges {
+		// loop through each char in the range
+		for ch := r.First; ch <= r.Last; ch++ {
+
+			// Keep track of how many characters we've checked. This could work
+			// just comparing count rather than evaluated, but we also want to
+			// limit how much work is done here, which we can do by constraining
+			// the number of checks to the size of the storage provided.
+			curWork++
+			if curWork > maxWork {
+				return nil
+			}
+
+			// If the set is all ranges but has a subtracted class,
+			// validate the char is actually in the set prior to storing it:
+			// it might be in the subtracted range.
+			if c.HasSubtraction() && !c.CharIn(ch) {
+				continue
+			}
+			chars = append(chars, ch)
+		}
+	}
+	return chars
+}
+
+func (c *CharSet) HashInto(buf []byte) {
+	c.mapHashFill(bytes.NewBuffer(buf))
+}
+
+func (c *CharSet) Equals(c2 *CharSet) bool {
+	//TODO: optimize checks instead of hashing both
+	buf1 := &bytes.Buffer{}
+	c.mapHashFill(buf1)
+
+	buf2 := &bytes.Buffer{}
+	c2.mapHashFill(buf2)
+
+	return bytes.Equal(buf1.Bytes(), buf2.Bytes())
+}
+
+func checkHashEqual(hash []byte, c *CharSet, buf *bytes.Buffer) bool {
+	buf.Reset()
+	c.mapHashFill(buf)
+	return bytes.Equal(hash, buf.Bytes())
+}
+
+var whitespaceChars = []rune{'\u0009', '\u000A', '\u000B', '\u000C', '\u000D',
+	'\u0020', '\u0085', '\u00A0', '\u1680', '\u2000',
+	'\u2001', '\u2002', '\u2003', '\u2004', '\u2005',
+	'\u2006', '\u2007', '\u2008', '\u2009', '\u200A',
+	'\u2028', '\u2029', '\u202F', '\u205F', '\u3000'}
+
+// Gets whether the specified set is a named set with a reasonably small count
+// of Unicode characters. Designed to help the regexp code generator choose a better
+// search algo for finding chars
+// Description is a short name that can be used as part of a var name in code gen
+func (c *CharSet) IsUnicodeCategoryOfSmallCharCount() (isSmall bool, chars []rune, negated bool, desc string) {
+	// figure out if we're SpaceClass, RE2SpaceClass, ECMASpaceClass or inverse
+	// "hash" ourselves -- this is actually fully serialized, not just hashed
+	if c.IsSingleton() {
+		return true, []rune{c.SingletonChar()}, false, ""
+	}
+	if c.IsSingletonInverse() {
+		return true, []rune{c.SingletonChar()}, true, ""
+	}
+
+	buf := &bytes.Buffer{}
+	c.mapHashFill(buf)
+	hash := buf.Bytes()
+
+	buf2 := &bytes.Buffer{}
+	if checkHashEqual(hash, SpaceClass(), buf2) {
+		// we're SpaceClass
+		return true, whitespaceChars, false, "whitespace"
+	}
+	if checkHashEqual(hash, NotSpaceClass(), buf2) {
+		// we're NotSpaceClass
+		return true, whitespaceChars, true, "whitespace"
+	}
+
+	return false, nil, false, ""
+}
+
+// Gets whether the set description string is for two ASCII letters that case
+// to each other under IgnoreCase rules.
+func (c *CharSet) containsAsciiIgnoreCaseCharacter(twoChars []rune) bool {
+	if c.IsNegated() {
+		return false
+	}
+	twoChars = c.GetSetChars(twoChars)
+	return len(twoChars) == 2 && twoChars[0] < unicode.MaxASCII && twoChars[1] < unicode.MaxASCII &&
+		(twoChars[0]|0x20) == (twoChars[1]|0x20) &&
+		unicode.IsLetter(twoChars[0]) && unicode.IsLetter(twoChars[1])
+}
+
+func participatesInCaseConversion(ch rune) bool {
+	/*
+		case UnicodeCategory.ClosePunctuation:
+		case UnicodeCategory.ConnectorPunctuation:
+		case UnicodeCategory.Control:
+		case UnicodeCategory.DashPunctuation:
+		case UnicodeCategory.DecimalDigitNumber:
+		case UnicodeCategory.FinalQuotePunctuation:
+		case UnicodeCategory.InitialQuotePunctuation:
+		case UnicodeCategory.LineSeparator:
+		case UnicodeCategory.OpenPunctuation:
+		case UnicodeCategory.OtherNumber:
+		case UnicodeCategory.OtherPunctuation:
+		case UnicodeCategory.ParagraphSeparator:
+		case UnicodeCategory.SpaceSeparator:
+	*/
+	return !unicode.In(ch, unicode.Pe, unicode.Pc, unicode.Cc, unicode.Pd, unicode.Nd, unicode.Pf,
+		unicode.Pi, unicode.Zl, unicode.Ps, unicode.No, unicode.Po, unicode.Zp, unicode.Zs)
+}
+
+func anyParticipatesInCaseConversion(str string) bool {
+	for _, c := range str {
+		if participatesInCaseConversion(c) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAscii(str string) bool {
+	for i := 0; i < len(str); i++ {
+		if str[i] > unicode.MaxASCII {
+			return false
+		}
+	}
+	return true
+}
+
+func isAsciiRunes(in []rune) bool {
+	for i := 0; i < len(in); i++ {
+		if in[i] > unicode.MaxASCII {
+			return false
+		}
+	}
+	return true
+}
+
+func (c CharSet) GetIfNRanges(n int) []SingleRange {
+	if len(c.categories) > 0 {
+		return nil
+	}
+	if c.sub != nil {
+		return nil
+	}
+	if len(c.ranges) == n {
+		return c.ranges[:n]
+	}
+	return nil
+}
+
+func (c *CharSet) GetIfOnlyUnicodeCategories() (cats []Category, negate bool) {
+	if c.sub != nil {
+		return nil, false
+	}
+	if len(c.ranges) > 0 {
+		return nil, false
+	}
+	// all cats need to be rationalized to the same negation or not
+	if len(c.categories) == 0 {
+		return nil, false
+	}
+
+	neg := c.categories[0].Negate
+	for _, cat := range c.categories {
+		if neg != cat.Negate || cat.Cat == SpaceCategoryText || cat.Cat == WordCategoryText {
+			// negate some and not others...a problem
+			// or one of our non-unicode categories
+			return nil, false
+		}
+	}
+
+	// tell the caller to negate if either all the categories
+	// are negated or the set as a whole is negated, but not
+	// both
+	return c.categories, neg != c.negate
+}
+
+type CharClassAnalysisResults struct {
+	// true if the set contains only ranges; false if it contains Unicode categories and/or subtraction.</summary>
+	OnlyRanges bool
+	// true if we know for sure that the set contains only ASCII values; otherwise, false.</summary>
+	// This can only be true if OnlyRanges is true.
+	ContainsOnlyAscii bool
+	// true if we know for sure that the set doesn't contain any ASCII values; otherwise, false.</summary>
+	// This can only be true if OnlyRanges is true.
+	ContainsNoAscii bool
+	/// <summary>true if we know for sure that all ASCII values are in the set; otherwise, false.</summary>
+	// This can only be true if OnlyRanges is true.
+	AllAsciiContained bool
+	/// <summary>true if we know for sure that all non-ASCII values are in the set; otherwise, false.</summary>
+	// This can only be true if OnlyRanges is true.
+	AllNonAsciiContained bool
+	/// <summary>The inclusive lower bound.</summary>
+	// This is only valid if OnlyRanges is true.
+	LowerBoundInclusiveIfOnlyRanges rune
+	/// <summary>The exclusive upper bound.</summary>
+	// This is only valid if OnlyRanges is true.
+	UpperBoundExclusiveIfOnlyRanges rune
+}
+
+// <summary>Analyzes the set to determine some basic properties that can be used to optimize usage.</summary>
+func (set *CharSet) Analyze() CharClassAnalysisResults {
+	// The analysis is performed based entirely on ranges contained within the set.
+	// Thus, we require that it can be "easily enumerated", meaning it contains only
+	// ranges (and more specifically those with both the lower inclusive and upper
+	// exclusive bounds specified). We also permit the set to contain a subtracted
+	// character class, as for non-negated sets, that can only narrow what's permitted,
+	// and the analysis can be performed on the overestimate of the set prior to subtraction.
+	// However, negation is performed before subtraction, which means we can't trust
+	// the ranges to inform AllNonAsciiContained and AllAsciiContained, as the subtraction
+	// could create holes in those.  As such, while we can permit subtraction for non-negated
+	// sets, for negated sets, we need to bail.
+	if (set.IsNegated() && set.HasSubtraction()) || len(set.categories) > 0 || len(set.ranges) == 0 {
+		// We can't make any strong claims about the set.
+		return CharClassAnalysisResults{}
+	}
+
+	firstValueInclusive := set.ranges[0].First
+	lastValueExclusive := set.ranges[len(set.ranges)-1].Last
+
+	if set.IsNegated() {
+		// We're negated: if the upper bound of the range is ASCII, that means everything
+		// above it is actually included, meaning all non-ASCII are in the class.
+		// Similarly if the lower bound is non-ASCII, that means in a negated world
+		// everything ASCII is included.
+		return CharClassAnalysisResults{
+			OnlyRanges:                      true,
+			AllNonAsciiContained:            lastValueExclusive <= unicode.MaxASCII,
+			AllAsciiContained:               firstValueInclusive >= unicode.MaxASCII,
+			ContainsNoAscii:                 firstValueInclusive == 0 && set.ranges[0].Last >= unicode.MaxASCII,
+			ContainsOnlyAscii:               false,
+			LowerBoundInclusiveIfOnlyRanges: firstValueInclusive,
+			UpperBoundExclusiveIfOnlyRanges: lastValueExclusive,
+		}
+	}
+
+	// If the upper bound is ASCII, that means everything included in the class is ASCII.
+	// Similarly if the lower bound is non-ASCII, that means no ASCII is in the class.
+	return CharClassAnalysisResults{
+		OnlyRanges:                      true,
+		AllNonAsciiContained:            false,
+		AllAsciiContained:               firstValueInclusive == 0 && set.ranges[0].Last >= unicode.MaxASCII && !set.HasSubtraction(),
+		ContainsOnlyAscii:               lastValueExclusive <= unicode.MaxASCII,
+		ContainsNoAscii:                 firstValueInclusive >= unicode.MaxASCII,
+		LowerBoundInclusiveIfOnlyRanges: firstValueInclusive,
+		UpperBoundExclusiveIfOnlyRanges: lastValueExclusive,
 	}
 }

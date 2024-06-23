@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,9 +20,9 @@ type Runner struct {
 
 	runtextstart int // starting point for search
 
-	runtext    []rune // text to search
+	Runtext    []rune // text to search
 	Runtextpos int    // current position in text
-	runtextend int
+	Runtextend int
 
 	// The backtracking stack.  Opcodes use this to store data regarding
 	// what they have matched and where to backtrack to.  Each "frame" on
@@ -36,7 +37,7 @@ type Runner struct {
 	// with a backtracking flag ("Back").  Each opcode then knows how to
 	// handle its own data.
 	runtrack    []int
-	runtrackpos int
+	Runtrackpos int
 
 	// This stack is used to track text positions across different opcodes.
 	// For example, in /(a*b)+/, the parentheses result in a SetMark/CaptureMark
@@ -104,10 +105,10 @@ func (r *Runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 	r.timeout = timeout
 	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
 	r.runtextstart = textstart
-	r.runtext = rt
-	r.runtextend = len(rt)
+	r.Runtext = rt
+	r.Runtextend = len(rt)
 
-	stoppos := r.runtextend
+	stoppos := r.Runtextend
 	bump := 1
 
 	if r.re.RightToLeft() {
@@ -132,12 +133,12 @@ func (r *Runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 	for {
 		if r.re.Debug() {
 			//fmt.Printf("\nSearch content: %v\n", string(r.runtext))
-			fmt.Printf("\nSearch range: from 0 to %v\n", r.runtextend)
+			fmt.Printf("\nSearch range: from 0 to %v\n", r.Runtextend)
 			fmt.Printf("Firstchar search starting at %v stopping at %v\n", r.Runtextpos, stoppos)
 		}
 
 		if findFirstChar(r) {
-			if err := r.checkTimeout(); err != nil {
+			if err := r.CheckTimeout(); err != nil {
 				return nil, err
 			}
 
@@ -160,7 +161,7 @@ func (r *Runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 			}
 
 			// reset state for another go
-			r.runtrackpos = len(r.runtrack)
+			r.Runtrackpos = len(r.runtrack)
 			r.runstackpos = len(r.runstack)
 			r.runcrawlpos = len(r.runcrawl)
 		}
@@ -191,7 +192,7 @@ func executeDefault(r *Runner) error {
 			r.dumpState()
 		}
 
-		if err := r.checkTimeout(); err != nil {
+		if err := r.CheckTimeout(); err != nil {
 			return err
 		}
 
@@ -533,28 +534,28 @@ func executeDefault(r *Runner) error {
 			continue
 
 		case syntax.Boundary:
-			if !r.isBoundary(r.textPos(), 0, r.runtextend) {
+			if !r.isBoundary(r.textPos(), 0, r.Runtextend) {
 				break
 			}
 			r.advance(0)
 			continue
 
 		case syntax.Nonboundary:
-			if r.isBoundary(r.textPos(), 0, r.runtextend) {
+			if r.isBoundary(r.textPos(), 0, r.Runtextend) {
 				break
 			}
 			r.advance(0)
 			continue
 
 		case syntax.ECMABoundary:
-			if !r.isECMABoundary(r.textPos(), 0, r.runtextend) {
+			if !r.isECMABoundary(r.textPos(), 0, r.Runtextend) {
 				break
 			}
 			r.advance(0)
 			continue
 
 		case syntax.NonECMABoundary:
-			if r.isECMABoundary(r.textPos(), 0, r.runtextend) {
+			if r.isECMABoundary(r.textPos(), 0, r.Runtextend) {
 				break
 			}
 			r.advance(0)
@@ -919,8 +920,8 @@ func (r *Runner) ensureStorage() {
 	if r.runstackpos < r.runtrackcount*4 {
 		doubleIntSlice(&r.runstack, &r.runstackpos)
 	}
-	if r.runtrackpos < r.runtrackcount*4 {
-		doubleIntSlice(&r.runtrack, &r.runtrackpos)
+	if r.Runtrackpos < r.runtrackcount*4 {
+		doubleIntSlice(&r.runtrack, &r.Runtrackpos)
 	}
 }
 
@@ -974,7 +975,7 @@ func (r *Runner) textto(newpos int) {
 }
 
 func (r *Runner) trackto(newpos int) {
-	r.runtrackpos = len(r.runtrack) - newpos
+	r.Runtrackpos = len(r.runtrack) - newpos
 }
 
 func (r *Runner) textstart() int {
@@ -987,60 +988,60 @@ func (r *Runner) textPos() int {
 
 // push onto the backtracking stack
 func (r *Runner) trackpos() int {
-	return len(r.runtrack) - r.runtrackpos
+	return len(r.runtrack) - r.Runtrackpos
 }
 
 func (r *Runner) trackPush() {
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = r.codepos
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = r.codepos
 }
 
 func (r *Runner) trackPush1(I1 int) {
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = I1
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = r.codepos
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = I1
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = r.codepos
 }
 
 func (r *Runner) trackPush2(I1, I2 int) {
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = I1
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = I2
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = r.codepos
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = I1
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = I2
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = r.codepos
 }
 
 func (r *Runner) trackPush3(I1, I2, I3 int) {
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = I1
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = I2
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = I3
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = r.codepos
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = I1
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = I2
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = I3
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = r.codepos
 }
 
 func (r *Runner) trackPushNeg1(I1 int) {
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = I1
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = -r.codepos
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = I1
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = -r.codepos
 }
 
 func (r *Runner) trackPushNeg2(I1, I2 int) {
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = I1
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = I2
-	r.runtrackpos--
-	r.runtrack[r.runtrackpos] = -r.codepos
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = I1
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = I2
+	r.Runtrackpos--
+	r.runtrack[r.Runtrackpos] = -r.codepos
 }
 
 func (r *Runner) backtrack() {
-	newpos := r.runtrack[r.runtrackpos]
-	r.runtrackpos++
+	newpos := r.runtrack[r.Runtrackpos]
+	r.Runtrackpos++
 
 	if r.re.Debug() {
 		if newpos < 0 {
@@ -1072,12 +1073,12 @@ func (r *Runner) setOperator(op int) {
 }
 
 func (r *Runner) trackPop() {
-	r.runtrackpos++
+	r.Runtrackpos++
 }
 
 // pop framesize items from the backtracking stack
 func (r *Runner) trackPopN(framesize int) {
-	r.runtrackpos += framesize
+	r.Runtrackpos += framesize
 }
 
 // Technically we are actually peeking at items already popped.  So if you want to
@@ -1085,12 +1086,12 @@ func (r *Runner) trackPopN(framesize int) {
 // r.trackPop();
 // r.trackPeek();
 func (r *Runner) trackPeek() int {
-	return r.runtrack[r.runtrackpos-1]
+	return r.runtrack[r.Runtrackpos-1]
 }
 
 // get the ith element down on the backtracking stack
 func (r *Runner) trackPeekN(i int) int {
-	return r.runtrack[r.runtrackpos-i-1]
+	return r.runtrack[r.Runtrackpos-i-1]
 }
 
 // Push onto the grouping stack
@@ -1137,7 +1138,7 @@ func (r *Runner) leftchars() int {
 }
 
 func (r *Runner) rightchars() int {
-	return r.runtextend - r.Runtextpos
+	return r.Runtextend - r.Runtextpos
 }
 
 func (r *Runner) bump() int {
@@ -1151,16 +1152,16 @@ func (r *Runner) forwardchars() int {
 	if r.rightToLeft {
 		return r.Runtextpos
 	}
-	return r.runtextend - r.Runtextpos
+	return r.Runtextend - r.Runtextpos
 }
 
 func (r *Runner) forwardcharnext() rune {
 	var ch rune
 	if r.rightToLeft {
 		r.Runtextpos--
-		ch = r.runtext[r.Runtextpos]
+		ch = r.Runtext[r.Runtextpos]
 	} else {
-		ch = r.runtext[r.Runtextpos]
+		ch = r.Runtext[r.Runtextpos]
 		r.Runtextpos++
 	}
 
@@ -1175,7 +1176,7 @@ func (r *Runner) runematch(str []rune) bool {
 
 	c := len(str)
 	if !r.rightToLeft {
-		if r.runtextend-r.Runtextpos < c {
+		if r.Runtextend-r.Runtextpos < c {
 			return false
 		}
 
@@ -1192,7 +1193,7 @@ func (r *Runner) runematch(str []rune) bool {
 		for c != 0 {
 			c--
 			pos--
-			if str[c] != r.runtext[pos] {
+			if str[c] != r.Runtext[pos] {
 				return false
 			}
 		}
@@ -1200,7 +1201,7 @@ func (r *Runner) runematch(str []rune) bool {
 		for c != 0 {
 			c--
 			pos--
-			if str[c] != unicode.ToLower(r.runtext[pos]) {
+			if str[c] != unicode.ToLower(r.Runtext[pos]) {
 				return false
 			}
 		}
@@ -1219,7 +1220,7 @@ func (r *Runner) refmatch(index, len int) bool {
 	var c, pos, cmpos int
 
 	if !r.rightToLeft {
-		if r.runtextend-r.Runtextpos < len {
+		if r.Runtextend-r.Runtextpos < len {
 			return false
 		}
 
@@ -1240,7 +1241,7 @@ func (r *Runner) refmatch(index, len int) bool {
 			c--
 			cmpos--
 			pos--
-			if r.runtext[cmpos] != r.runtext[pos] {
+			if r.Runtext[cmpos] != r.Runtext[pos] {
 				return false
 			}
 
@@ -1251,7 +1252,7 @@ func (r *Runner) refmatch(index, len int) bool {
 			cmpos--
 			pos--
 
-			if unicode.ToLower(r.runtext[cmpos]) != unicode.ToLower(r.runtext[pos]) {
+			if unicode.ToLower(r.Runtext[cmpos]) != unicode.ToLower(r.Runtext[pos]) {
 				return false
 			}
 		}
@@ -1275,7 +1276,7 @@ func (r *Runner) backwardnext() {
 }
 
 func (r *Runner) charAt(j int) rune {
-	return r.runtext[j]
+	return r.Runtext[j]
 }
 
 func findFirstCharDefault(r *Runner) bool {
@@ -1284,18 +1285,18 @@ func findFirstCharDefault(r *Runner) bool {
 		if !r.code.RightToLeft {
 			if (0 != (r.code.Anchors&syntax.AnchorBeginning) && r.Runtextpos > 0) ||
 				(0 != (r.code.Anchors&syntax.AnchorStart) && r.Runtextpos > r.runtextstart) {
-				r.Runtextpos = r.runtextend
+				r.Runtextpos = r.Runtextend
 				return false
 			}
-			if 0 != (r.code.Anchors&syntax.AnchorEndZ) && r.Runtextpos < r.runtextend-1 {
-				r.Runtextpos = r.runtextend - 1
-			} else if 0 != (r.code.Anchors&syntax.AnchorEnd) && r.Runtextpos < r.runtextend {
-				r.Runtextpos = r.runtextend
+			if 0 != (r.code.Anchors&syntax.AnchorEndZ) && r.Runtextpos < r.Runtextend-1 {
+				r.Runtextpos = r.Runtextend - 1
+			} else if 0 != (r.code.Anchors&syntax.AnchorEnd) && r.Runtextpos < r.Runtextend {
+				r.Runtextpos = r.Runtextend
 			}
 		} else {
-			if (0 != (r.code.Anchors&syntax.AnchorEnd) && r.Runtextpos < r.runtextend) ||
-				(0 != (r.code.Anchors&syntax.AnchorEndZ) && (r.Runtextpos < r.runtextend-1 ||
-					(r.Runtextpos == r.runtextend-1 && r.charAt(r.Runtextpos) != '\n'))) ||
+			if (0 != (r.code.Anchors&syntax.AnchorEnd) && r.Runtextpos < r.Runtextend) ||
+				(0 != (r.code.Anchors&syntax.AnchorEndZ) && (r.Runtextpos < r.Runtextend-1 ||
+					(r.Runtextpos == r.Runtextend-1 && r.charAt(r.Runtextpos) != '\n'))) ||
 				(0 != (r.code.Anchors&syntax.AnchorStart) && r.Runtextpos < r.runtextstart) {
 				r.Runtextpos = 0
 				return false
@@ -1306,18 +1307,18 @@ func findFirstCharDefault(r *Runner) bool {
 		}
 
 		if r.code.BmPrefix != nil {
-			return r.code.BmPrefix.IsMatch(r.runtext, r.Runtextpos, 0, r.runtextend)
+			return r.code.BmPrefix.IsMatch(r.Runtext, r.Runtextpos, 0, r.Runtextend)
 		}
 
 		return true // found a valid start or end anchor
 	} else if r.code.BmPrefix != nil {
-		r.Runtextpos = r.code.BmPrefix.Scan(r.runtext, r.Runtextpos, 0, r.runtextend)
+		r.Runtextpos = r.code.BmPrefix.Scan(r.Runtext, r.Runtextpos, 0, r.Runtextend)
 
 		if r.Runtextpos == -1 {
 			if r.code.RightToLeft {
 				r.Runtextpos = 0
 			} else {
-				r.Runtextpos = r.runtextend
+				r.Runtextpos = r.Runtextend
 			}
 			return false
 		}
@@ -1358,12 +1359,12 @@ func (r *Runner) initMatch() {
 
 	if r.runmatch == nil {
 		if r.re.caps != nil {
-			r.runmatch = newMatchSparse(r.re, r.re.caps, r.re.capsize, r.runtext, r.runtextstart)
+			r.runmatch = newMatchSparse(r.re, r.re.caps, r.re.capsize, r.Runtext, r.runtextstart)
 		} else {
-			r.runmatch = newMatch(r.re, r.re.capsize, r.runtext, r.runtextstart)
+			r.runmatch = newMatch(r.re, r.re.capsize, r.Runtext, r.runtextstart)
 		}
 	} else {
-		r.runmatch.reset(r.runtext, r.runtextstart)
+		r.runmatch.reset(r.Runtext, r.runtextstart)
 	}
 
 	// note we test runcrawl, because it is the last one to be allocated
@@ -1372,7 +1373,7 @@ func (r *Runner) initMatch() {
 	// as if the allocations didn't occur. (we used to test _trackcount != 0)
 
 	if r.runcrawl != nil {
-		r.runtrackpos = len(r.runtrack)
+		r.Runtrackpos = len(r.runtrack)
 		r.runstackpos = len(r.runstack)
 		r.runcrawlpos = len(r.runcrawl)
 		return
@@ -1391,7 +1392,7 @@ func (r *Runner) initMatch() {
 	}
 
 	r.runtrack = make([]int, tracksize)
-	r.runtrackpos = tracksize
+	r.Runtrackpos = tracksize
 
 	r.runstack = make([]int, stacksize)
 	r.runstackpos = stacksize
@@ -1489,7 +1490,7 @@ func (r *Runner) dumpState() {
 	}
 	fmt.Printf("Text:  %v\nTrack: %v\nStack: %v\n       %s%s\n\n",
 		r.textposDescription(),
-		r.stackDescription(r.runtrack, r.runtrackpos),
+		r.stackDescription(r.runtrack, r.Runtrackpos),
 		r.stackDescription(r.runstack, r.runstackpos),
 		r.code.OpcodeDescription(r.codepos),
 		back)
@@ -1527,15 +1528,15 @@ func (r *Runner) textposDescription() string {
 	}
 
 	if r.Runtextpos > 0 {
-		buf.WriteString(syntax.CharDescription(r.runtext[r.Runtextpos-1]))
+		buf.WriteString(syntax.CharDescription(r.Runtext[r.Runtextpos-1]))
 	} else {
 		buf.WriteRune('^')
 	}
 
 	buf.WriteRune('>')
 
-	for i := r.Runtextpos; i < r.runtextend; i++ {
-		buf.WriteString(syntax.CharDescription(r.runtext[i]))
+	for i := r.Runtextpos; i < r.Runtextend; i++ {
+		buf.WriteString(syntax.CharDescription(r.Runtext[i]))
 	}
 	if buf.Len() >= 64 {
 		buf.Truncate(61)
@@ -1551,13 +1552,13 @@ func (r *Runner) textposDescription() string {
 // at the specified index is a boundary or not. It's just not worth
 // emitting inline code for this logic.
 func (r *Runner) isBoundary(index, startpos, endpos int) bool {
-	return (index > startpos && syntax.IsWordChar(r.runtext[index-1])) !=
-		(index < endpos && syntax.IsWordChar(r.runtext[index]))
+	return (index > startpos && syntax.IsWordChar(r.Runtext[index-1])) !=
+		(index < endpos && syntax.IsWordChar(r.Runtext[index]))
 }
 
 func (r *Runner) isECMABoundary(index, startpos, endpos int) bool {
-	return (index > startpos && syntax.IsECMAWordChar(r.runtext[index-1])) !=
-		(index < endpos && syntax.IsECMAWordChar(r.runtext[index]))
+	return (index > startpos && syntax.IsECMAWordChar(r.Runtext[index-1])) !=
+		(index < endpos && syntax.IsECMAWordChar(r.Runtext[index]))
 }
 
 func (r *Runner) startTimeoutWatch() {
@@ -1567,7 +1568,7 @@ func (r *Runner) startTimeoutWatch() {
 	r.deadline = makeDeadline(r.timeout)
 }
 
-func (r *Runner) checkTimeout() error {
+func (r *Runner) CheckTimeout() error {
 	if r.ignoreTimeout || !r.deadline.reached() {
 		return nil
 	}
@@ -1582,7 +1583,7 @@ func (r *Runner) checkTimeout() error {
 		//Debug.WriteLine("About to throw RegexMatchTimeoutException.")
 	}
 
-	return fmt.Errorf("match timeout after %v on input `%v`", r.timeout, string(r.runtext))
+	return fmt.Errorf("match timeout after %v on input `%v`", r.timeout, string(r.Runtext))
 }
 
 func (r *Runner) initTrackCount() {
@@ -1618,4 +1619,41 @@ func (re *Regexp) putRunner(r *Runner) {
 	re.muRun.Lock()
 	re.runner = append(re.runner, r)
 	re.muRun.Unlock()
+}
+
+func (r *Runner) LastIndexOf(startIndex int, find []rune) int {
+	if len(find) == 0 {
+		//special case, return last index
+		return r.Runtextend - 1
+	}
+	skip := len(find)
+	first := find[0]
+	for i := r.Runtextend - 1; i >= startIndex; i-- {
+		if r.Runtext[i] == first {
+			// found our first char while looping backwards
+			// check if the rest are equal
+			if slices.Equal(r.Runtext[i:i+skip], find) {
+				return i
+			}
+		}
+	}
+
+	//not found
+	return -1
+}
+
+func (r *Runner) LastIndexOfRune(startIndex int, endIndex int, find rune) int {
+	for i := endIndex - 1; i >= startIndex; i-- {
+		if r.Runtext[i] == find {
+			return i
+		}
+	}
+	return -1
+}
+
+// Undo captures until it reaches the specified capture position
+func (r *Runner) UncaptureUntil(capturePos int) {
+	for r.crawlpos() > capturePos {
+		r.uncapture()
+	}
 }
