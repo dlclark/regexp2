@@ -201,6 +201,14 @@ func (n *RegexNode) removeChildren(startIndex, endIndex int) {
 	n.Children = append(n.Children[:startIndex], n.Children[endIndex:]...)
 }
 
+func (n *RegexNode) ReplaceChild(index int, newChild *RegexNode) {
+	//newChild.Parent = n // so that the child can see its parent while being reduced
+	newChild = newChild.reduce()
+	//newChild.Parent = n // in case Reduce returns a different node that needs to be reparented
+
+	n.Children[index] = newChild
+}
+
 // Pass type as OneLazy or OneLoop
 func (n *RegexNode) makeRep(t NodeType, min, max int) {
 	n.T += (t - NtOne)
@@ -598,7 +606,7 @@ func (n *RegexNode) computeMinLength() int {
 		// The sum of all of the concatenation's children.
 		sum := 0
 		for i := 0; i < len(n.Children); i++ {
-			sum += n.Children[0].computeMinLength()
+			sum += n.Children[i].computeMinLength()
 		}
 		return sum
 	case NtAtomic, NtCapture, NtGroup:
@@ -924,9 +932,11 @@ func (n *RegexNode) TryGetOrdinalCaseInsensitiveString(childIndex int, exclusive
 
 func (child *RegexNode) canJoinLengthCheck() bool {
 	return child.T == NtOne || child.T == NtNotone || child.T == NtSet ||
-		child.T == NtMulti || child.T == NtOneloop || child.T == NtOnelazy ||
-		child.T == NtNotoneloop || child.T == NtNotonelazy ||
-		child.T == NtSetloop || child.T == NtSetlazy
+		child.T == NtMulti ||
+		(child.M == child.N &&
+			(child.T == NtOneloop || child.T == NtOnelazy ||
+				child.T == NtNotoneloop || child.T == NtNotonelazy ||
+				child.T == NtSetloop || child.T == NtSetlazy))
 }
 
 // Determine whether the specified child node is the beginning of a sequence that can
@@ -965,4 +975,47 @@ func (n *RegexNode) TryGetJoinableLengthCheckChildRange(childIndex int, required
 	*requiredLength = 0
 	*exclusiveEnd = 0
 	return false
+}
+
+// Finds the guaranteed beginning literal(s) of the node, or null if none exists.
+// allowZeroWidth = true
+func (n *RegexNode) FindStartingLiteralNode(allowZeroWidth bool) *RegexNode {
+	node := n
+	for {
+		if node != nil && node.Options&RightToLeft == 0 {
+			switch node.T {
+			case NtOne, NtNotone, NtMulti, NtSet:
+				return node
+
+			case NtOneloop /*NtOneloopatomic,*/, NtOnelazy,
+				NtNotoneloop /*NtNotoneloopatomic,*/, NtNotonelazy,
+				NtSetloop /*NtSetloopatomic,*/, NtSetlazy:
+				if node.M > 0 {
+					return node
+				}
+
+			case NtAtomic, NtConcatenate, NtCapture, NtGroup:
+				node = node.Children[0]
+				continue
+			case NtLoop, NtLazyloop:
+				node = node.Children[0]
+				continue
+			case NtPosLook:
+				if allowZeroWidth {
+					node = node.Children[0]
+					continue
+				}
+			}
+		}
+
+		return nil
+	}
+}
+
+// Gets the character that begins a One or Multi.
+func (n *RegexNode) FirstCharOfOneOrMulti() rune {
+	if n.IsOneFamily() {
+		return n.Ch
+	}
+	return n.Str[0]
 }

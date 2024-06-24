@@ -476,7 +476,7 @@ func executeDefault(r *Runner) error {
 			break                                          // Backtrack
 
 		case syntax.Setjump:
-			r.stackPush2(r.trackpos(), r.crawlpos())
+			r.stackPush2(r.trackpos(), r.Crawlpos())
 			r.trackPush()
 			r.advance(0)
 			continue
@@ -492,7 +492,7 @@ func executeDefault(r *Runner) error {
 			r.stackPopN(2)
 			r.trackto(r.stackPeek())
 
-			for r.crawlpos() != r.stackPeekN(1) {
+			for r.Crawlpos() != r.stackPeekN(1) {
 				r.uncapture()
 			}
 
@@ -513,7 +513,7 @@ func executeDefault(r *Runner) error {
 			//  0: r.crawlpos
 			r.trackPop()
 
-			for r.crawlpos() != r.trackPeek() {
+			for r.Crawlpos() != r.trackPeek() {
 				r.uncapture()
 			}
 
@@ -925,6 +925,12 @@ func (r *Runner) ensureStorage() {
 	}
 }
 
+func (r *Runner) ensureStack(plus int) {
+	if r.runstackpos-plus < r.runtrackcount*4 {
+		doubleIntSlice(&r.runstack, &r.runstackpos)
+	}
+}
+
 func doubleIntSlice(s *[]int, pos *int) {
 	oldLen := len(*s)
 	newS := make([]int, oldLen*2)
@@ -951,7 +957,7 @@ func (r *Runner) popcrawl() int {
 }
 
 // Get the height of the stack
-func (r *Runner) crawlpos() int {
+func (r *Runner) Crawlpos() int {
 	return len(r.runcrawl) - r.runcrawlpos
 }
 
@@ -1653,7 +1659,49 @@ func (r *Runner) LastIndexOfRune(startIndex int, endIndex int, find rune) int {
 
 // Undo captures until it reaches the specified capture position
 func (r *Runner) UncaptureUntil(capturePos int) {
-	for r.crawlpos() > capturePos {
+	for r.Crawlpos() > capturePos {
 		r.uncapture()
+	}
+}
+
+func (r *Runner) StackPop() int {
+	//get it
+	val := r.runstack[r.runstackpos]
+	// pop it
+	r.runstackpos++
+	// return it
+	return val
+}
+
+func (r *Runner) StackPush(val int) {
+	// check if we need to size up stack
+	r.ensureStack(1)
+	r.runstackpos--
+	r.runstack[r.runstackpos] = val
+}
+func (r *Runner) StackPush2(val1, val2 int) {
+	// check if we need to size up stack
+	r.ensureStack(2)
+	r.runstackpos--
+	r.runstack[r.runstackpos] = val1
+	r.runstackpos--
+	r.runstack[r.runstackpos] = val2
+}
+func (r *Runner) StackPush3(val1, val2, val3 int) {
+	// check if we need to size up stack
+	r.ensureStack(3)
+	r.runstackpos--
+	r.runstack[r.runstackpos] = val1
+	r.runstackpos--
+	r.runstack[r.runstackpos] = val2
+	r.runstackpos--
+	r.runstack[r.runstackpos] = val3
+}
+func (r *Runner) StackPushN(vals ...int) {
+	// check if we need to size up stack
+	r.ensureStack(len(vals))
+	for _, val := range vals {
+		r.runstackpos--
+		r.runstack[r.runstackpos] = val
 	}
 }

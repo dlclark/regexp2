@@ -40,7 +40,56 @@ func IndexOfAny3(in []rune, find1, find2, find3 rune) int {
 	return -1
 }
 
-//TODO: IndexOfAnyExcept methods
+func IndexOfAnyExcept(in []rune, bad []rune) int {
+	for i, c := range in {
+		found := false
+		for _, b := range bad {
+			if b == c {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return i
+		}
+	}
+	return -1
+}
+
+func IndexOfAnyExcept1(in []rune, bad rune) int {
+	for i, c := range in {
+		if c != bad {
+			return i
+		}
+	}
+	return -1
+}
+
+func IndexOfAnyExcept2(in []rune, bad1, bad2 rune) int {
+	for i, c := range in {
+		if c != bad1 && c != bad2 {
+			return i
+		}
+	}
+
+	return -1
+}
+
+func IndexOfAnyExcept3(in []rune, bad1, bad2, bad3 rune) int {
+	for i, c := range in {
+		if c != bad1 && c != bad2 && c != bad3 {
+			return i
+		}
+	}
+
+	return -1
+}
+
+//TODO: LastIndexOf methods
+//IndexOfAnyInRange
+//IndexOfAnyExceptInRange
+//LastIndexOfAnyInRange
+//LastIndexOfAnyExceptInRange
 
 func IndexOfIgnoreCase(in []rune, find []rune) int {
 	if len(find) == 0 {
@@ -73,6 +122,26 @@ func IndexOf(in []rune, find []rune) int {
 }
 
 func StartsWith(in []rune, find []rune) bool {
+	//TODO: this
+	if len(find) == 0 {
+		return true
+	}
+
+	// if text is less than our "begin" then can't find it
+	if len(in) < len(find) {
+		return false
+	}
+
+	for i := 0; i < len(find); i++ {
+		if in[i] != find[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func StartsWithIgnoreCase(in []rune, find []rune) bool {
 	//TODO: this
 	if len(find) == 0 {
 		return true
