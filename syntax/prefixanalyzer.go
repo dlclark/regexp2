@@ -27,7 +27,7 @@ func findFirstCharClass(root *RegexNode) *CharSet {
 	// whole pattern was nullable such that it could match an empty string, in which case we
 	// can't make any statements about what begins a match.
 	var cc *CharSet
-	if tryFindFirstCharClass(root, cc) == 1 {
+	if tryFindFirstCharClass(root, &cc) == 1 {
 		return cc
 	}
 	return nil
@@ -46,13 +46,16 @@ func findFirstCharClass(root *RegexNode) *CharSet {
 //     it's zero-width (e.g. empty, a lookaround, an anchor, etc.) or it could be zero-width
 //     (e.g. a loop with a min bound of 0).  A concatenation processing a child that returns
 //     -1 needs to keep processing the next child.
-func tryFindFirstCharClass(node *RegexNode, cc *CharSet) int {
+func tryFindFirstCharClass(node *RegexNode, ccIn **CharSet) int {
+	cc := *ccIn
+
 	switch node.T {
 	// Base cases where we have results to add to the result set. Add the values into the result set, if possible.
 	// If this is a loop and it has a lower bound of 0, then it's zero-width, so return null.
 	case NtOne, NtOneloop, NtOnelazy: //, NtOneloopatomic:
 		if cc == nil {
 			cc = &CharSet{}
+			*ccIn = cc
 		}
 		if cc.IsMergeable() {
 			cc.addChar(node.Ch)
@@ -66,6 +69,7 @@ func tryFindFirstCharClass(node *RegexNode, cc *CharSet) int {
 	case NtNotone, NtNotoneloop, NtNotonelazy: //NtNotoneloopatomic,
 		if cc == nil {
 			cc = &CharSet{}
+			*ccIn = cc
 		}
 		if cc.IsMergeable() {
 			if node.Ch > 0 {
@@ -87,7 +91,8 @@ func tryFindFirstCharClass(node *RegexNode, cc *CharSet) int {
 		{
 			setSuccess := false
 			if cc == nil {
-				cc = node.Set
+				cp := node.Set.Copy()
+				*ccIn = &cp
 				setSuccess = true
 			} else if cc.IsMergeable() && node.Set.IsMergeable() {
 				cc.addSet(*node.Set)
@@ -104,6 +109,7 @@ func tryFindFirstCharClass(node *RegexNode, cc *CharSet) int {
 	case NtMulti:
 		if cc == nil {
 			cc = &CharSet{}
+			*ccIn = cc
 		}
 		if cc.IsMergeable() {
 			if node.Options&RightToLeft != 0 {
@@ -123,13 +129,13 @@ func tryFindFirstCharClass(node *RegexNode, cc *CharSet) int {
 
 	// Groups.  These don't contribute anything of their own, and are just pass-throughs to their children.
 	case NtAtomic, NtCapture:
-		return tryFindFirstCharClass(node.Children[0], cc)
+		return tryFindFirstCharClass(node.Children[0], ccIn)
 
 	// Loops.  Like groups, these are mostly pass-through: if the child fails, then the whole operation needs
 	// to fail, and if the child is nullable, then the loop is as well.  However, if the child succeeds but
 	// the loop has a lower bound of 0, then the loop is still nullable.
 	case NtLoop, NtLazyloop:
-		val := tryFindFirstCharClass(node.Children[0], cc)
+		val := tryFindFirstCharClass(node.Children[0], ccIn)
 		if val <= 0 || node.M != 0 {
 			return val
 		}
@@ -141,7 +147,7 @@ func tryFindFirstCharClass(node *RegexNode, cc *CharSet) int {
 	// If every child is nullable, then the concatenation is also nullable.
 	case NtConcatenate:
 		for i := 0; i < len(node.Children); i++ {
-			childResult := tryFindFirstCharClass(node.Children[i], cc)
+			childResult := tryFindFirstCharClass(node.Children[i], ccIn)
 			if childResult != -1 {
 				return childResult
 			}
@@ -154,7 +160,7 @@ func tryFindFirstCharClass(node *RegexNode, cc *CharSet) int {
 	case NtAlternate:
 		anyChildWasNull := false
 		for i := 0; i < len(node.Children); i++ {
-			childResult := tryFindFirstCharClass(node.Children[i], cc)
+			childResult := tryFindFirstCharClass(node.Children[i], ccIn)
 			if childResult == -1 {
 				anyChildWasNull = true
 			} else if childResult == 0 {
@@ -177,8 +183,8 @@ func tryFindFirstCharClass(node *RegexNode, cc *CharSet) int {
 		if branchStart+1 >= len(node.Children) {
 			return -1
 		}
-		start := tryFindFirstCharClass(node.Children[branchStart], cc)
-		next := tryFindFirstCharClass(node.Children[branchStart+1], cc)
+		start := tryFindFirstCharClass(node.Children[branchStart], ccIn)
+		next := tryFindFirstCharClass(node.Children[branchStart+1], ccIn)
 		if start == -1 || next == -1 {
 			return -1
 		}
@@ -406,7 +412,7 @@ const maxPrefixes = 16
 func findPrefixes(node *RegexNode, ignoreCase bool) []string {
 
 	// Analyze the node to find prefixes.
-	results := []*bytes.Buffer{&bytes.Buffer{}}
+	results := []*bytes.Buffer{{}}
 	findPrefixesCore(node, &results, ignoreCase)
 
 	// If we found too many prefixes or if any found is too short, fail.
@@ -537,7 +543,7 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 						}
 
 						// Duplicate all of the existing strings for all of the new suffixes, other than the first.
-						for _, suffix := range setChars[1:len(setChars)] {
+						for _, suffix := range setChars[1:] {
 							for existing := 0; existing < existingCount; existing++ {
 								newSb := &bytes.Buffer{}
 								newSb.Write(results[existing].Bytes())
@@ -628,10 +634,10 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 
 				if allBranchResults == nil {
 					allBranchResults = alternateBranchResults
-					alternateBranchResults = []*bytes.Buffer{&bytes.Buffer{}}
+					alternateBranchResults = []*bytes.Buffer{{}}
 				} else {
 					allBranchResults = append(allBranchResults, alternateBranchResults...)
-					alternateBranchResults = []*bytes.Buffer{&bytes.Buffer{}}
+					alternateBranchResults = []*bytes.Buffer{{}}
 				}
 			}
 

@@ -1,6 +1,10 @@
 package helpers
 
-import "slices"
+import (
+	"bytes"
+	"slices"
+	"unsafe"
+)
 
 func IndexOfAny(in []rune, find []rune) int {
 	// special case
@@ -17,6 +21,7 @@ func IndexOfAny(in []rune, find []rune) int {
 }
 
 func IndexOfAny1(in []rune, find rune) int {
+	//TODO: bytes optimization?
 	return slices.Index(in, find)
 }
 
@@ -37,6 +42,15 @@ func IndexOfAny3(in []rune, find1, find2, find3 rune) int {
 		}
 	}
 
+	return -1
+}
+
+func IndexOfAnyInRange(in []rune, first, last rune) int {
+	for i, c := range in {
+		if c >= first && c <= last {
+			return i
+		}
+	}
 	return -1
 }
 
@@ -85,9 +99,41 @@ func IndexOfAnyExcept3(in []rune, bad1, bad2, bad3 rune) int {
 	return -1
 }
 
+func IndexOfAnyExceptInRange(in []rune, first, last rune) int {
+	for i, c := range in {
+		if c > last {
+			return i
+		}
+		if c < first {
+			return i
+		}
+	}
+	return -1
+}
+
+func LastIndexOf(in []rune, find []rune) int {
+	end := len(in) - len(find)
+	first := find[0]
+	lastOffset := len(find) - 1
+	last := find[lastOffset]
+	for i := end; i >= 0; i-- {
+		//TODO: check 2 chars needed?
+		// match start and end...check the middle
+		if in[i] == first && in[i+lastOffset] == last {
+			// found our first char
+			// check if the rest are equal
+			if bytesEqual(in[i:i+len(find)], find) {
+				return i
+			}
+		}
+	}
+
+	//not found
+	return -1
+}
+
 //TODO: LastIndexOf methods
 //IndexOfAnyInRange
-//IndexOfAnyExceptInRange
 //LastIndexOfAnyInRange
 //LastIndexOfAnyExceptInRange
 
@@ -101,19 +147,28 @@ func IndexOfIgnoreCase(in []rune, find []rune) int {
 }
 
 func IndexOf(in []rune, find []rune) int {
-	if len(find) == 0 {
-		//special case
-		return -1
-	}
+	/*
+		Since we auto-gen the find code this shouldn't happen
+		if len(find) == 0 {
+			//special case
+			return -1
+		}*/
 	end := len(in) - len(find)
 	first := find[0]
+	lastOffset := len(find) - 1
+	last := find[lastOffset]
 	for i := 0; i < end; i++ {
-		if in[i] == first {
+		//TODO: check 2 chars needed?
+		// match start and end...check the middle
+		if in[i] == first && in[i+lastOffset] == last {
 			// found our first char
 			// check if the rest are equal
-			if slices.Equal(in[i:i+len(find)], find) {
+			if bytesEqual(in[i:i+len(find)], find) {
 				return i
 			}
+			/*if slices.Equal(in[i:i+len(find)], find) {
+				return i
+			}*/
 		}
 	}
 
@@ -122,23 +177,28 @@ func IndexOf(in []rune, find []rune) int {
 }
 
 func StartsWith(in []rune, find []rune) bool {
-	//TODO: this
-	if len(find) == 0 {
-		return true
-	}
-
 	// if text is less than our "begin" then can't find it
 	if len(in) < len(find) {
 		return false
 	}
 
-	for i := 0; i < len(find); i++ {
+	return bytesEqual(in[:len(find)], find)
+
+	/*for i := 0; i < len(find); i++ {
 		if in[i] != find[i] {
 			return false
 		}
 	}
 
-	return true
+	return true*/
+}
+
+// internal function, assumes the bounds are already set right on the slices for equality
+// casts the rune slices to bytes to use framework fast []byte comparison
+func bytesEqual(a, b []rune) bool {
+	bytesA := unsafe.Slice((*byte)(unsafe.Pointer(&a[0])), len(a)*4)
+	bytesB := unsafe.Slice((*byte)(unsafe.Pointer(&b[0])), len(b)*4)
+	return bytes.Equal(bytesA, bytesB)
 }
 
 func StartsWithIgnoreCase(in []rune, find []rune) bool {

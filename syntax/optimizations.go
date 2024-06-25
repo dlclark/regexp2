@@ -107,7 +107,7 @@ const (
 func newFindOptimizations(tree *RegexTree, opt RegexOptions) *FindOptimizations {
 	f := &FindOptimizations{
 		rightToLeft:       opt&RightToLeft != 0,
-		MinRequiredLength: tree.Root.computeMinLength(),
+		MinRequiredLength: tree.Root.ComputeMinLength(),
 		LeadingAnchor:     findLeadingOrTrailingAnchor(tree.Root, true),
 	}
 
@@ -181,7 +181,7 @@ func newFindOptimizations(tree *RegexTree, opt RegexOptions) *FindOptimizations 
 				f.FindMode = LeadingChar_RightToLeft
 			} else {
 				// The set may match multiple characters.  Search for that.
-				f.FixedDistanceSets = []FixedDistanceSet{FixedDistanceSet{
+				f.FixedDistanceSets = []FixedDistanceSet{{
 					Chars:    chars,
 					Set:      set,
 					Distance: 0,

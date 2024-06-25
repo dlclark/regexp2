@@ -1,12 +1,14 @@
 package helpers
 
 import (
+	"fmt"
 	"unicode"
 )
 
 type AsciiSearchValues struct {
-	// 7 bytes to cover all 128 values for ascii
-	set [7]uint32
+	// each ascii byte is represented by a bit in this array
+	// there are 128bits here and ascii has 128 possible chars
+	set [2]uint64
 }
 
 func NewAsciiSearchValues(vals string) AsciiSearchValues {
@@ -15,12 +17,12 @@ func NewAsciiSearchValues(vals string) AsciiSearchValues {
 	for i := 0; i < len(vals); i++ {
 		c := vals[i]
 		if c > unicode.MaxASCII {
-			// a bug got us here. that's bad
-			continue
+			// a bug got us here. that's bad.
+			panic(fmt.Errorf("non-ascii value found in ascii search values: %s", vals))
 		}
-		idx := c / 32
-		rem := c % 32
-		sv.set[idx] |= 1 << rem
+		idx := c / 64
+		shift := c % 64
+		sv.set[idx] |= 1 << shift
 	}
 
 	return sv
@@ -33,7 +35,9 @@ func (s AsciiSearchValues) IndexOfAny(chars []rune) int {
 		if c > unicode.MaxASCII {
 			continue
 		}
-		if s.set[c/32]&(1<<(c%32)) != 0 {
+		idx := c / 64
+		shift := c % 64
+		if s.set[idx]&(1<<shift) != 0 {
 			return i
 		}
 	}

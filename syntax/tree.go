@@ -557,7 +557,7 @@ func (n *RegexNode) makeQuantifier(lazy bool, min, max int) *RegexNode {
 
 // Computes a min bound on the required length of any string that could possibly match.
 // If the result is 0, there is no minimum we can enforce.
-func (n *RegexNode) computeMinLength() int {
+func (n *RegexNode) ComputeMinLength() int {
 	switch n.T {
 	case NtOne, NtNotone, NtSet:
 		// single char
@@ -571,13 +571,13 @@ func (n *RegexNode) computeMinLength() int {
 		return n.M
 	case NtLazyloop, NtLoop:
 		// A node graph repeated at least M times.
-		return n.M * n.Children[0].computeMinLength()
+		return n.M * n.Children[0].ComputeMinLength()
 	case NtAlternate:
 		// The minimum required length for any of the alternation's branches.
 		childCount := len(n.Children)
-		min := n.Children[0].computeMinLength()
+		min := n.Children[0].ComputeMinLength()
 		for i := 1; i < childCount && min > 0; i++ {
-			newMin := n.Children[i].computeMinLength()
+			newMin := n.Children[i].ComputeMinLength()
 			if newMin < min {
 				min = newMin
 			}
@@ -585,8 +585,11 @@ func (n *RegexNode) computeMinLength() int {
 		return min
 	case NtBackRefCond:
 		// Minimum of its yes and no branches.  The backreference doesn't add to the length.
-		b1 := n.Children[0].computeMinLength()
-		b2 := n.Children[1].computeMinLength()
+		b1 := n.Children[0].ComputeMinLength()
+		if len(n.Children) == 1 {
+			return b1
+		}
+		b2 := n.Children[1].ComputeMinLength()
 		if b1 < b2 {
 			return b1
 		}
@@ -594,10 +597,10 @@ func (n *RegexNode) computeMinLength() int {
 	case NtExprCond:
 		// Minimum of its yes and no branches.  The condition is a zero-width assertion.
 		if len(n.Children) == 2 {
-			return n.Children[1].computeMinLength()
+			return n.Children[1].ComputeMinLength()
 		}
-		b1 := n.Children[1].computeMinLength()
-		b2 := n.Children[2].computeMinLength()
+		b1 := n.Children[1].ComputeMinLength()
+		b2 := n.Children[2].ComputeMinLength()
 		if b1 < b2 {
 			return b1
 		}
@@ -606,12 +609,12 @@ func (n *RegexNode) computeMinLength() int {
 		// The sum of all of the concatenation's children.
 		sum := 0
 		for i := 0; i < len(n.Children); i++ {
-			sum += n.Children[i].computeMinLength()
+			sum += n.Children[i].ComputeMinLength()
 		}
 		return sum
 	case NtAtomic, NtCapture, NtGroup:
 		// For groups, we just delegate to the sole child.
-		return n.Children[0].computeMinLength()
+		return n.Children[0].ComputeMinLength()
 	case NtEmpty, NtNothing,
 		NtBeginning, NtBol, NtBoundary, NtECMABoundary, NtEnd, NtEndZ, NtEol,
 		NtNonboundary, NtNonECMABoundary, NtStart, NtNegLook, NtPosLook, NtRef:
@@ -745,7 +748,7 @@ var typeStr = []string{
 	"ECMABoundary", "NonECMABoundary",
 }
 
-func (n *RegexNode) description() string {
+func (n *RegexNode) Description() string {
 	buf := &bytes.Buffer{}
 
 	buf.WriteString(typeStr[n.T])
@@ -819,7 +822,7 @@ func (n *RegexNode) dump() string {
 	CurNode := n
 	CurChild := 0
 
-	buf := bytes.NewBufferString(CurNode.description())
+	buf := bytes.NewBufferString(CurNode.Description())
 	buf.WriteRune('\n')
 
 	for {
@@ -833,7 +836,7 @@ func (n *RegexNode) dump() string {
 				Depth = 32
 			}
 			buf.Write(padSpace[:Depth])
-			buf.WriteString(CurNode.description())
+			buf.WriteString(CurNode.Description())
 			buf.WriteRune('\n')
 		} else {
 			if len(stack) == 0 {
@@ -956,7 +959,7 @@ func (n *RegexNode) TryGetJoinableLengthCheckChildRange(childIndex int, required
 
 	child := n.Children[childIndex]
 	if child.canJoinLengthCheck() {
-		*requiredLength = child.computeMinLength()
+		*requiredLength = child.ComputeMinLength()
 
 		for *exclusiveEnd = childIndex + 1; *exclusiveEnd < len(n.Children); *exclusiveEnd++ {
 			child = n.Children[*exclusiveEnd]
@@ -964,7 +967,7 @@ func (n *RegexNode) TryGetJoinableLengthCheckChildRange(childIndex int, required
 				break
 			}
 
-			*requiredLength += child.computeMinLength()
+			*requiredLength += child.ComputeMinLength()
 		}
 
 		if *exclusiveEnd-childIndex > 1 {

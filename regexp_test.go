@@ -434,7 +434,7 @@ func TestConcatLoopCaptureSet(t *testing.T) {
 	//(A|B)*?CD different Concat/Loop/Capture/Set (had [A-Z] should be [AB])
 	// we were not copying the Sets in the prefix FC stack, so the underlying sets were unexpectedly mutating
 	// so set [AB] becomes [ABC] when we see the the static C in FC stack generation (which are the valid start chars),
-	// but that was mutating the tree node's original set [AB] because even though we copied the slie header,
+	// but that was mutating the tree node's original set [AB] because even though we copied the slice header,
 	// the two header's pointed to the same underlying byte array...which was mutated.
 
 	re := MustCompile(`(A|B)*CD`, 0)
