@@ -11,6 +11,9 @@ import (
 	"slices"
 )
 
+// Arbitrary number of repetitions of the same character when we'd prefer to represent that as a repeater of that character rather than a string.
+const MultiVsRepeaterLimit = 64
+
 type RegexTree struct {
 	Root              *RegexNode
 	Caps              map[int]int
@@ -73,10 +76,10 @@ type NodeType int32
 
 const (
 	// The following are leaves, and correspond to primitive operations
-	NtUnknown     NodeType = -1
-	NtOnerep      NodeType = 0  // lef,back char,min,max    a {n}
-	NtNotonerep   NodeType = 1  // lef,back char,min,max    .{n}
-	NtSetrep      NodeType = 2  // lef,back set,min,max     [\d]{n}
+	NtUnknown NodeType = -1
+	//NtOnerep      NodeType = 0  // lef,back char,min,max    a {n}
+	//NtNotonerep   NodeType = 1  // lef,back char,min,max    .{n}
+	//NtSetrep      NodeType = 2  // lef,back set,min,max     [\d]{n}
 	NtOneloop     NodeType = 3  // lef,back char,min,max    a {,n}
 	NtNotoneloop  NodeType = 4  // lef,back char,min,max    .{,n}
 	NtSetloop     NodeType = 5  // lef,back set,min,max     [\d]{,n}
@@ -130,11 +133,11 @@ func newRegexNode(t NodeType, opt RegexOptions) *RegexNode {
 }
 
 func newRegexNodeCh(t NodeType, opt RegexOptions, ch rune) *RegexNode {
-	return &RegexNode{
+	return nodeWithCaseConversion(&RegexNode{
 		T:       t,
 		Options: opt,
 		Ch:      ch,
-	}
+	})
 }
 
 func newRegexNodeStr(t NodeType, opt RegexOptions, str []rune) *RegexNode {
@@ -146,11 +149,11 @@ func newRegexNodeStr(t NodeType, opt RegexOptions, str []rune) *RegexNode {
 }
 
 func newRegexNodeSet(t NodeType, opt RegexOptions, set *CharSet) *RegexNode {
-	return &RegexNode{
+	return nodeWithCaseConversion(&RegexNode{
 		T:       t,
 		Options: opt,
 		Set:     set,
-	}
+	})
 }
 
 func newRegexNodeM(t NodeType, opt RegexOptions, m int) *RegexNode {
@@ -167,6 +170,56 @@ func newRegexNodeMN(t NodeType, opt RegexOptions, m, n int) *RegexNode {
 		M:       m,
 		N:       n,
 	}
+}
+
+func nodeWithCaseConversion(n *RegexNode) *RegexNode {
+	// if opts are ignore case and our rune is impacted by casing
+	// then we need to switch our type to the set version
+	// NtOne = NtSet
+	if n.Options&IgnoreCase == 0 {
+		return n
+	}
+
+	if n.Ch > 0 {
+		ch := n.Ch
+		if isLow, isUp := unicode.IsLower(ch), unicode.IsUpper(ch); isLow || isUp {
+			var upper, lower rune
+			// it's a capitalizable char
+			if isUp {
+				upper = ch
+				lower = unicode.ToLower(ch)
+			} else {
+				lower = ch
+				upper = unicode.ToUpper(ch)
+			}
+			set := &CharSet{}
+			set.addChar(upper)
+			set.addChar(lower)
+			t := NtSet
+
+			if n.T == NtOneloop || n.T == NtNotoneloop {
+				t = NtSetloop
+			} else if n.T == NtOnelazy || n.T == NtNotonelazy {
+				t = NtSetlazy
+			}
+			set.negate = n.IsNotoneFamily()
+
+			return &RegexNode{
+				T:       t,
+				Options: n.Options & ^IgnoreCase,
+				Set:     set,
+			}
+		}
+	} else if n.Set != nil {
+		// just to be safe we don't modify the original set pointer
+		// just in case it's used in a case-sensitive area
+		s := n.Set.Copy()
+		s.addCaseEquivalences()
+		n.Set = &s
+		n.Options &= ^IgnoreCase
+	}
+
+	return n
 }
 
 func (n *RegexNode) IsSetFamily() bool {
@@ -217,6 +270,10 @@ func (n *RegexNode) makeRep(t NodeType, min, max int) {
 }
 
 func (n *RegexNode) reduce() *RegexNode {
+	// Remove IgnoreCase option from everything except a Backreference
+	if n.T != NtRef {
+		n.Options &= ^IgnoreCase
+	}
 	switch n.T {
 	case NtAlternate:
 		return n.reduceAlternation()
@@ -746,6 +803,7 @@ var typeStr = []string{
 	"Unknown", "Unknown", "Unknown",
 	"Unknown", "Unknown", "Unknown",
 	"ECMABoundary", "NonECMABoundary",
+	"Bumpalong",
 }
 
 func (n *RegexNode) Description() string {
@@ -778,19 +836,14 @@ func (n *RegexNode) Description() string {
 	switch n.T {
 	case NtOneloop, NtNotoneloop, NtOnelazy, NtNotonelazy, NtOne, NtNotone:
 		buf.WriteString("(Ch = " + CharDescription(n.Ch) + ")")
-		break
 	case NtCapture:
 		buf.WriteString("(index = " + strconv.Itoa(n.M) + ", unindex = " + strconv.Itoa(n.N) + ")")
-		break
 	case NtRef, NtBackRefCond:
 		buf.WriteString("(index = " + strconv.Itoa(n.M) + ")")
-		break
 	case NtMulti:
 		fmt.Fprintf(buf, "(String = %s)", string(n.Str))
-		break
 	case NtSet, NtSetloop, NtSetlazy:
 		buf.WriteString("(Set = " + n.Set.String() + ")")
-		break
 	}
 
 	switch n.T {
@@ -804,8 +857,6 @@ func (n *RegexNode) Description() string {
 			buf.WriteString(strconv.Itoa(n.N))
 		}
 		buf.WriteString(")")
-
-		break
 	}
 
 	return buf.String()
@@ -894,7 +945,8 @@ func (n *RegexNode) TryGetOrdinalCaseInsensitiveString(childIndex int, exclusive
 			((child.T == NtSetloop || child.T == NtSetlazy /*|| child.T == NtSetloopatomic*/) && child.M == child.N) {
 			// In particular we want to look for sets that contain only the upper and lowercase variant
 			// of the same ASCII letter.
-			if !child.Set.containsAsciiIgnoreCaseCharacter(twoChars) {
+			ok, twoChars := child.Set.containsAsciiIgnoreCaseCharacter(twoChars)
+			if !ok {
 				break
 			}
 

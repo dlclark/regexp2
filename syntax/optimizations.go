@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"slices"
-
-	"github.com/dlclark/regexp2/helpers"
 )
 
 type FindOptimizations struct {
@@ -19,7 +17,7 @@ type FindOptimizations struct {
 	MaxPossibleLength int
 	LeadingPrefix     string
 	LeadingPrefixes   []string
-	LeadingStrings    *helpers.StringSearchValues
+	//LeadingStrings    *helpers.StringSearchValues
 
 	FixedDistanceLiteral FixedDistanceLiteral
 	FixedDistanceSets    []FixedDistanceSet

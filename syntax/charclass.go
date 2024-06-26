@@ -200,32 +200,81 @@ func (c CharSet) String() string {
 	return buf.String()
 }
 
+func b2i(b bool) byte {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // mapHashFill converts a charset into a buffer for use in maps
 func (c CharSet) mapHashFill(buf *bytes.Buffer) {
-	if c.negate {
-		buf.WriteByte(0)
-	} else {
-		buf.WriteByte(1)
-	}
+	buf.WriteByte(b2i(c.negate) + b2i(c.anything)*2)
 
-	binary.Write(buf, binary.LittleEndian, len(c.ranges))
-	binary.Write(buf, binary.LittleEndian, len(c.categories))
+	binary.Write(buf, binary.LittleEndian, int32(len(c.ranges)))
+	binary.Write(buf, binary.LittleEndian, int32(len(c.categories)))
 	for _, r := range c.ranges {
 		buf.WriteRune(r.First)
 		buf.WriteRune(r.Last)
 	}
 	for _, ct := range c.categories {
-		buf.WriteString(ct.Cat)
+		// write the length of the cat and indicate if it's negated
 		if ct.Negate {
-			buf.WriteByte(1)
+			binary.Write(buf, binary.LittleEndian, int8(-1*len(ct.Cat)))
 		} else {
-			buf.WriteByte(0)
+			binary.Write(buf, binary.LittleEndian, int8(len(ct.Cat)))
 		}
+		buf.WriteString(ct.Cat)
 	}
 
 	if c.sub != nil {
 		c.sub.mapHashFill(buf)
 	}
+}
+
+func NewCharSetRuntime(buf string) CharSet {
+	retVal := CharSet{}
+	b := bytes.NewBufferString(buf)
+	val, _ := b.ReadByte()
+	//1s bit == negate, 2s bit == anything
+	retVal.negate = (val&0x1 == 0x1)
+	retVal.anything = (val&0x2 == 0x2)
+	var lenRanges, lenCats int32
+	binary.Read(b, binary.LittleEndian, &lenRanges)
+	binary.Read(b, binary.LittleEndian, &lenCats)
+
+	retVal.ranges = make([]SingleRange, lenRanges)
+	for i := 0; i < int(lenRanges); i++ {
+		r := SingleRange{}
+		r.First, _, _ = b.ReadRune()
+		r.Last, _, _ = b.ReadRune()
+		retVal.ranges[i] = r
+	}
+
+	retVal.categories = make([]Category, lenCats)
+	for i := 0; i < int(lenCats); i++ {
+		var lenCat int8
+		c := Category{}
+		binary.Read(b, binary.LittleEndian, lenCat)
+		if lenCat < 0 {
+			c.Negate = true
+			lenCat *= -1
+		}
+		c.Cat = string(b.Next(int(lenCat)))
+		retVal.categories[i] = c
+	}
+
+	//sub
+	if b.Len() > 0 {
+		sub := NewCharSetRuntime(b.String())
+		retVal.sub = &sub
+	}
+
+	if lenCats == 0 && lenRanges == 0 && retVal.sub == nil {
+		retVal.makeAnything()
+	}
+
+	return retVal
 }
 
 // CharIn returns true if the rune is in our character set (either ranges or categories).
@@ -544,6 +593,48 @@ func (c *CharSet) addCategory(categoryName string, negate, caseInsensitive bool,
 			Category{Cat: "Lt", Negate: negate})
 	}
 	c.addCategories(Category{Cat: categoryName, Negate: negate})
+}
+
+// Adds to the class any case-equivalence versions of characters already
+// in the class. Used for case-insensitivity.
+func (c *CharSet) addCaseEquivalences() {
+	for i := 0; i < len(c.ranges); i++ {
+		r := c.ranges[i]
+		if r.First == r.Last {
+			equiv := tryFindCaseEquivalences(r.First)
+			for _, eq := range equiv {
+				c.addChar(eq)
+			}
+		} else {
+			c.addCaseEquivalenceRange(r.First, r.Last)
+		}
+	}
+}
+
+// For a single range that's in the set, adds any additional ranges
+// necessary to ensure that lowercase equivalents are also included.
+func (c *CharSet) addCaseEquivalenceRange(chMin, chMax rune) {
+	for i := chMin; i <= chMax; i++ {
+		equiv := tryFindCaseEquivalences(i)
+		for _, eq := range equiv {
+			c.addChar(eq)
+		}
+	}
+}
+
+// Performs a fast lookup which determines if a character is involved in case conversion, as well as
+// returns the characters that should be considered equivalent in case it does participate in case conversion.
+func tryFindCaseEquivalences(ch rune) []rune {
+	if isLow, isUp := unicode.IsLower(ch), unicode.IsUpper(ch); isLow || isUp {
+		// it's a capitalizable char
+		if isUp {
+			return []rune{unicode.ToLower(ch)}
+		} else {
+			return []rune{unicode.ToUpper(ch)}
+		}
+	}
+	//TODO: equalfold?
+	return nil
 }
 
 func (c *CharSet) addSubtraction(sub *CharSet) {
@@ -866,7 +957,7 @@ func (c *CharSet) addLowercaseRange(chMin, chMax rune) {
 	}
 }
 
-// Gets all of the characters in the specified set, storing them into the provided span.</summary>
+// Gets all of the characters in the specified set, storing them into the provided span.
 //
 // Only considers character classes that only contain sets (no categories),
 // just simple sets containing starting/ending pairs (subtraction from those pairs
@@ -977,14 +1068,23 @@ func (c *CharSet) IsUnicodeCategoryOfSmallCharCount() (isSmall bool, chars []run
 
 // Gets whether the set description string is for two ASCII letters that case
 // to each other under IgnoreCase rules.
-func (c *CharSet) containsAsciiIgnoreCaseCharacter(twoChars []rune) bool {
+func (c *CharSet) containsAsciiIgnoreCaseCharacter(twoChars []rune) (bool, []rune) {
 	if c.IsNegated() {
-		return false
+		return false, nil
 	}
-	twoChars = c.GetSetChars(twoChars)
+	twoChars = c.GetSetChars(twoChars[:0])
 	return len(twoChars) == 2 && twoChars[0] < unicode.MaxASCII && twoChars[1] < unicode.MaxASCII &&
 		(twoChars[0]|0x20) == (twoChars[1]|0x20) &&
-		unicode.IsLetter(twoChars[0]) && unicode.IsLetter(twoChars[1])
+		unicode.IsLetter(twoChars[0]) && unicode.IsLetter(twoChars[1]), twoChars
+}
+
+func anyParticipateInCaseConversion(chars []rune) bool {
+	for _, c := range chars {
+		if participatesInCaseConversion(c) {
+			return true
+		}
+	}
+	return false
 }
 
 func participatesInCaseConversion(ch rune) bool {
@@ -1075,29 +1175,29 @@ func (c *CharSet) GetIfOnlyUnicodeCategories() (cats []Category, negate bool) {
 }
 
 type CharClassAnalysisResults struct {
-	// true if the set contains only ranges; false if it contains Unicode categories and/or subtraction.</summary>
+	// true if the set contains only ranges; false if it contains Unicode categories and/or subtraction.
 	OnlyRanges bool
-	// true if we know for sure that the set contains only ASCII values; otherwise, false.</summary>
+	// true if we know for sure that the set contains only ASCII values; otherwise, false.
 	// This can only be true if OnlyRanges is true.
 	ContainsOnlyAscii bool
-	// true if we know for sure that the set doesn't contain any ASCII values; otherwise, false.</summary>
+	// true if we know for sure that the set doesn't contain any ASCII values; otherwise, false.
 	// This can only be true if OnlyRanges is true.
 	ContainsNoAscii bool
-	/// <summary>true if we know for sure that all ASCII values are in the set; otherwise, false.</summary>
+	// true if we know for sure that all ASCII values are in the set; otherwise, false.
 	// This can only be true if OnlyRanges is true.
 	AllAsciiContained bool
-	/// <summary>true if we know for sure that all non-ASCII values are in the set; otherwise, false.</summary>
+	// true if we know for sure that all non-ASCII values are in the set; otherwise, false.
 	// This can only be true if OnlyRanges is true.
 	AllNonAsciiContained bool
-	/// <summary>The inclusive lower bound.</summary>
+	// The inclusive lower bound.
 	// This is only valid if OnlyRanges is true.
 	LowerBoundInclusiveIfOnlyRanges rune
-	/// <summary>The exclusive upper bound.</summary>
+	// The exclusive upper bound.
 	// This is only valid if OnlyRanges is true.
 	UpperBoundExclusiveIfOnlyRanges rune
 }
 
-// <summary>Analyzes the set to determine some basic properties that can be used to optimize usage.</summary>
+// <summary>Analyzes the set to determine some basic properties that can be used to optimize usage.
 func (set *CharSet) Analyze() CharClassAnalysisResults {
 	// The analysis is performed based entirely on ranges contained within the set.
 	// Thus, we require that it can be "easily enumerated", meaning it contains only

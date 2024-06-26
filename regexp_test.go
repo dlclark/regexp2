@@ -456,7 +456,7 @@ func TestFirstcharsIgnoreCase(t *testing.T) {
 		t.Fatalf("wanted prefix, got nil")
 	}
 
-	if want, got := "[ad]", re.code.FcPrefix.PrefixSet.String(); want != got {
+	if want, got := "[ADa]", re.code.FcPrefix.PrefixSet.String(); want != got {
 		t.Fatalf("wanted prefix %v, got %v", want, got)
 	}
 }
@@ -1362,5 +1362,23 @@ func TestUnMarshal(t *testing.T) {
 	}
 	if !ok {
 		t.Fatalf(`Expected match`)
+	}
+}
+
+func TestIgnoreCase(t *testing.T) {
+	r := MustCompile("(?i:saturday|sunday)", 0)
+	m, _ := r.FindStringMatch("Saturday")
+	if m == nil {
+		t.Fatalf("no match")
+	}
+	if want, got := "Saturday", m.String(); want != got {
+		t.Fatalf("wanted match: %v, got %v", want, got)
+	}
+	m, _ = r.FindStringMatch("saturday")
+	if m == nil {
+		t.Fatalf("no match")
+	}
+	if want, got := "saturday", m.String(); want != got {
+		t.Fatalf("wanted match: %v, got %v", want, got)
 	}
 }

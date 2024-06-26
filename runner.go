@@ -1171,9 +1171,10 @@ func (r *Runner) forwardcharnext() rune {
 		r.Runtextpos++
 	}
 
-	if r.caseInsensitive {
+	// move this to compile time for individual runes
+	/*if r.caseInsensitive {
 		return unicode.ToLower(ch)
-	}
+	}*/
 	return ch
 }
 

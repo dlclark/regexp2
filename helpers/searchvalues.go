@@ -97,16 +97,26 @@ func (s RuneSearchValues) LastIndexOfAnyExcept(chars []rune) int {
 }
 
 type StringSearchValues struct {
+	vals       [][]rune
+	ignoreCase bool
 }
 
-func NewStringSearchValues(vals []string, ignoreCase bool) StringSearchValues {
+func NewStringSearchValues(vals [][]rune, ignoreCase bool) StringSearchValues {
 	//TODO: this
-	return StringSearchValues{}
+	return StringSearchValues{vals, ignoreCase}
 }
 
-// return the first index of our original vals values within the chars
-// slice, starting at startPos
-func (s StringSearchValues) IndexOfAny(chars []rune, startPos int) int {
+func (s StringSearchValues) StartsWith(chars []rune) int {
+	//TODO: this
+	return -1
+}
+
+func (s StringSearchValues) StartsWithIgnoreCase(chars []rune) int {
+	//TODO: this
+	return -1
+}
+
+func (s StringSearchValues) IndexOfAny(in []rune) int {
 	//TODO: this
 	return -1
 }

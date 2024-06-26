@@ -2018,19 +2018,11 @@ func (p *parser) addConcatenate3(lazy bool, min, max int) {
 
 // Sets the current unit to a single char node
 func (p *parser) addUnitOne(ch rune) {
-	if p.useOptionI() {
-		ch = unicode.ToLower(ch)
-	}
-
 	p.unit = newRegexNodeCh(NtOne, p.options, ch)
 }
 
 // Sets the current unit to a single inverse-char node
 func (p *parser) addUnitNotone(ch rune) {
-	if p.useOptionI() {
-		ch = unicode.ToLower(ch)
-	}
-
 	p.unit = newRegexNodeCh(NtNotone, p.options, ch)
 }
 
@@ -2086,38 +2078,32 @@ func (p *parser) pushOptions() {
 
 // Add a string to the last concatenate.
 func (p *parser) addToConcatenate(pos, cch int, isReplacement bool) {
-	var node *RegexNode
-
 	if cch == 0 {
 		return
 	}
+	if cch == 1 {
+		var node *RegexNode
 
-	if cch > 1 {
-		str := make([]rune, cch)
-		copy(str, p.pattern[pos:pos+cch])
-
-		if p.useOptionI() && !isReplacement {
-			// We do the ToLower character by character for consistency.  With surrogate chars, doing
-			// a ToLower on the entire string could actually change the surrogate pair.  This is more correct
-			// linguistically, but since Regex doesn't support surrogates, it's more important to be
-			// consistent.
-			for i := 0; i < len(str); i++ {
-				str[i] = unicode.ToLower(str[i])
-			}
+		if isReplacement {
+			node = newRegexNodeCh(NtOne, p.options&^IgnoreCase, p.pattern[pos])
+		} else {
+			node = newRegexNodeCh(NtOne, p.options, p.pattern[pos])
 		}
-
-		node = newRegexNodeStr(NtMulti, p.options, str)
-	} else {
-		ch := p.charAt(pos)
-
-		if p.useOptionI() && !isReplacement {
-			ch = unicode.ToLower(ch)
-		}
-
-		node = newRegexNodeCh(NtOne, p.options, ch)
+		p.concatenation.addChild(node)
+		return
 	}
 
-	p.concatenation.addChild(node)
+	if cch > 1 && (!p.useOptionI() || isReplacement || !anyParticipateInCaseConversion(p.pattern[pos:pos+cch])) {
+		str := make([]rune, cch)
+		copy(str, p.pattern[pos:pos+cch])
+		p.concatenation.addChild(newRegexNodeStr(NtMulti, p.options&^IgnoreCase, str))
+		return
+	}
+
+	// each letter gets an upper-lower range
+	for i := pos; i < pos+cch; i++ {
+		p.concatenation.addChild(newRegexNodeCh(NtOne, p.options, p.pattern[i]))
+	}
 }
 
 // Push the parser state (in response to an open paren)

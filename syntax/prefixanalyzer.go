@@ -208,13 +208,14 @@ func findPrefixOrdinalCaseInsensitive(node *RegexNode) string {
 		// Search down the left side of the tree looking for a concatenation.  If we find one,
 		// ask it for any ordinal case-insensitive prefix it has.
 		switch node.T {
-		case NtAtomic, NtCapture, NtLoop, NtLazyloop:
-			if node.M > 0 {
-				node = node.Children[0]
-				continue
-			} else {
+		case NtLoop, NtLazyloop:
+			if node.M <= 0 {
 				return ""
 			}
+			fallthrough
+		case NtAtomic, NtCapture:
+			node = node.Children[0]
+			continue
 
 		case NtConcatenate:
 			_, _, caseInsensitiveString := node.TryGetOrdinalCaseInsensitiveString(0, len(node.Children), true)
@@ -416,7 +417,7 @@ func findPrefixes(node *RegexNode, ignoreCase bool) []string {
 	findPrefixesCore(node, &results, ignoreCase)
 
 	// If we found too many prefixes or if any found is too short, fail.
-	if len(results) > maxPrefixes || slices.ContainsFunc(results, func(sb *bytes.Buffer) bool { return sb.Len() >= minPrefixLength }) {
+	if len(results) > maxPrefixes || !slices.ContainsFunc(results, func(sb *bytes.Buffer) bool { return sb.Len() >= minPrefixLength }) {
 		return nil
 	}
 
@@ -562,7 +563,8 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 				} else {
 					// For ignore-case, we currently only handle the simple (but common) case of a single
 					// ASCII character that case folds to the same char.
-					if !node.Set.containsAsciiIgnoreCaseCharacter(setChars) {
+					ok, setChars := node.Set.containsAsciiIgnoreCaseCharacter(setChars)
+					if !ok {
 						return false
 					}
 
@@ -613,7 +615,7 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 
 			// Build up the list of all prefixes across all branches.
 			var allBranchResults []*bytes.Buffer
-			var alternateBranchResults []*bytes.Buffer
+			alternateBranchResults := []*bytes.Buffer{{}}
 			for i := 0; i < len(node.Children); i++ {
 				findPrefixesCore(node.Children[i], &alternateBranchResults, ignoreCase)
 
@@ -669,7 +671,7 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 					results[existing].Write(allBranchResults[0].Bytes())
 				}
 			}
-			res = &results
+			*res = results
 
 			// We don't know that we fully processed every branch, so we can't iterate through what comes after this node.
 			// The results were successfully updated, but return false to indicate that nothing after this node should be examined.

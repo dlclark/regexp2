@@ -3,7 +3,10 @@ package helpers
 import (
 	"bytes"
 	"slices"
+	"unicode"
 	"unsafe"
+
+	"github.com/dlclark/regexp2/syntax"
 )
 
 func IndexOfAny(in []rune, find []rune) int {
@@ -111,6 +114,20 @@ func IndexOfAnyExceptInRange(in []rune, first, last rune) int {
 	return -1
 }
 
+func IndexFunc(in []rune, f func(ch rune) bool) int {
+	for i := range in {
+		if f(in[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
+func IndexOfAnyExceptInSet(in []rune, set syntax.CharSet) int {
+	//TODO: this
+	return -1
+}
+
 func LastIndexOf(in []rune, find []rune) int {
 	end := len(in) - len(find)
 	first := find[0]
@@ -193,18 +210,33 @@ func StartsWith(in []rune, find []rune) bool {
 	return true*/
 }
 
+//StartsWithIgnoreCaseAscii would be faster
+
+// find should always be sent in lower-case
+func StartsWithIgnoreCase(in []rune, find []rune) bool {
+	// if text is less than our "begin" then can't find it
+	if len(in) < len(find) {
+		return false
+	}
+
+	for i := 0; i < len(find); i++ {
+		if in[i] == find[i] {
+			// if we match the char exactly then we're good
+			continue
+		}
+		// if the to-lower still doesn't match then it's not a match
+		if unicode.ToLower(in[i]) != find[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
 // internal function, assumes the bounds are already set right on the slices for equality
 // casts the rune slices to bytes to use framework fast []byte comparison
 func bytesEqual(a, b []rune) bool {
 	bytesA := unsafe.Slice((*byte)(unsafe.Pointer(&a[0])), len(a)*4)
 	bytesB := unsafe.Slice((*byte)(unsafe.Pointer(&b[0])), len(b)*4)
 	return bytes.Equal(bytesA, bytesB)
-}
-
-func StartsWithIgnoreCase(in []rune, find []rune) bool {
-	//TODO: this
-	if len(find) == 0 {
-		return true
-	}
-	return false
 }
