@@ -534,28 +534,28 @@ func executeDefault(r *Runner) error {
 			continue
 
 		case syntax.Boundary:
-			if !r.isBoundary(r.textPos(), 0, r.Runtextend) {
+			if !r.IsBoundary(r.textPos()) {
 				break
 			}
 			r.advance(0)
 			continue
 
 		case syntax.Nonboundary:
-			if r.isBoundary(r.textPos(), 0, r.Runtextend) {
+			if r.IsBoundary(r.textPos()) {
 				break
 			}
 			r.advance(0)
 			continue
 
 		case syntax.ECMABoundary:
-			if !r.isECMABoundary(r.textPos(), 0, r.Runtextend) {
+			if !r.IsECMABoundary(r.textPos()) {
 				break
 			}
 			r.advance(0)
 			continue
 
 		case syntax.NonECMABoundary:
-			if r.isECMABoundary(r.textPos(), 0, r.Runtextend) {
+			if r.IsECMABoundary(r.textPos()) {
 				break
 			}
 			r.advance(0)
@@ -1558,14 +1558,14 @@ func (r *Runner) textposDescription() string {
 // decide whether the pos
 // at the specified index is a boundary or not. It's just not worth
 // emitting inline code for this logic.
-func (r *Runner) isBoundary(index, startpos, endpos int) bool {
-	return (index > startpos && syntax.IsWordChar(r.Runtext[index-1])) !=
-		(index < endpos && syntax.IsWordChar(r.Runtext[index]))
+func (r *Runner) IsBoundary(index int) bool {
+	return (index > 0 && syntax.IsWordChar(r.Runtext[index-1])) !=
+		(index < r.Runtextend && syntax.IsWordChar(r.Runtext[index]))
 }
 
-func (r *Runner) isECMABoundary(index, startpos, endpos int) bool {
-	return (index > startpos && syntax.IsECMAWordChar(r.Runtext[index-1])) !=
-		(index < endpos && syntax.IsECMAWordChar(r.Runtext[index]))
+func (r *Runner) IsECMABoundary(index int) bool {
+	return (index > 0 && syntax.IsECMAWordChar(r.Runtext[index-1])) !=
+		(index < r.Runtextend && syntax.IsECMAWordChar(r.Runtext[index]))
 }
 
 func (r *Runner) startTimeoutWatch() {

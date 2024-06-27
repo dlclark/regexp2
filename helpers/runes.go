@@ -19,6 +19,8 @@ func IsBetween(val rune, first, last rune) bool {
 func IsWordChar(r rune) bool {
 	// matches charclass.go
 
+	//TODO: add optimization here for ascii
+
 	//"L", "Mn", "Nd", "Pc"
 	return unicode.In(r,
 		unicode.Categories["L"], unicode.Categories["Mn"],
