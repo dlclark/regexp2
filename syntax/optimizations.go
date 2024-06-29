@@ -169,7 +169,7 @@ func newFindOptimizations(tree *RegexTree, opt RegexOptions) *FindOptimizations 
 			var chars []rune
 			if !set.IsNegated() {
 				// See if the set is limited to holding only a few characters.
-				chars = set.GetSetChars(make([]rune, 0, 5))
+				chars = set.GetSetChars(5)
 			}
 
 			if !compiled && len(chars) == 1 {

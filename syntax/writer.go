@@ -105,7 +105,7 @@ func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 			}
 
 			curChild = w.popInt()
-			curNode = curNode.Next
+			curNode = curNode.Parent
 
 			w.emitFragment(curNode.T|AfterChild, curNode, curChild)
 			curChild++
@@ -157,14 +157,13 @@ func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) error {
 	bits := InstOp(0)
 
-	if nodetype <= NtRef {
-		if (node.Options & RightToLeft) != 0 {
-			bits |= Rtl
-		}
-		if (node.Options & IgnoreCase) != 0 {
-			bits |= Ci
-		}
+	if (node.Options & RightToLeft) != 0 {
+		bits |= Rtl
 	}
+	if (node.Options & IgnoreCase) != 0 {
+		bits |= Ci
+	}
+
 	ntBits := NodeType(bits)
 
 	switch nodetype {
@@ -319,9 +318,9 @@ func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) 
 	case NtOne, NtNotone:
 		w.emit1(InstOp(node.T|ntBits), int(node.Ch))
 
-	case NtNotoneloop, NtNotonelazy, NtOneloop, NtOnelazy:
+	case NtNotoneloop, NtNotoneloopatomic, NtNotonelazy, NtOneloop, NtOneloopatomic, NtOnelazy:
 		if node.M > 0 {
-			if node.T == NtOneloop || node.T == NtOnelazy {
+			if node.T == NtOneloop || node.T == NtOnelazy || node.T == NtOneloopatomic {
 				w.emit2(Onerep|bits, int(node.Ch), node.M)
 			} else {
 				w.emit2(Notonerep|bits, int(node.Ch), node.M)
@@ -335,7 +334,7 @@ func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) 
 			}
 		}
 
-	case NtSetloop, NtSetlazy:
+	case NtSetloop, NtSetlazy, NtSetloopatomic:
 		if node.M > 0 {
 			w.emit2(Setrep|bits, w.setCode(node.Set), node.M)
 		}

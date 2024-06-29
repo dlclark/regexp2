@@ -2108,18 +2108,18 @@ func (p *parser) addToConcatenate(pos, cch int, isReplacement bool) {
 
 // Push the parser state (in response to an open paren)
 func (p *parser) pushGroup() {
-	p.group.Next = p.stack
-	p.alternation.Next = p.group
-	p.concatenation.Next = p.alternation
+	p.group.Parent = p.stack
+	p.alternation.Parent = p.group
+	p.concatenation.Parent = p.alternation
 	p.stack = p.concatenation
 }
 
 // Remember the pushed state (in response to a ')')
 func (p *parser) popGroup() error {
 	p.concatenation = p.stack
-	p.alternation = p.concatenation.Next
-	p.group = p.alternation.Next
-	p.stack = p.group.Next
+	p.alternation = p.concatenation.Parent
+	p.group = p.alternation.Parent
+	p.stack = p.group.Parent
 
 	// The first () inside a Testgroup group goes directly to the group
 	if p.group.T == NtExprCond && len(p.group.Children) == 0 {

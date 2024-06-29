@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"sort"
 	"unicode"
 	"unicode/utf8"
@@ -957,6 +958,74 @@ func (c *CharSet) addLowercaseRange(chMin, chMax rune) {
 	}
 }
 
+// Determines whether two sets could overlap.
+func (set1 *CharSet) MayOverlap(set2 *CharSet) bool {
+	// If the sets are identical, there's obviously overlap.
+	if set1.Equals(set2) {
+		return true
+	}
+
+	// If either set is all-inclusive, there's overlap by definition (unless
+	// the other set is empty, but that's so rare it's not worth checking.)
+	if set1.IsAnything() || set2.IsAnything() {
+		return true
+	}
+
+	// If one set is negated and the other one isn't, we're in one of two situations:
+	// - The remainder of the sets are identical, in which case these are inverses of
+	//   each other, and they don't overlap.
+	// - The remainder of the sets aren't identical, in which case there's very likely
+	//   overlap, and it's not worth spending more time investigating.
+	set1Negated := set1.IsNegated()
+	set2Negated := set2.IsNegated()
+	if set1Negated != set2Negated {
+
+		return !set1.equals(set2, true)
+	}
+
+	// If the sets are negated, since they're not equal, there's almost certainly overlap.
+	if set1Negated {
+		return true
+	}
+
+	// Special-case some known, common classes that don't overlap.
+	if knownDistinctSets(set1, set2) || knownDistinctSets(set2, set1) {
+		return false
+	}
+
+	// If set2 can be easily enumerated (e.g. no unicode categories), then enumerate it and
+	// check if any of its members are in set1.  Otherwise, the same for set1.
+	if !set2.HasSubtraction() && len(set2.categories) == 0 {
+		return mayOverlapByEnumeration(set1, set2)
+	} else if !set1.HasSubtraction() && len(set1.categories) == 0 {
+		return mayOverlapByEnumeration(set2, set1)
+	}
+
+	// Assume that everything else might overlap.  In the future if it proved impactful, we could be more accurate here,
+	// at the exense of more computation time.
+	return true
+}
+
+func knownDistinctSets(set1, set2 *CharSet) bool {
+
+	return (set1.Equals(SpaceClass()) || set1.Equals(ECMASpaceClass())) &&
+		(set2.Equals(DigitClass()) || set2.Equals(WordClass()) ||
+			set2.Equals(ECMADigitClass()) || set2.Equals(ECMAWordClass()))
+
+}
+
+func mayOverlapByEnumeration(set1, set2 *CharSet) bool {
+	for i := 0; i < len(set2.ranges); i++ {
+		for c := set2.ranges[i].First; c < set2.ranges[i].Last; c++ {
+			if set1.CharIn(c) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // Gets all of the characters in the specified set, storing them into the provided span.
 //
 // Only considers character classes that only contain sets (no categories),
@@ -964,9 +1033,9 @@ func (c *CharSet) addLowercaseRange(chMin, chMax rune) {
 // is factored in, however).The returned characters may be negated: if IsNegated(set)
 // is false, then the returned characters are the only ones that match; if it returns
 // true, then the returned characters are the only ones that don't match.
-func (c *CharSet) GetSetChars(chars []rune) []rune {
+func (c *CharSet) GetSetChars(maxChars int) []rune {
 	// don't support categories, just ranges
-	if len(c.categories) > 0 || len(c.ranges) > cap(chars) {
+	if len(c.categories) > 0 || len(c.ranges) > maxChars {
 		return nil
 	}
 
@@ -975,7 +1044,7 @@ func (c *CharSet) GetSetChars(chars []rune) []rune {
 		return nil
 	}
 
-	maxWork := cap(chars)
+	chars := make([]rune, 0, maxChars)
 	curWork := 0
 	// Iterate through the pairs of ranges, storing each value in each range
 	// into the supplied span.  If they all won't fit, we give up and return 0.
@@ -992,7 +1061,7 @@ func (c *CharSet) GetSetChars(chars []rune) []rune {
 			// limit how much work is done here, which we can do by constraining
 			// the number of checks to the size of the storage provided.
 			curWork++
-			if curWork > maxWork {
+			if curWork > maxChars {
 				return nil
 			}
 
@@ -1013,14 +1082,35 @@ func (c *CharSet) HashInto(buf []byte) {
 }
 
 func (c *CharSet) Equals(c2 *CharSet) bool {
-	//TODO: optimize checks instead of hashing both
-	buf1 := &bytes.Buffer{}
-	c.mapHashFill(buf1)
+	return c.equals(c2, false)
+}
 
-	buf2 := &bytes.Buffer{}
-	c2.mapHashFill(buf2)
+func (c *CharSet) equals(c2 *CharSet, ignoreNegate bool) bool {
+	if c == nil && c2 == nil {
+		return true
+	}
+	if c == nil && c2 != nil || c2 == nil && c != nil {
+		return false
+	}
 
-	return bytes.Equal(buf1.Bytes(), buf2.Bytes())
+	// TODO: optimize checks instead of hashing both
+	if !ignoreNegate {
+		if c.negate != c2.negate {
+			return false
+		}
+	}
+	if c.anything != c.anything {
+		return false
+	}
+
+	if !slices.Equal(c.ranges, c2.ranges) {
+		return false
+	}
+	if !slices.Equal(c.categories, c2.categories) {
+		return false
+	}
+
+	return c.sub.equals(c2.sub, false)
 }
 
 func checkHashEqual(hash []byte, c *CharSet, buf *bytes.Buffer) bool {
@@ -1068,11 +1158,11 @@ func (c *CharSet) IsUnicodeCategoryOfSmallCharCount() (isSmall bool, chars []run
 
 // Gets whether the set description string is for two ASCII letters that case
 // to each other under IgnoreCase rules.
-func (c *CharSet) containsAsciiIgnoreCaseCharacter(twoChars []rune) (bool, []rune) {
+func (c *CharSet) containsAsciiIgnoreCaseCharacter() (bool, []rune) {
 	if c.IsNegated() {
 		return false, nil
 	}
-	twoChars = c.GetSetChars(twoChars[:0])
+	twoChars := c.GetSetChars(2)
 	return len(twoChars) == 2 && twoChars[0] < unicode.MaxASCII && twoChars[1] < unicode.MaxASCII &&
 		(twoChars[0]|0x20) == (twoChars[1]|0x20) &&
 		unicode.IsLetter(twoChars[0]) && unicode.IsLetter(twoChars[1]), twoChars

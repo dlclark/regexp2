@@ -80,6 +80,18 @@ const (
 	ECMABoundary    InstOp = 41 //                          \b
 	NonECMABoundary InstOp = 42 //                          \B
 
+	// Atomic loop of the specified character.
+	// Operand 0 is the character. Operand 1 is the max iteration count.
+	Oneloopatomic InstOp = 43
+	// Atomic loop of a single character other than the one specified.
+	// Operand 0 is the character. Operand 1 is the max iteration count.
+	Notoneloopatomic InstOp = 44
+	// Atomic loop of a single character matching the specified set
+	// Operand 0 is index into the strings table of the character class description. Operand 1 is the repetition count.
+	Setloopatomic InstOp = 45
+	// Updates the bumpalong position to the current position.
+	UpdateBumpalong InstOp = 46
+
 	// Modifiers for alternate modes
 
 	Mask  InstOp = 63  // Mask to get unmodified ordinary operator
@@ -121,7 +133,7 @@ func opcodeSize(op InstOp) int {
 
 	switch op {
 	case Nothing, Bol, Eol, Boundary, Nonboundary, ECMABoundary, NonECMABoundary, Beginning, Start, EndZ,
-		End, Nullmark, Setmark, Getmark, Setjump, Backjump, Forejump, Stop:
+		End, Nullmark, Setmark, Getmark, Setjump, Backjump, Forejump, Stop, UpdateBumpalong:
 		return 1
 
 	case One, Notone, Multi, Ref, Testref, Goto, Nullcount, Setcount, Lazybranch, Branchmark, Lazybranchmark,
@@ -129,7 +141,7 @@ func opcodeSize(op InstOp) int {
 		return 2
 
 	case Capturemark, Branchcount, Lazybranchcount, Onerep, Notonerep, Oneloop, Notoneloop, Onelazy, Notonelazy,
-		Setlazy, Setrep, Setloop:
+		Setlazy, Setrep, Setloop, Oneloopatomic, Notoneloopatomic, Setloopatomic:
 		return 3
 
 	default:
@@ -151,6 +163,8 @@ var codeStr = []string{
 	"Setjump", "Backjump", "Forejump", "Testref", "Goto",
 	"Prune", "Stop",
 	"ECMABoundary", "NonECMABoundary",
+	"Oneloopatomic", "Notoneloopatomic", "Setloopatomic",
+	"Bumpalong",
 }
 
 func operatorDescription(op InstOp) string {
@@ -188,11 +202,12 @@ func (c *Code) OpcodeDescription(offset int) string {
 	op &= Mask
 
 	switch op {
-	case One, Notone, Onerep, Notonerep, Oneloop, Notoneloop, Onelazy, Notonelazy:
+	case One, Notone, Onerep, Notonerep, Oneloop, Notoneloop, Onelazy, Notonelazy,
+		Oneloopatomic, Notoneloopatomic:
 		buf.WriteString("Ch = ")
 		buf.WriteString(CharDescription(rune(c.Codes[offset+1])))
 
-	case Set, Setrep, Setloop, Setlazy:
+	case Set, Setrep, Setloop, Setlazy, Setloopatomic:
 		buf.WriteString("Set = ")
 		buf.WriteString(c.Sets[c.Codes[offset+1]].String())
 
@@ -216,7 +231,8 @@ func (c *Code) OpcodeDescription(offset int) string {
 	}
 
 	switch op {
-	case Onerep, Notonerep, Oneloop, Notoneloop, Onelazy, Notonelazy, Setrep, Setloop, Setlazy:
+	case Onerep, Notonerep, Oneloop, Notoneloop, Onelazy, Notonelazy, Setrep, Setloop, Setlazy,
+		Oneloopatomic, Notoneloopatomic, Setloopatomic:
 		buf.WriteString(", Rep = ")
 		if c.Codes[offset+2] == math.MaxInt32 {
 			buf.WriteString("inf")

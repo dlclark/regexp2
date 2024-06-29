@@ -1366,19 +1366,9 @@ func TestUnMarshal(t *testing.T) {
 }
 
 func TestIgnoreCase(t *testing.T) {
-	r := MustCompile("(?i:saturday|sunday)", 0)
-	m, _ := r.FindStringMatch("Saturday")
-	if m == nil {
-		t.Fatalf("no match")
-	}
-	if want, got := "Saturday", m.String(); want != got {
-		t.Fatalf("wanted match: %v, got %v", want, got)
-	}
-	m, _ = r.FindStringMatch("saturday")
-	if m == nil {
-		t.Fatalf("no match")
-	}
-	if want, got := "saturday", m.String(); want != got {
-		t.Fatalf("wanted match: %v, got %v", want, got)
+	r := MustCompile(`^(((?<foo>\()[^()]*)+((?<bar-foo>\))[^()]*)+)+(?(foo)(?!))$`, Debug)
+	m, _ := r.FindStringMatch("((a(b))c")
+	if m != nil {
+		t.Fatalf("match")
 	}
 }

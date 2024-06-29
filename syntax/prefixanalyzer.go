@@ -449,7 +449,7 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 	// These limits are approximations. We'll stop trying to make strings longer once we exceed the max length,
 	// and if we exceed the max number of prefixes by a non-trivial amount, we'll fail the operation.
 	// limit how many chars we get from a set based on the max prefixes we care about
-	setChars := make([]rune, 0, maxPrefixes)
+	//setChars := make([]rune, 0, maxPrefixes)
 
 	// Loop down the left side of the tree, looking for a starting node we can handle. We only loop through
 	// atomic and capture nodes, as the child is guaranteed to execute once, as well as loops with a positive
@@ -524,7 +524,7 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 		case NtSet, NtSetloop, NtSetlazy /*, NtSetloopatomic*/ :
 			// negated sets are too complex to analyze
 			if !node.Set.IsNegated() {
-				setChars = node.Set.GetSetChars(setChars[:0])
+				setChars := node.Set.GetSetChars(maxPrefixes)
 
 				if len(setChars) == 0 {
 					return false
@@ -563,7 +563,7 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 				} else {
 					// For ignore-case, we currently only handle the simple (but common) case of a single
 					// ASCII character that case folds to the same char.
-					ok, setChars := node.Set.containsAsciiIgnoreCaseCharacter(setChars)
+					ok, setChars := node.Set.containsAsciiIgnoreCaseCharacter()
 					if !ok {
 						return false
 					}
@@ -658,7 +658,7 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 				// Duplicate all of the existing strings for all of the new suffixes, other than the first.
 				for i := 1; i < len(allBranchResults); i++ {
 					suffix := allBranchResults[i]
-					for existing := 0; existing < len(results); existing++ {
+					for existing := 0; existing < existingCount; existing++ {
 						newSb := &bytes.Buffer{}
 						newSb.Write(results[existing].Bytes())
 						newSb.Write(suffix.Bytes())
@@ -712,7 +712,7 @@ func findFixedDistanceSets(root *RegexNode, thorough bool) []FixedDistanceSet {
 
 	// For every entry, try to get the chars that make up the set, if there are few enough.
 	// For any for which we couldn't get the small chars list, see if we can get other useful info.
-	scratch := make([]rune, 0, 128)
+	//scratch := make([]rune, 0, 128)
 	for i := 0; i < len(results); i++ {
 		result := results[i]
 		result.Negated = result.Set.IsNegated()
@@ -721,9 +721,9 @@ func findFixedDistanceSets(root *RegexNode, thorough bool) []FixedDistanceSet {
 		if r := result.Set.GetIfNRanges(1); len(r) == 1 && r[0].Last-r[0].First > 1 {
 			result.Range = &r[0]
 		} else {
-			scratch = result.Set.GetSetChars(scratch[:0])
+			scratch := result.Set.GetSetChars(128)
 			if len(scratch) > 0 {
-				result.Chars = slices.Clone(scratch)
+				result.Chars = scratch
 			}
 		}
 
@@ -1194,8 +1194,7 @@ func findLiteralFollowingLeadingLoop(node *RegexNode) *LiteralAfterLoop {
 		!nextChild.Set.IsNegated() &&
 		(nextChild.T == NtSet || nextChild.M >= 1) {
 		// maximum number of chars optimized by IndexOfAny
-		chars := make([]rune, 0, 5)
-		chars = nextChild.Set.GetSetChars(chars)
+		chars := nextChild.Set.GetSetChars(5)
 		if len(chars) > 0 {
 			for _, c := range chars {
 				if firstChild.Set.CharIn(c) {

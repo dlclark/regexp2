@@ -2,7 +2,6 @@ package regexp2
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -18,7 +17,7 @@ type Runner struct {
 	re   *Regexp
 	code *syntax.Code
 
-	runtextstart int // starting point for search
+	Runtextstart int // starting point for search
 
 	Runtext    []rune // text to search
 	Runtextpos int    // current position in text
@@ -47,7 +46,7 @@ type Runner struct {
 	// which will pop the value from it later.  A successful match should mean
 	// that this stack is empty.
 	runstack    []int
-	runstackpos int
+	Runstackpos int
 
 	// The crawl stack is used to keep track of captures.  Every time a group
 	// has a capture, we push its group number onto the runcrawl stack.  In
@@ -104,7 +103,7 @@ func (re *Regexp) run(quick bool, textstart int, input []rune) (*Match, error) {
 func (r *Runner) scan(rt []rune, textstart int, quick bool, timeout time.Duration) (*Match, error) {
 	r.timeout = timeout
 	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
-	r.runtextstart = textstart
+	r.Runtextstart = textstart
 	r.Runtext = rt
 	r.Runtextend = len(rt)
 
@@ -162,7 +161,7 @@ func (r *Runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 
 			// reset state for another go
 			r.Runtrackpos = len(r.runtrack)
-			r.runstackpos = len(r.runstack)
+			r.Runstackpos = len(r.runstack)
 			r.runcrawlpos = len(r.runcrawl)
 		}
 
@@ -711,7 +710,7 @@ func executeDefault(r *Runner) error {
 			r.advance(2)
 			continue
 
-		case syntax.Oneloop:
+		case syntax.Oneloop, syntax.Oneloopatomic:
 
 			c := r.operand(1)
 
@@ -729,14 +728,14 @@ func executeDefault(r *Runner) error {
 				}
 			}
 
-			if c > i {
+			if c > i && r.operator == syntax.Oneloop {
 				r.trackPush2(c-i-1, r.textPos()-r.bump())
 			}
 
 			r.advance(2)
 			continue
 
-		case syntax.Notoneloop:
+		case syntax.Notoneloop, syntax.Notoneloopatomic:
 
 			c := r.operand(1)
 
@@ -754,14 +753,14 @@ func executeDefault(r *Runner) error {
 				}
 			}
 
-			if c > i {
+			if c > i && r.operator == syntax.Notoneloop {
 				r.trackPush2(c-i-1, r.textPos()-r.bump())
 			}
 
 			r.advance(2)
 			continue
 
-		case syntax.Setloop:
+		case syntax.Setloop, syntax.Setloopatomic:
 
 			c := r.operand(1)
 
@@ -779,7 +778,7 @@ func executeDefault(r *Runner) error {
 				}
 			}
 
-			if c > i {
+			if c > i && r.operator == syntax.Setloop {
 				r.trackPush2(c-i-1, r.textPos()-r.bump())
 			}
 
@@ -904,7 +903,7 @@ func executeDefault(r *Runner) error {
 			continue
 
 		default:
-			return errors.New("unknown state in regex runner")
+			return fmt.Errorf("unknown state in regex runner: %v", r.operator)
 		}
 
 	BreakBackward:
@@ -917,8 +916,8 @@ func executeDefault(r *Runner) error {
 
 // increase the size of stack and track storage
 func (r *Runner) ensureStorage() {
-	if r.runstackpos < r.runtrackcount*4 {
-		doubleIntSlice(&r.runstack, &r.runstackpos)
+	if r.Runstackpos < r.runtrackcount*4 {
+		doubleIntSlice(&r.runstack, &r.Runstackpos)
 	}
 	if r.Runtrackpos < r.runtrackcount*4 {
 		doubleIntSlice(&r.runtrack, &r.Runtrackpos)
@@ -926,8 +925,8 @@ func (r *Runner) ensureStorage() {
 }
 
 func (r *Runner) ensureStack(plus int) {
-	if r.runstackpos-plus < r.runtrackcount*4 {
-		doubleIntSlice(&r.runstack, &r.runstackpos)
+	if r.Runstackpos-plus < r.runtrackcount*4 {
+		doubleIntSlice(&r.runstack, &r.Runstackpos)
 	}
 }
 
@@ -985,7 +984,7 @@ func (r *Runner) trackto(newpos int) {
 }
 
 func (r *Runner) textstart() int {
-	return r.runtextstart
+	return r.Runtextstart
 }
 
 func (r *Runner) textPos() int {
@@ -1102,24 +1101,24 @@ func (r *Runner) trackPeekN(i int) int {
 
 // Push onto the grouping stack
 func (r *Runner) stackPush(I1 int) {
-	r.runstackpos--
-	r.runstack[r.runstackpos] = I1
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = I1
 }
 
 func (r *Runner) stackPush2(I1, I2 int) {
-	r.runstackpos--
-	r.runstack[r.runstackpos] = I1
-	r.runstackpos--
-	r.runstack[r.runstackpos] = I2
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = I1
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = I2
 }
 
 func (r *Runner) stackPop() {
-	r.runstackpos++
+	r.Runstackpos++
 }
 
 // pop framesize items from the grouping stack
 func (r *Runner) stackPopN(framesize int) {
-	r.runstackpos += framesize
+	r.Runstackpos += framesize
 }
 
 // Technically we are actually peeking at items already popped.  So if you want to
@@ -1127,12 +1126,12 @@ func (r *Runner) stackPopN(framesize int) {
 // r.stackPop();
 // r.stackPeek();
 func (r *Runner) stackPeek() int {
-	return r.runstack[r.runstackpos-1]
+	return r.runstack[r.Runstackpos-1]
 }
 
 // get the ith element down on the grouping stack
 func (r *Runner) stackPeekN(i int) int {
-	return r.runstack[r.runstackpos-i-1]
+	return r.runstack[r.Runstackpos-i-1]
 }
 
 func (r *Runner) operand(i int) int {
@@ -1291,7 +1290,7 @@ func findFirstCharDefault(r *Runner) bool {
 	if 0 != (r.code.Anchors & (syntax.AnchorBeginning | syntax.AnchorStart | syntax.AnchorEndZ | syntax.AnchorEnd)) {
 		if !r.code.RightToLeft {
 			if (0 != (r.code.Anchors&syntax.AnchorBeginning) && r.Runtextpos > 0) ||
-				(0 != (r.code.Anchors&syntax.AnchorStart) && r.Runtextpos > r.runtextstart) {
+				(0 != (r.code.Anchors&syntax.AnchorStart) && r.Runtextpos > r.Runtextstart) {
 				r.Runtextpos = r.Runtextend
 				return false
 			}
@@ -1304,7 +1303,7 @@ func findFirstCharDefault(r *Runner) bool {
 			if (0 != (r.code.Anchors&syntax.AnchorEnd) && r.Runtextpos < r.Runtextend) ||
 				(0 != (r.code.Anchors&syntax.AnchorEndZ) && (r.Runtextpos < r.Runtextend-1 ||
 					(r.Runtextpos == r.Runtextend-1 && r.charAt(r.Runtextpos) != '\n'))) ||
-				(0 != (r.code.Anchors&syntax.AnchorStart) && r.Runtextpos < r.runtextstart) {
+				(0 != (r.code.Anchors&syntax.AnchorStart) && r.Runtextpos < r.Runtextstart) {
 				r.Runtextpos = 0
 				return false
 			}
@@ -1366,12 +1365,12 @@ func (r *Runner) initMatch() {
 
 	if r.runmatch == nil {
 		if r.re.caps != nil {
-			r.runmatch = newMatchSparse(r.re, r.re.caps, r.re.capsize, r.Runtext, r.runtextstart)
+			r.runmatch = newMatchSparse(r.re, r.re.caps, r.re.capsize, r.Runtext, r.Runtextstart)
 		} else {
-			r.runmatch = newMatch(r.re, r.re.capsize, r.Runtext, r.runtextstart)
+			r.runmatch = newMatch(r.re, r.re.capsize, r.Runtext, r.Runtextstart)
 		}
 	} else {
-		r.runmatch.reset(r.Runtext, r.runtextstart)
+		r.runmatch.reset(r.Runtext, r.Runtextstart)
 	}
 
 	// note we test runcrawl, because it is the last one to be allocated
@@ -1381,7 +1380,7 @@ func (r *Runner) initMatch() {
 
 	if r.runcrawl != nil {
 		r.Runtrackpos = len(r.runtrack)
-		r.runstackpos = len(r.runstack)
+		r.Runstackpos = len(r.runstack)
 		r.runcrawlpos = len(r.runcrawl)
 		return
 	}
@@ -1402,7 +1401,7 @@ func (r *Runner) initMatch() {
 	r.Runtrackpos = tracksize
 
 	r.runstack = make([]int, stacksize)
-	r.runstackpos = stacksize
+	r.Runstackpos = stacksize
 
 	r.runcrawl = make([]int, 32)
 	r.runcrawlpos = 32
@@ -1498,7 +1497,7 @@ func (r *Runner) dumpState() {
 	fmt.Printf("Text:  %v\nTrack: %v\nStack: %v\n       %s%s\n\n",
 		r.textposDescription(),
 		r.stackDescription(r.runtrack, r.Runtrackpos),
-		r.stackDescription(r.runstack, r.runstackpos),
+		r.stackDescription(r.runstack, r.Runstackpos),
 		r.code.OpcodeDescription(r.codepos),
 		back)
 }
@@ -1667,9 +1666,9 @@ func (r *Runner) UncaptureUntil(capturePos int) {
 
 func (r *Runner) StackPop() int {
 	//get it
-	val := r.runstack[r.runstackpos]
+	val := r.runstack[r.Runstackpos]
 	// pop it
-	r.runstackpos++
+	r.Runstackpos++
 	// return it
 	return val
 }
@@ -1677,32 +1676,41 @@ func (r *Runner) StackPop() int {
 func (r *Runner) StackPush(val int) {
 	// check if we need to size up stack
 	r.ensureStack(1)
-	r.runstackpos--
-	r.runstack[r.runstackpos] = val
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val
 }
 func (r *Runner) StackPush2(val1, val2 int) {
 	// check if we need to size up stack
 	r.ensureStack(2)
-	r.runstackpos--
-	r.runstack[r.runstackpos] = val1
-	r.runstackpos--
-	r.runstack[r.runstackpos] = val2
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val1
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val2
 }
 func (r *Runner) StackPush3(val1, val2, val3 int) {
 	// check if we need to size up stack
 	r.ensureStack(3)
-	r.runstackpos--
-	r.runstack[r.runstackpos] = val1
-	r.runstackpos--
-	r.runstack[r.runstackpos] = val2
-	r.runstackpos--
-	r.runstack[r.runstackpos] = val3
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val1
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val2
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val3
 }
 func (r *Runner) StackPushN(vals ...int) {
 	// check if we need to size up stack
 	r.ensureStack(len(vals))
 	for _, val := range vals {
-		r.runstackpos--
-		r.runstack[r.runstackpos] = val
+		r.Runstackpos--
+		r.runstack[r.Runstackpos] = val
 	}
+}
+func (r *Runner) IsMatched(cap int) bool {
+	return r.runmatch.isMatched(cap)
+}
+func (r *Runner) MatchLength(cap int) int {
+	return r.runmatch.matchLength(cap)
+}
+func (r *Runner) MatchIndex(cap int) int {
+	return r.runmatch.matchIndex(cap)
 }

@@ -77,7 +77,7 @@ func (s *regexFcd) regexFCFromRegexTree(tree *RegexTree) *regexFc {
 		}
 
 		curChild = s.popInt()
-		curNode = curNode.Next
+		curNode = curNode.Parent
 
 		s.calculateFC(curNode.T|AfterChild, curNode, curChild)
 		if s.failed {
@@ -235,11 +235,11 @@ func (s *regexFcd) calculateFC(nt NodeType, node *RegexNode, CurIndex int) {
 		s.pushFC(newRegexFc(node.Ch, nt == NtNotone, false, ci))
 		break
 
-	case NtOneloop, NtOnelazy:
+	case NtOneloop, NtOnelazy, NtOneloopatomic:
 		s.pushFC(newRegexFc(node.Ch, false, node.M == 0, ci))
 		break
 
-	case NtNotoneloop, NtNotonelazy:
+	case NtNotoneloop, NtNotonelazy, NtNotoneloopatomic:
 		s.pushFC(newRegexFc(node.Ch, true, node.M == 0, ci))
 		break
 
@@ -257,7 +257,7 @@ func (s *regexFcd) calculateFC(nt NodeType, node *RegexNode, CurIndex int) {
 		s.pushFC(regexFc{cc: node.Set.Copy(), nullable: false, caseInsensitive: ci})
 		break
 
-	case NtSetloop, NtSetlazy:
+	case NtSetloop, NtSetlazy, NtSetloopatomic:
 		s.pushFC(regexFc{cc: node.Set.Copy(), nullable: node.M == 0, caseInsensitive: ci})
 		break
 

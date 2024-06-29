@@ -149,6 +149,36 @@ func LastIndexOf(in []rune, find []rune) int {
 	return -1
 }
 
+func LastIndexOfAnyExcept1(in []rune, not rune) int {
+	for i := len(in) - 1; i >= 0; i-- {
+		if in[i] != not {
+			return i
+		}
+	}
+	return -1
+}
+
+func LastIndexOfAny1(in []rune, find rune) int {
+	for i := len(in) - 1; i >= 0; i-- {
+		if in[i] == find {
+			// found our char
+			return i
+		}
+	}
+
+	//not found
+	return -1
+}
+
+func LastIndexOfAnyInRange(in []rune, first, last rune) int {
+	for i := len(in) - 1; i >= 0; i-- {
+		if in[i] >= first && in[i] <= last {
+			return i
+		}
+	}
+	return -1
+}
+
 //TODO: LastIndexOf methods
 //IndexOfAnyInRange
 //LastIndexOfAnyInRange
@@ -239,4 +269,8 @@ func bytesEqual(a, b []rune) bool {
 	bytesA := unsafe.Slice((*byte)(unsafe.Pointer(&a[0])), len(a)*4)
 	bytesB := unsafe.Slice((*byte)(unsafe.Pointer(&b[0])), len(b)*4)
 	return bytes.Equal(bytesA, bytesB)
+}
+
+func Equals(in []rune, start int, length int, find []rune) bool {
+	return bytesEqual(in[start:start+length], find)
 }

@@ -47,11 +47,6 @@ type RegexTree struct {
 // each node also gets a "direction". Normally the value of
 // boolean n.backward = false.
 //
-// During parsing, top-level nodes are also stacked onto a parse
-// stack (a stack of trees). For this purpose we have a n.next
-// pointer. [Note that to save a few bytes, we could overload the
-// n.parent pointer instead.]
-//
 // On the parse stack, each tree has a "role" - basically, the
 // nonterminal in the grammar that the parser has currently
 // assigned to the tree. That code is stored in n.role.
@@ -69,7 +64,7 @@ type RegexNode struct {
 	M        int
 	N        int
 	Options  RegexOptions
-	Next     *RegexNode
+	Parent   *RegexNode
 }
 
 type NodeType int32
@@ -122,7 +117,17 @@ const (
 	NtECMABoundary    NodeType = 41 //                          \b
 	NtNonECMABoundary NodeType = 42 //                          \B
 
-	NtUpdateBumpalong NodeType = 43
+	// Atomic loop of the specified character.
+	// Operand 0 is the character. Operand 1 is the max iteration count.
+	NtOneloopatomic NodeType = 43
+	// Atomic loop of a single character other than the one specified.
+	// Operand 0 is the character. Operand 1 is the max iteration count.
+	NtNotoneloopatomic NodeType = 44
+	// Atomic loop of a single character matching the specified set
+	// Operand 0 is index into the strings table of the character class description. Operand 1 is the repetition count.
+	NtSetloopatomic NodeType = 45
+	// Updates the bumpalong position to the current position.
+	NtUpdateBumpalong NodeType = 46
 )
 
 func newRegexNode(t NodeType, opt RegexOptions) *RegexNode {
@@ -223,13 +228,23 @@ func nodeWithCaseConversion(n *RegexNode) *RegexNode {
 }
 
 func (n *RegexNode) IsSetFamily() bool {
-	return n.T == NtSet || n.T == NtSetloop || n.T == NtSetlazy /*|| n.T == NtSetloopatomic*/
+	return n.T == NtSet || n.T == NtSetloop || n.T == NtSetlazy || n.T == NtSetloopatomic
 }
 func (n *RegexNode) IsOneFamily() bool {
-	return n.T == NtOne || n.T == NtOneloop || n.T == NtOnelazy /*|| n.T == NtOneloopatomic*/
+	return n.T == NtOne || n.T == NtOneloop || n.T == NtOnelazy || n.T == NtOneloopatomic
 }
 func (n *RegexNode) IsNotoneFamily() bool {
-	return n.T == NtNotone || n.T == NtNotoneloop || n.T == NtNotonelazy /*|| n.T == NtNotoneloopatomic*/
+	return n.T == NtNotone || n.T == NtNotoneloop || n.T == NtNotonelazy || n.T == NtNotoneloopatomic
+}
+
+func (n *RegexNode) IsSetloopFamily() bool {
+	return n.T == NtSetloop || n.T == NtSetlazy || n.T == NtSetloopatomic
+}
+func (n *RegexNode) IsOneloopFamily() bool {
+	return n.T == NtOneloop || n.T == NtOnelazy || n.T == NtOneloopatomic
+}
+func (n *RegexNode) IsNotoneloopFamily() bool {
+	return n.T == NtNotoneloop || n.T == NtNotonelazy || n.T == NtNotoneloopatomic
 }
 
 func (n *RegexNode) writeStrToBuf(buf *bytes.Buffer) {
@@ -239,14 +254,20 @@ func (n *RegexNode) writeStrToBuf(buf *bytes.Buffer) {
 }
 
 func (n *RegexNode) addChild(child *RegexNode) {
+	child.Parent = n
 	reduced := child.reduce()
+	reduced.Parent = n
 	n.Children = append(n.Children, reduced)
-	reduced.Next = n
+	reduced.Parent = n
 }
 
 func (n *RegexNode) insertChildren(afterIndex int, nodes []*RegexNode) {
-	newChildren := make([]*RegexNode, 0, len(n.Children)+len(nodes))
-	n.Children = append(append(append(newChildren, n.Children[:afterIndex]...), nodes...), n.Children[afterIndex:]...)
+	for _, c := range nodes {
+		c.Parent = n
+	}
+	n.Children = slices.Insert(n.Children, afterIndex, nodes...)
+	//newChildren := make([]*RegexNode, 0, len(n.Children)+len(nodes))
+	//n.Children = append(append(append(newChildren, n.Children[:afterIndex]...), nodes...), n.Children[afterIndex:]...)
 }
 
 // removes children including the start but not the end index
@@ -255,9 +276,9 @@ func (n *RegexNode) removeChildren(startIndex, endIndex int) {
 }
 
 func (n *RegexNode) ReplaceChild(index int, newChild *RegexNode) {
-	//newChild.Parent = n // so that the child can see its parent while being reduced
+	newChild.Parent = n // so that the child can see its parent while being reduced
 	newChild = newChild.reduce()
-	//newChild.Parent = n // in case Reduce returns a different node that needs to be reparented
+	newChild.Parent = n // in case Reduce returns a different node that needs to be reparented
 
 	n.Children[index] = newChild
 }
@@ -277,21 +298,542 @@ func (n *RegexNode) reduce() *RegexNode {
 	switch n.T {
 	case NtAlternate:
 		return n.reduceAlternation()
-
+	case NtAtomic:
+		return n.reduceAtomic()
 	case NtConcatenate:
 		return n.reduceConcatenation()
-
-	case NtLoop, NtLazyloop:
-		return n.reduceRep()
-
 	case NtGroup:
 		return n.reduceGroup()
-
-	case NtSet, NtSetloop:
+	case NtLoop, NtLazyloop:
+		return n.reduceRep()
+	case NtPosLook, NtNegLook:
+		return n.reduceLookaround()
+	case NtSet, NtSetloop, NtSetlazy, NtSetloopatomic:
 		return n.reduceSet()
-
+	case NtExprCond:
+		return n.reduceExpressionConditional()
+	case NtBackRefCond:
+		return n.reduceBackreferenceConditional()
 	default:
 		return n
+	}
+}
+
+// / <summary>Optimizations for positive and negative lookaheads/behinds.</summary>
+func (n *RegexNode) reduceLookaround() *RegexNode {
+	// A lookaround is a zero-width atomic assertion.
+	// As it's atomic, nothing will backtrack into it, and we can
+	// eliminate any ending backtracking from it.
+	n.eliminateEndingBacktracking()
+
+	// A positive lookaround wrapped around an empty is a nop, and we can reduce it
+	// to simply Empty.  A developer typically doesn't write this, but rather it evolves
+	// due to optimizations resulting in empty.
+
+	// A negative lookaround wrapped around an empty child, i.e. (?!), is
+	// sometimes used as a way to insert a guaranteed no-match into the expression,
+	// often as part of a conditional. We can reduce it to simply Nothing.
+
+	if n.Children[0].T == NtEmpty {
+		if n.T == NtPosLook {
+			n.T = NtEmpty
+		} else {
+			n.T = NtEmpty
+		}
+		n.Children = nil
+	}
+
+	return n
+}
+
+// Optimizations for backreference conditionals.
+func (n *RegexNode) reduceBackreferenceConditional() *RegexNode {
+	// This isn't so much an optimization as it is changing the tree for consistency. We want
+	// all engines to be able to trust that every backreference conditional will have two children,
+	// even though it's optional in the syntax.  If it's missing a "not matched" branch,
+	// we add one that will match empty.
+	if len(n.Children) == 1 {
+		n.addChild(&RegexNode{T: NtEmpty, Options: n.Options})
+	}
+
+	return n
+}
+
+// / <summary>Optimizations for expression conditionals.</summary>
+func (n *RegexNode) reduceExpressionConditional() *RegexNode {
+	// This isn't so much an optimization as it is changing the tree for consistency. We want
+	// all engines to be able to trust that every expression conditional will have three children,
+	// even though it's optional in the syntax.  If it's missing a "not matched" branch,
+	// we add one that will match empty.
+	if len(n.Children) == 2 {
+		n.addChild(&RegexNode{T: NtEmpty, Options: n.Options})
+	}
+
+	// It's common for the condition to be an explicit positive lookahead, as specifying
+	// that eliminates any ambiguity in syntax as to whether the expression is to be matched
+	// as an expression or to be a reference to a capture group.  After parsing, however,
+	// there's no ambiguity, and we can remove an extra level of positive lookahead, as the
+	// engines need to treat the condition as a zero-width positive, atomic assertion regardless.
+	condition := n.Children[0]
+	if condition.T == NtPosLook && (condition.Options&RightToLeft) == 0 {
+		n.ReplaceChild(0, condition.Children[0])
+	}
+
+	// We can also eliminate any ending backtracking in the condition, as the condition
+	// is considered to be a positive lookahead, which is an atomic zero-width assertion.
+	condition = n.Children[0]
+	condition.eliminateEndingBacktracking()
+
+	return n
+}
+
+// Remove unnecessary atomic nodes, and make appropriate descendents of the atomic node themselves atomic.
+// e.g. (?>(?>(?>a*))) => (?>a*)
+// e.g. (?>(abc*)*) => (?>(abc(?>c*))*)
+func (n *RegexNode) reduceAtomic() *RegexNode {
+	atomic := n
+	child := n.Children[0]
+	for child.T == NtAtomic {
+		atomic = child
+		child = atomic.Children[0]
+	}
+
+	switch child.T {
+	// If the child is empty/nothing, there's nothing to be made atomic so the Atomic
+	// node can simply be removed.
+	case NtEmpty, NtNothing:
+		return child
+
+	// If the child is already atomic, we can just remove the atomic node.
+	case NtOneloopatomic, NtNotoneloopatomic, NtSetloopatomic:
+		return child
+
+	// If an atomic subexpression contains only a {one/notone/set}{loop/lazy},
+	// change it to be an {one/notone/set}loopatomic and remove the atomic node.
+	case NtOneloop, NtNotoneloop, NtSetloop, NtOnelazy, NtNotonelazy, NtSetlazy:
+		child.makeLoopAtomic()
+		return child
+
+	// Alternations have a variety of possible optimizations that can be applied
+	// iff they're atomic.
+	case NtAlternate:
+		if (n.Options & RightToLeft) == 0 {
+			branches := child.Children
+
+			// If an alternation is atomic and its first branch is Empty, the whole thing
+			// is a nop, as Empty will match everything trivially, and no backtracking
+			// into the node will be performed, making the remaining branches irrelevant.
+			if branches[0].T == NtEmpty {
+				return &RegexNode{T: NtEmpty, Options: child.Options}
+			}
+
+			// Similarly, we can trim off any branches after an Empty, as they'll never be used.
+			// An Empty will match anything, and thus branches after that would only be used
+			// if we backtracked into it and advanced passed the Empty after trying the Empty...
+			// but if the alternation is atomic, such backtracking won't happen.
+			for i := 1; i < len(branches)-1; i++ {
+				if branches[i].T == NtEmpty {
+					branches = slices.Delete(branches, i+1, len(branches))
+					break
+				}
+			}
+
+			// If an alternation is atomic, we won't ever backtrack back into it, which
+			// means order matters but not repetition.  With backtracking, it would be incorrect
+			// to convert an expression like "hi|there|hello" into "hi|hello|there", as doing
+			// so could then change the order of results if we matched "hi" and then failed
+			// based on what came after it, and both "hello" and "there" could be successful
+			// with what came later.  But without backtracking, we can reorder "hi|there|hello"
+			// to instead be "hi|hello|there", as "hello" and "there" can't match the same text,
+			// and once this atomic alternation has matched, we won't try another branch. This
+			// reordering is valuable as it then enables further optimizations, e.g.
+			// "hi|there|hello" => "hi|hello|there" => "h(?:i|ello)|there", which means we only
+			// need to check the 'h' once in case it's not an 'h', and it's easier to employ different
+			// code gen that, for example, switches on first character of the branches, enabling faster
+			// choice of branch without always having to walk through each.
+			reordered := false
+			for start := 0; start < len(branches); start++ {
+				// Get the node that may start our range.  If it's a one, multi, or concat of those, proceed.
+				startNode := branches[start]
+				if startNode.findBranchOneOrMultiStart() == nil {
+					continue
+				}
+
+				// Find the contiguous range of nodes from this point that are similarly one, multi, or concat of those.
+				endExclusive := start + 1
+				for endExclusive < len(branches) && branches[endExclusive].findBranchOneOrMultiStart() != nil {
+					endExclusive++
+				}
+
+				// If there's at least 3, there may be something to reorder (we won't reorder anything
+				// before the starting position, and so only 2 items is considered ordered).
+				if endExclusive-start >= 3 {
+					compare := start
+					for compare < endExclusive {
+						// Get the starting character
+						c := branches[compare].findBranchOneOrMultiStart().FirstCharOfOneOrMulti()
+
+						// Move compare to point to the last branch that has the same starting value.
+						for compare < endExclusive && branches[compare].findBranchOneOrMultiStart().FirstCharOfOneOrMulti() == c {
+							compare++
+						}
+
+						// Compare now points to the first node that doesn't match the starting node.
+						// If we've walked off our range, there's nothing left to reorder.
+						if compare < endExclusive {
+							// There may be something to reorder.  See if there are any other nodes that begin with the same character.
+							for next := compare + 1; next < endExclusive; next++ {
+								nextChild := branches[next]
+								if nextChild.findBranchOneOrMultiStart().FirstCharOfOneOrMulti() == c {
+									branches = slices.Delete(branches, next, next+1)
+									branches = slices.Insert(branches, compare, nextChild)
+									compare++
+									reordered = true
+								}
+							}
+						}
+					}
+				}
+
+				// Move to the end of the range we've now explored. endExclusive is not a viable
+				// starting position either, and the start++ for the loop will thus take us to
+				// the next potential place to start a range.
+				start = endExclusive
+			}
+			child.Children = branches
+			// If anything was reordered, there may be new optimization opportunities inside
+			// of the alternation, so reduce it again.
+			if reordered {
+				atomic.ReplaceChild(0, child)
+				child = atomic.Children[0]
+			}
+		}
+		fallthrough
+
+	// For everything else, try to reduce ending backtracking of the last contained expression.
+	default:
+		child.eliminateEndingBacktracking()
+		return atomic
+	}
+}
+
+func (n *RegexNode) makeLoopAtomic() {
+
+	switch n.T {
+	case NtOneloop, NtNotoneloop, NtSetloop:
+		// For loops, we simply change the Type to the atomic variant.
+		// Atomic greedy loops should consume as many values as they can.
+		n.T += NtOneloopatomic - NtOneloop
+		break
+
+	case NtOnelazy, NtNotonelazy, NtSetlazy:
+		// For lazy, we not only change the Type, we also lower the max number of iterations
+		// to the minimum number of iterations, creating a repeater, as they should end up
+		// matching as little as possible.
+		n.T += NtOneloopatomic - NtOnelazy
+		n.N = n.M
+		if n.N == 0 {
+			// If moving the max to be the same as the min dropped it to 0, there's no
+			// work to be done for this node, and we can make it Empty.
+			n.T = NtEmpty
+			n.Str = nil
+			n.Ch = 0x0
+		} else if n.T == NtOneloopatomic && n.N >= 2 && n.N <= MultiVsRepeaterLimit {
+			// If this is now a One repeater with a small enough length,
+			// make it a Multi instead, as they're better optimized down the line.
+			n.T = NtMulti
+			n.Str = []rune(strings.Repeat(string(n.Ch), n.N))
+			n.Ch = 0x0
+			n.M = 0
+			n.N = 0
+		}
+		break
+	}
+}
+
+// Converts nodes at the end of the node tree to be atomic.
+// The correctness of this optimization depends on nothing being able to backtrack into
+// the provided node.  That means it must be at the root of the overall expression, or
+// it must be an Atomic node that nothing will backtrack into by the very nature of Atomic.
+func (n *RegexNode) eliminateEndingBacktracking() {
+	// Walk the tree starting from the current node.
+	node := n
+	for {
+		switch node.T {
+		// {One/Notone/Set}loops can be upgraded to {One/Notone/Set}loopatomic nodes, e.g. [abc]* => (?>[abc]*).
+		// And {One/Notone/Set}lazys can similarly be upgraded to be atomic, which really makes them into repeaters
+		// or even empty nodes.
+		case NtOneloop, NtNotoneloop, NtSetloop, NtOnelazy, NtNotonelazy, NtSetlazy:
+			node.makeLoopAtomic()
+
+		// Just because a particular node is atomic doesn't mean all its descendants are.
+		// Process them as well. Lookarounds are implicitly atomic.
+		case NtAtomic, NtPosLook, NtNegLook:
+			node = node.Children[0]
+			continue
+
+		case NtCapture, NtConcatenate:
+			// For Capture and Concatenate, we just recur into their last child (only child in the case
+			// of Capture).  However, if the child is an alternation or loop, we can also make the
+			// node itself atomic by wrapping it in an Atomic node. Since we later check to see whether a
+			// node is atomic based on its parent or grandparent, we don't bother wrapping such a node in
+			// an Atomic one if its grandparent is already Atomic.
+			// e.g. [xyz](?:abc|def) => [xyz](?>abc|def)
+
+			// validate grandparent isn't atomic
+			existingChild := node.Children[len(node.Children)-1]
+			if (existingChild.T == NtAlternate || existingChild.T == NtBackRefCond ||
+				existingChild.T == NtExprCond || existingChild.T == NtLoop ||
+				existingChild.T == NtLazyloop) &&
+				(node.Parent == nil || node.Parent.T != NtAtomic) {
+
+				atomic := &RegexNode{T: NtAtomic, Options: existingChild.Options}
+				atomic.addChild(existingChild)
+				node.ReplaceChild(len(node.Children)-1, atomic)
+			}
+			node = existingChild
+			continue
+
+		// For alternate, we can recur into each branch separately.  We use this iteration for the first branch.
+		// Conditionals are just like alternations in this regard.
+		// e.g. abc*|def* => ab(?>c*)|de(?>f*)
+		case NtAlternate, NtBackRefCond, NtExprCond:
+
+			branches := len(node.Children)
+			for i := 1; i < branches; i++ {
+				node.Children[i].eliminateEndingBacktracking()
+			}
+
+			// ReduceExpressionConditional will have already applied ending backtracking removal
+			if node.T != NtExprCond {
+				node = node.Children[0]
+				continue
+			}
+
+		// For {Lazy}Loop, we search to see if there's a viable last expression, and iff there
+		// is we recur into processing it.  Also, as with the single-char lazy loops, LazyLoop
+		// can have its max iteration count dropped to its min iteration count, as there's no
+		// reason for it to match more than the minimal at the end; that in turn makes it a
+		// repeater, which results in better code generation.
+		// e.g. (?:abc*)* => (?:ab(?>c*))*
+		// e.g. (abc*?)+? => (ab){1}
+		case NtLazyloop:
+			node.N = node.M
+			fallthrough
+		case NtLoop:
+			if node.N == 1 {
+				// If the loop has a max iteration count of 1 (e.g. it's an optional node),
+				// there's no possibility for conflict between multiple iterations, so
+				// we can process it.
+				node = node.Children[0]
+				continue
+			}
+
+			loopDescendent := node.FindLastExpressionInLoopForAutoAtomic()
+			if loopDescendent != nil {
+				node = loopDescendent
+				continue // loop around to process node
+			}
+
+		}
+
+		break
+	}
+}
+
+// / <summary>
+// / Recurs into the last expression of a loop node, looking to see if it can find a node
+// / that could be made atomic _assuming_ the conditions exist for it with the loop's ancestors.
+// / </summary>
+// / <returns>The found node that should be explored further for auto-atomicity; null if it doesn't exist.</returns>
+func (n *RegexNode) FindLastExpressionInLoopForAutoAtomic() *RegexNode {
+	node := n
+
+	// Start by looking at the loop's sole child.
+	node = node.Children[0]
+
+	// Skip past captures.
+	for node.T == NtCapture {
+		node = node.Children[0]
+	}
+
+	// If the loop's body is a concatenate, we can skip to its last child iff that
+	// last child doesn't conflict with the first child, since this whole concatenation
+	// could be repeated, such that the first node ends up following the last.  For
+	// example, in the expression (a+[def])*, the last child is [def] and the first is
+	// a+, which can't possibly overlap with [def].  In contrast, if we had (a+[ade])*,
+	// [ade] could potentially match the starting 'a'.
+	if node.T == NtConcatenate {
+		concatCount := len(node.Children)
+		lastConcatChild := node.Children[concatCount-1]
+		if lastConcatChild.canBeMadeAtomic(node.Children[0], false, false) {
+			return lastConcatChild
+		}
+	}
+
+	// Otherwise, the loop has nothing that can participate in auto-atomicity.
+	return nil
+}
+
+// Determines whether a node can be switched to an atomic loop.
+//
+// The node following is subsequent, used to determine whether it overlaps.
+// iterateNullableSubsequent is whether to allow examining nodes beyond subsequent.
+// allowLazy is whether lazy loops in addition to greedy loops should be considered for atomicity.
+func (n *RegexNode) canBeMadeAtomic(subsequent *RegexNode, iterateNullableSubsequent, allowLazy bool) bool {
+	// In most case, we'll simply check the node against whatever subsequent is.  However, in case
+	// subsequent ends up being a loop with a min bound of 0, we'll also need to evaluate the node
+	// against whatever comes after subsequent.  In that case, we'll walk the tree to find the
+	// next subsequent, and we'll loop around against to perform the comparison again.
+	for {
+		// Skip the successor down to the closest node that's guaranteed to follow it.
+		childCount := len(subsequent.Children)
+		for ; childCount > 0; childCount = len(subsequent.Children) {
+			if subsequent.T == NtConcatenate || subsequent.T == NtCapture ||
+				subsequent.T == NtAtomic ||
+				(subsequent.T == NtPosLook && subsequent.Options&RightToLeft == 0) ||
+				((subsequent.T == NtLoop || subsequent.T == NtLazyloop) && subsequent.M > 0) {
+				subsequent = subsequent.Children[0]
+				continue
+			}
+
+			break
+		}
+
+		// If the current node's options don't match the subsequent node, then we cannot make it atomic.
+		// This applies to RightToLeft for lookbehinds, as well as patterns that enable/disable global flags in the middle of the pattern.
+		if n.Options != subsequent.Options {
+			return false
+		}
+
+		// If the successor is an alternation, all of its children need to be evaluated, since any of them
+		// could come after this node.  If any of them fail the optimization, then the whole node fails.
+		// This applies to expression conditionals as well, as long as they have both a yes and a no branch (if there's
+		// only a yes branch, we'd need to also check whatever comes after the conditional).  It doesn't apply to
+		// backreference conditionals, as the condition itself is unknown statically and could overlap with the
+		// loop being considered for atomicity.
+		if subsequent.T == NtAlternate || (subsequent.T == NtExprCond && childCount == 3) {
+			// condition, yes, and no branch
+			for i := 0; i < childCount; i++ {
+				if !n.canBeMadeAtomic(subsequent.Children[i], iterateNullableSubsequent, false) {
+					return false
+				}
+			}
+			return true
+		}
+
+		// If this node is a {one/notone/set}loop, see if it overlaps with its successor in the concatenation.
+		// If it doesn't, then we can upgrade it to being a {one/notone/set}loopatomic.
+		// Doing so avoids unnecessary backtracking.
+		if n.T == NtLoop || (n.T == NtLazyloop && allowLazy) {
+
+			if (subsequent.T == NtOne && n.Ch != subsequent.Ch) ||
+				(subsequent.T == NtNotone && n.Ch == subsequent.Ch) ||
+				(subsequent.T == NtSet && !subsequent.Set.CharIn(n.Ch)) ||
+				(subsequent.IsOneFamily() && subsequent.M > 0 && n.Ch != subsequent.Ch) ||
+				(subsequent.IsNotoneFamily() && subsequent.M > 0 && n.Ch == subsequent.Ch) ||
+				(subsequent.IsSetFamily() && subsequent.M > 0 && !subsequent.Set.CharIn(n.Ch)) ||
+				(subsequent.T == NtMulti && n.Ch != subsequent.Str[0]) ||
+				(subsequent.T == NtEnd) ||
+				(subsequent.T == NtEndZ && n.Ch != '\n') ||
+				(subsequent.T == NtEol && n.Ch != '\n') {
+				return true
+			}
+
+			// The loop can be made atomic based on this subsequent node, but we'll need to evaluate the next one as well.
+			if (subsequent.IsOneloopFamily() && subsequent.M == 0 && n.Ch != subsequent.Ch) ||
+				(subsequent.IsNotoneloopFamily() && subsequent.M == 0 && n.Ch == subsequent.Ch) ||
+				(subsequent.IsSetloopFamily() && subsequent.M == 0 && !subsequent.Set.CharIn(n.Ch)) ||
+				(subsequent.T == NtBoundary && n.M > 0 && IsWordChar(n.Ch)) ||
+				(subsequent.T == NtNonboundary && n.M > 0 && !IsWordChar(n.Ch)) ||
+				(subsequent.T == NtECMABoundary && n.M > 0 && IsECMAWordChar(n.Ch)) ||
+				(subsequent.T == NtNonECMABoundary && n.M > 0 && !IsECMAWordChar(n.Ch)) {
+				goto end
+			}
+
+			return false
+
+		} else if n.T == NtNotoneloop || (n.T == NtNotonelazy && allowLazy) {
+			if (subsequent.T == NtOne && n.Ch == subsequent.Ch) ||
+				(subsequent.IsOneFamily() && subsequent.M > 0 && n.Ch == subsequent.Ch) ||
+				(subsequent.T == NtMulti && n.Ch == subsequent.Str[0]) ||
+				(subsequent.T == NtEnd) {
+				return true
+			}
+
+			// The loop can be made atomic based on this subsequent node, but we'll need to evaluate the next one as well.
+			if subsequent.IsOneloopFamily() && subsequent.M == 0 && n.Ch == subsequent.Ch {
+				goto end
+			}
+
+			return false
+		} else if n.T == NtSetloop || (n.T == NtSetlazy && allowLazy) {
+			if (subsequent.T == NtOne && !n.Set.CharIn(subsequent.Ch)) ||
+				(subsequent.T == NtSet && !n.Set.MayOverlap(subsequent.Set)) ||
+				(subsequent.IsOneloopFamily() && subsequent.M > 0 && !n.Set.CharIn(subsequent.Ch)) ||
+				(subsequent.IsSetloopFamily() && subsequent.M > 0 && !n.Set.MayOverlap(subsequent.Set)) ||
+				(subsequent.T == NtMulti && !n.Set.CharIn(subsequent.Str[0])) ||
+				(subsequent.T == NtEnd) ||
+				(subsequent.T == NtEndZ && !n.Set.CharIn('\n')) ||
+				(subsequent.T == NtEol && !n.Set.CharIn('\n')) {
+				return true
+			}
+
+			if (subsequent.IsOneloopFamily() && subsequent.M == 0 && !n.Set.CharIn(subsequent.Ch)) ||
+				(subsequent.IsSetloopFamily() && subsequent.M == 0 && subsequent.Set.MayOverlap(n.Set)) ||
+				(subsequent.T == NtBoundary && n.M > 0 && (n.Set.Equals(WordClass()) || n.Set.Equals(DigitClass()))) ||
+				(subsequent.T == NtNonboundary && n.M > 0 && (n.Set.Equals(NotWordClass()) || n.Set.Equals(NotDigitClass()))) ||
+				(subsequent.T == NtECMABoundary && n.M > 0 && (n.Set.Equals(ECMAWordClass()) || n.Set.Equals(ECMADigitClass()))) ||
+				(subsequent.T == NtNonECMABoundary && n.M > 0 && (n.Set.Equals(NotECMAWordClass()) || n.Set.Equals(NotDigitClass()))) {
+				// The loop can be made atomic based on this subsequent node, but we'll need to evaluate the next one as well.
+				goto end
+			}
+			return false
+		} else {
+			return false
+		}
+
+	end:
+		// We only get here if the node could be made atomic based on subsequent but subsequent has a lower bound of zero
+		// and thus we need to move subsequent to be the next node in sequence and loop around to try again.
+		if !iterateNullableSubsequent {
+			return false
+		}
+
+		// To be conservative, we only walk up through a very limited set of constructs (even though we may have walked
+		// down through more, like loops), looking for the next concatenation that we're not at the end of, at
+		// which point subsequent becomes whatever node is next in that concatenation.
+		for {
+			parent := subsequent.Parent
+			if parent == nil {
+				// If we hit the root, we're at the end of the expression, at which point nothing could backtrack
+				// in and we can declare success.
+				return true
+			}
+
+			switch parent.T {
+			case NtAtomic, NtAlternate, NtCapture:
+				subsequent = parent
+				continue
+
+			case NtConcatenate:
+				peers := parent.Children
+				currentIndex := slices.Index(peers, subsequent)
+
+				if currentIndex+1 == len(peers) {
+					subsequent = parent
+					continue
+				} else {
+					subsequent = peers[currentIndex+1]
+				}
+
+			default:
+				// Anything else, we don't know what to do, so we have to assume it could conflict with the loop.
+				return false
+			}
+
+			break
+		}
 	}
 }
 
@@ -305,6 +847,284 @@ func (n *RegexNode) reduceAlternation() *RegexNode {
 	if len(n.Children) == 0 {
 		return newRegexNode(NtNothing, n.Options)
 	}
+	if len(n.Children) == 1 {
+		return n.Children[0]
+	}
+	n.reduceSingleLetterAndNestedAlternations()
+
+	node := n.replaceNodeIfUnnecessary()
+	if node.T == NtAlternate {
+		node = node.extractCommonPrefixText()
+		if node.T == NtAlternate {
+			node = node.extractCommonPrefixOneNotoneSet()
+			if node.T == NtAlternate {
+				node = node.removeRedundantEmptiesAndNothings()
+			}
+		}
+	}
+	return node
+}
+
+// Analyzes all the branches of the alternation for text that's identical at the beginning
+// of every branch.  That text is then pulled out into its own one or multi node in a
+// concatenation with the alternation (whose branches are updated to remove that prefix).
+// This is valuable for a few reasons.  One, it exposes potentially more text to the
+// expression prefix analyzer used to influence FindFirstChar.  Second, it exposes more
+// potential alternation optimizations, e.g. if the same prefix is followed in two branches
+// by sets that can be merged.  Third, it reduces the amount of duplicated comparisons required
+// if we end up backtracking into subsequent branches.
+// e.g. abc|ade => a(?bc|de)
+func (n *RegexNode) extractCommonPrefixText() *RegexNode {
+	// To keep things relatively simple, we currently only handle:
+	// - Left to right (e.g. we don't process alternations in lookbehinds)
+	// - Branches that are one or multi nodes, or that are concatenations beginning with one or multi nodes.
+	// - All branches having the same options.
+
+	// Only extract left-to-right prefixes.
+	if (n.Options & RightToLeft) != 0 {
+		return n
+	}
+
+	for startingIndex := 0; startingIndex < len(n.Children)-1; startingIndex++ {
+		// Process the first branch to get the maximum possible common string.
+		startingNode := n.Children[startingIndex].findBranchOneOrMultiStart()
+		if startingNode == nil {
+			return n
+		}
+
+		startingNodeOptions := startingNode.Options
+		startingSpan := startingNode.Str
+		if startingNode.T == NtOne {
+			startingSpan = []rune{startingNode.Ch}
+		}
+
+		// Now compare the rest of the branches against it.
+		endingIndex := startingIndex + 1
+		for ; endingIndex < len(n.Children); endingIndex++ {
+			// Get the starting node of the next branch.
+			startingNode = n.Children[endingIndex].findBranchOneOrMultiStart()
+			if startingNode == nil || startingNode.Options != startingNodeOptions {
+				break
+			}
+
+			// See if the new branch's prefix has a shared prefix with the current one.
+			// If it does, shorten to that; if it doesn't, bail.
+			if startingNode.T == NtOne {
+				if startingSpan[0] != startingNode.Ch {
+					break
+				}
+
+				if len(startingSpan) != 1 {
+					startingSpan = startingSpan[0:1]
+				}
+			} else {
+				minLength := len(startingSpan)
+				if len(startingNode.Str) < minLength {
+					minLength = len(startingNode.Str)
+				}
+				c := 0
+				for c < minLength && startingSpan[c] == startingNode.Str[c] {
+					c++
+				}
+
+				if c == 0 {
+					break
+				}
+
+				startingSpan = startingSpan[0:c]
+			}
+		}
+
+		// When we get here, we have a starting string prefix shared by all branches
+		// in the range [startingIndex, endingIndex).
+		if endingIndex-startingIndex <= 1 {
+			// There's nothing to consolidate for this starting node.
+			continue
+		}
+
+		// We should be able to consolidate something for the nodes in the range [startingIndex, endingIndex).
+
+		// Create a new node of the form:
+		//     Concatenation(prefix, Alternation(each | node | with | prefix | removed))
+		// that replaces all these branches in this alternation.
+		var prefix *RegexNode
+		if len(startingSpan) == 1 {
+			prefix = &RegexNode{T: NtOne, Options: startingNodeOptions, Ch: startingSpan[0]}
+		} else {
+			prefix = &RegexNode{T: NtMulti, Options: startingNodeOptions, Str: slices.Clone(startingSpan)}
+		}
+
+		newAlternate := &RegexNode{T: NtAlternate, Options: startingNodeOptions}
+		for i := startingIndex; i < endingIndex; i++ {
+			branch := n.Children[i]
+			if branch.T == NtConcatenate {
+				branch.Children[0].processOneOrMulti(startingSpan)
+			} else {
+				branch.processOneOrMulti(startingSpan)
+			}
+			branch = branch.reduce()
+			newAlternate.addChild(branch)
+		}
+
+		if n.Parent != nil && n.Parent.T == NtAtomic {
+			var atomic = &RegexNode{T: NtAtomic, Options: startingNodeOptions}
+			atomic.addChild(newAlternate)
+			newAlternate = atomic
+		}
+
+		newConcat := &RegexNode{T: NtConcatenate, Options: startingNodeOptions}
+		newConcat.addChild(prefix)
+		newConcat.addChild(newAlternate)
+		n.ReplaceChild(startingIndex, newConcat)
+		n.Children = slices.Delete(n.Children, startingIndex+1, endingIndex)
+	}
+
+	if len(n.Children) == 1 {
+		return n.Children[0]
+	}
+
+	return n
+}
+
+// This function optimizes out prefix nodes from alternation branches that are
+// the same across multiple contiguous branches.
+// e.g. \w12|\d34|\d56|\w78|\w90 => \w12|\d(?:34|56)|\w(?:78|90)
+func (n *RegexNode) extractCommonPrefixOneNotoneSet() *RegexNode {
+	// Only process left-to-right prefixes.
+	if (n.Options & RightToLeft) != 0 {
+		return n
+	}
+
+	// Only handle the case where each branch is a concatenation
+	for _, child := range n.Children {
+		if child.T != NtConcatenate || len(child.Children) < 2 {
+			return n
+		}
+	}
+
+	for startingIndex := 0; startingIndex < len(n.Children)-1; startingIndex++ {
+		// Only handle the case where each branch begins with the same One, Notone, or Set (individual or loop).
+		// Note that while we can do this for individual characters, fixed length loops, and atomic loops, doing
+		// it for non-atomic variable length loops could change behavior as each branch could otherwise have a
+		// different number of characters consumed by the loop based on what's after it.
+		required := n.Children[startingIndex].Children[0]
+
+		if (!required.IsOneFamily() && !required.IsNotoneFamily() && !required.IsSetFamily()) ||
+			required.M != required.N {
+			// skip if it's not one of these scenarios
+			continue
+		}
+
+		// Only handle the case where each branch begins with the exact same node value
+		endingIndex := startingIndex + 1
+		for ; endingIndex < len(n.Children); endingIndex++ {
+			other := n.Children[endingIndex].Children[0]
+			if required.T != other.T ||
+				required.Options != other.Options ||
+				required.M != other.M ||
+				required.N != other.N ||
+				required.Ch != other.Ch ||
+				!slices.Equal(required.Str, other.Str) ||
+				!required.Set.Equals(other.Set) {
+				break
+			}
+		}
+
+		if endingIndex-startingIndex <= 1 {
+			// Nothing to extract from this starting index.
+			continue
+		}
+
+		// Remove the prefix node from every branch, adding it to a new alternation
+		newAlternate := &RegexNode{T: NtAlternate, Options: n.Options}
+		for i := startingIndex; i < endingIndex; i++ {
+			n.Children[i].Children = slices.Delete(n.Children[i].Children, 0, 1)
+			newAlternate.addChild(n.Children[i])
+		}
+
+		// If this alternation is wrapped as atomic, we need to do the same for the new alternation.
+		if n.Parent != nil && n.Parent.T == NtAtomic {
+			atomic := &RegexNode{T: NtAtomic, Options: n.Options}
+			atomic.addChild(newAlternate)
+			newAlternate = atomic
+		}
+
+		// Now create a concatenation of the prefix node with the new alternation for the combined
+		// branches, and replace all of the branches in this alternation with that new concatenation.
+		newConcat := &RegexNode{T: NtConcatenate, Options: n.Options}
+		newConcat.addChild(required)
+		newConcat.addChild(newAlternate)
+		n.ReplaceChild(startingIndex, newConcat)
+		n.Children = slices.Delete(n.Children, startingIndex+1, endingIndex)
+	}
+
+	return n.replaceNodeIfUnnecessary()
+}
+
+// Removes unnecessary Empty and Nothing nodes from the alternation. A Nothing will never
+// match, so it can be removed entirely, and an Empty can be removed if there's a previous
+// Empty in the alternation: it's an extreme case of just having a repeated branch in an
+// alternation, and while we don't check for all duplicates, checking for empty is easy.
+func (n *RegexNode) removeRedundantEmptiesAndNothings() *RegexNode {
+	children := n.Children
+
+	i, j := 0, 0
+	seenEmpty := false
+	for i < len(children) {
+		child := children[i]
+		if child.T == NtNothing || (child.T == NtEmpty && seenEmpty) {
+			i++
+			continue
+		}
+		if child.T == NtEmpty {
+			seenEmpty = true
+		}
+		children[j] = children[i]
+		i++
+		j++
+	}
+
+	n.Children = slices.Delete(children, j, len(children))
+	return n.replaceNodeIfUnnecessary()
+}
+
+// Remove the starting text from the one or multi node.  This may end up changing
+// the type of the node to be Empty if the starting text matches the node's full value.
+func (n *RegexNode) processOneOrMulti(startingSpan []rune) {
+	if n.T == NtOne {
+		n.T = NtEmpty
+		n.Ch = 0x0
+	} else {
+		if len(n.Str) == len(startingSpan) {
+			n.T = NtEmpty
+			n.Str = nil
+		} else if len(n.Str)-1 == len(startingSpan) {
+			n.T = NtOne
+			n.Ch = n.Str[len(n.Str)-1]
+			n.Str = nil
+		} else {
+			n.Str = n.Str[len(startingSpan):]
+		}
+	}
+}
+
+// Finds the starting one or multi of the branch, if it has one; otherwise, returns null.
+// For simplicity, this only considers branches that are One or Multi, or a Concatenation
+// beginning with a One or Multi.  We don't traverse more than one level to avoid the
+// complication of then having to later update that hierarchy when removing the prefix,
+// but it could be done in the future if proven beneficial enough.
+func (n *RegexNode) findBranchOneOrMultiStart() *RegexNode {
+	branch := n
+	if n.T == NtConcatenate {
+		branch = n.Children[0]
+	}
+	if branch.T == NtOne || branch.T == NtMulti {
+		return branch
+	}
+	return nil
+}
+
+func (n *RegexNode) reduceSingleLetterAndNestedAlternations() {
 
 	wasLastSet := false
 	lastNodeCannotMerge := false
@@ -320,11 +1140,7 @@ func (n *RegexNode) reduceAlternation() *RegexNode {
 
 		for {
 			if at.T == NtAlternate {
-				for k := 0; k < len(at.Children); k++ {
-					at.Children[k].Next = n
-				}
 				n.insertChildren(i+1, at.Children)
-
 				j--
 			} else if at.T == NtSet || at.T == NtOne {
 				// Cannot merge sets if L or I options differ, or if either are negated.
@@ -365,6 +1181,9 @@ func (n *RegexNode) reduceAlternation() *RegexNode {
 
 				prev.T = NtSet
 				prev.Set = prevCharClass
+				if prev.Options&IgnoreCase != 0 {
+					prev.Options &= ^IgnoreCase
+				}
 			} else if at.T == NtNothing {
 				j--
 			} else {
@@ -378,23 +1197,52 @@ func (n *RegexNode) reduceAlternation() *RegexNode {
 	if j < i {
 		n.removeChildren(j, i)
 	}
+}
 
-	return n.stripEnation(NtNothing)
+func (n *RegexNode) reduceConcatenation() *RegexNode {
+	// Eliminate empties and concat adjacent strings/chars
+
+	if len(n.Children) == 0 {
+		return newRegexNode(NtEmpty, n.Options)
+	}
+	// remove concat
+	if len(n.Children) == 1 {
+		return n.Children[0]
+	}
+
+	// If any node in the concatenation is a Nothing, the concatenation itself is a Nothing.
+	for i := 0; i < len(n.Children); i++ {
+		child := n.Children[i]
+		if child.T == NtNothing {
+			return child
+		}
+	}
+
+	// Coalesce adjacent loops.  This helps to minimize work done by the interpreter, minimize code gen,
+	// and also help to reduce catastrophic backtracking.
+	n.reduceConcatenationWithAdjacentLoops()
+
+	// Coalesce adjacent characters/strings.  This is done after the adjacent loop coalescing so that
+	// a One adjacent to both a Multi and a Loop prefers being folded into the Loop rather than into
+	// the Multi.  Doing so helps with auto-atomicity when it's later applied.
+	n.reduceConcatenationWithAdjacentStrings()
+
+	// If the concatenation is now empty, return an empty node, or if it's got a single child, return that child.
+	// Otherwise, return this.
+	return n.replaceNodeIfUnnecessary()
+}
+
+func (n *RegexNode) reduceConcatenationWithAdjacentLoops() {
+	// TODO: This
 }
 
 // Basic optimization. Adjacent strings can be concatenated.
 //
 // (?:abc)(?:def) -> abcdef
-func (n *RegexNode) reduceConcatenation() *RegexNode {
-	// Eliminate empties and concat adjacent strings/chars
-
+func (n *RegexNode) reduceConcatenationWithAdjacentStrings() {
 	var optionsLast RegexOptions
 	var optionsAt RegexOptions
 	var i, j int
-
-	if len(n.Children) == 0 {
-		return newRegexNode(NtEmpty, n.Options)
-	}
 
 	wasLastString := false
 
@@ -410,7 +1258,7 @@ func (n *RegexNode) reduceConcatenation() *RegexNode {
 		if at.T == NtConcatenate &&
 			((at.Options & RightToLeft) == (n.Options & RightToLeft)) {
 			for k := 0; k < len(at.Children); k++ {
-				at.Children[k].Next = n
+				at.Children[k].Parent = n
 			}
 
 			//insert at.children at i+1 index in n.children
@@ -466,8 +1314,6 @@ func (n *RegexNode) reduceConcatenation() *RegexNode {
 		// remove indices j through i from the children
 		n.removeChildren(j, i)
 	}
-
-	return n.stripEnation(NtEmpty)
 }
 
 // Nested repeaters just get multiplied with each other if they're not
@@ -529,9 +1375,13 @@ func (n *RegexNode) reduceRep() *RegexNode {
 // Simple optimization. If a concatenation or alternation has only
 // one child strip out the intermediate node. If it has zero children,
 // turn it into an empty.
-func (n *RegexNode) stripEnation(emptyType NodeType) *RegexNode {
+func (n *RegexNode) replaceNodeIfUnnecessary() *RegexNode {
 	switch len(n.Children) {
 	case 0:
+		emptyType := NtEmpty
+		if n.T == NtAlternate {
+			emptyType = NtNothing
+		}
 		return newRegexNode(emptyType, n.Options)
 	case 1:
 		return n.Children[0]
@@ -622,8 +1472,8 @@ func (n *RegexNode) ComputeMinLength() int {
 	case NtMulti:
 		// Every character in the string needs to match.
 		return len(n.Str)
-	case NtNotonelazy, NtNotoneloop, //NtNotoneloopatomic,
-		NtOnelazy, NtOneloop /*NtOneloopatomic,*/, NtSetlazy, NtSetloop /*,NtSetloopatomics*/ :
+	case NtNotonelazy, NtNotoneloop, NtNotoneloopatomic,
+		NtOnelazy, NtOneloop, NtOneloopatomic, NtSetlazy, NtSetloop, NtSetloopatomic:
 		// One character repeated at least M times.
 		return n.M
 	case NtLazyloop, NtLoop:
@@ -690,8 +1540,8 @@ func (n *RegexNode) computeMaxLength() int {
 		return 1
 	case NtMulti:
 		return len(n.Str)
-	case NtNotonelazy, NtNotoneloop, //NtNotoneloopatomic,
-		NtOnelazy, NtOneloop /*NtOneloopatomic,*/, NtSetlazy, NtSetloop /*,NtSetloopatomics*/ :
+	case NtNotonelazy, NtNotoneloop, NtNotoneloopatomic,
+		NtOnelazy, NtOneloop, NtOneloopatomic, NtSetlazy, NtSetloop, NtSetloopatomic:
 		// Return the max number of iterations if there's an upper bound, or null if it's infinite
 		if n.N == math.MaxInt32 {
 			return -1
@@ -798,12 +1648,13 @@ var typeStr = []string{
 	"Nothing", "Empty",
 	"Alternate", "Concatenate",
 	"Loop", "Lazyloop",
-	"Capture", "Group", "Require", "Prevent", "Greedy",
-	"Testref", "Testgroup",
+	"Capture", "Group", "PosLook", "NegLook", "Atomic",
+	"BackRefCond", "ExprCond",
 	"Unknown", "Unknown", "Unknown",
 	"Unknown", "Unknown", "Unknown",
 	"ECMABoundary", "NonECMABoundary",
-	"Bumpalong",
+	"OneloopAtomic", "NotoneloopAtomic", "SetloopAtomic",
+	"UpdateBumpalong",
 }
 
 func (n *RegexNode) Description() string {
@@ -834,20 +1685,22 @@ func (n *RegexNode) Description() string {
 	}
 
 	switch n.T {
-	case NtOneloop, NtNotoneloop, NtOnelazy, NtNotonelazy, NtOne, NtNotone:
+	case NtOneloop, NtOneloopatomic, NtNotoneloop, NtOnelazy, NtNotonelazy, NtOne, NtNotone, NtNotoneloopatomic:
 		buf.WriteString("(Ch = " + CharDescription(n.Ch) + ")")
 	case NtCapture:
 		buf.WriteString("(index = " + strconv.Itoa(n.M) + ", unindex = " + strconv.Itoa(n.N) + ")")
 	case NtRef, NtBackRefCond:
 		buf.WriteString("(index = " + strconv.Itoa(n.M) + ")")
 	case NtMulti:
-		fmt.Fprintf(buf, "(String = %s)", string(n.Str))
-	case NtSet, NtSetloop, NtSetlazy:
+		fmt.Fprintf(buf, "(String = %#v)", string(n.Str))
+	case NtSet, NtSetloop, NtSetlazy, NtSetloopatomic:
 		buf.WriteString("(Set = " + n.Set.String() + ")")
 	}
 
 	switch n.T {
-	case NtOneloop, NtNotoneloop, NtOnelazy, NtNotonelazy, NtSetloop, NtSetlazy, NtLoop, NtLazyloop:
+	case NtOneloop, NtNotoneloop, NtOnelazy, NtNotonelazy, NtSetloop, NtSetlazy, NtLoop, NtLazyloop,
+		NtOneloopatomic, NtNotoneloopatomic, NtSetloopatomic:
+
 		buf.WriteString("(Min = ")
 		buf.WriteString(strconv.Itoa(n.M))
 		buf.WriteString(", Max = ")
@@ -896,7 +1749,7 @@ func (n *RegexNode) dump() string {
 
 			CurChild = stack[len(stack)-1]
 			stack = stack[:len(stack)-1]
-			CurNode = CurNode.Next
+			CurNode = CurNode.Parent
 		}
 	}
 	return buf.String()
@@ -916,7 +1769,7 @@ func (n *RegexNode) TryGetOrdinalCaseInsensitiveString(childIndex int, exclusive
 	vsb := &strings.Builder{}
 
 	// We're looking in particular for sets of ASCII characters, so we focus only on sets with two characters in them, e.g. [Aa].
-	twoChars := make([]rune, 0, 2)
+	//twoChars := make([]rune, 0, 2)
 
 	// Iterate from the child index to the exclusive upper bound.
 	var i int
@@ -945,7 +1798,7 @@ func (n *RegexNode) TryGetOrdinalCaseInsensitiveString(childIndex int, exclusive
 			((child.T == NtSetloop || child.T == NtSetlazy /*|| child.T == NtSetloopatomic*/) && child.M == child.N) {
 			// In particular we want to look for sets that contain only the upper and lowercase variant
 			// of the same ASCII letter.
-			ok, twoChars := child.Set.containsAsciiIgnoreCaseCharacter(twoChars)
+			ok, twoChars := child.Set.containsAsciiIgnoreCaseCharacter()
 			if !ok {
 				break
 			}
@@ -1032,6 +1885,42 @@ func (n *RegexNode) TryGetJoinableLengthCheckChildRange(childIndex int, required
 	return false
 }
 
+type StartingLiteral struct {
+	Range    SingleRange
+	String   []rune
+	SetChars []rune
+	Negated  bool
+}
+
+func (n *RegexNode) FindStartingLiteral() *StartingLiteral {
+	node := n.FindStartingLiteralNode(true)
+	if node == nil {
+		return nil
+	}
+
+	if node.IsOneFamily() {
+		return &StartingLiteral{Range: SingleRange{node.Ch, node.Ch}, Negated: false}
+	}
+	if node.IsNotoneFamily() {
+		return &StartingLiteral{Range: SingleRange{node.Ch, node.Ch}, Negated: true}
+	}
+	if node.IsSetFamily() {
+		ranges := node.Set.GetIfNRanges(1)
+		if len(ranges) == 1 && ranges[0].Last-ranges[0].First > 1 {
+			return &StartingLiteral{Range: ranges[0], Negated: node.Set.IsNegated()}
+		}
+		setChars := node.Set.GetSetChars(128)
+		if len(setChars) > 0 {
+			return &StartingLiteral{SetChars: setChars, Negated: node.Set.IsNegated()}
+		}
+	}
+	if node.T == NtMulti {
+		return &StartingLiteral{String: node.Str}
+	}
+
+	return nil
+}
+
 // Finds the guaranteed beginning literal(s) of the node, or null if none exists.
 // allowZeroWidth = true
 func (n *RegexNode) FindStartingLiteralNode(allowZeroWidth bool) *RegexNode {
@@ -1042,9 +1931,9 @@ func (n *RegexNode) FindStartingLiteralNode(allowZeroWidth bool) *RegexNode {
 			case NtOne, NtNotone, NtMulti, NtSet:
 				return node
 
-			case NtOneloop /*NtOneloopatomic,*/, NtOnelazy,
-				NtNotoneloop /*NtNotoneloopatomic,*/, NtNotonelazy,
-				NtSetloop /*NtSetloopatomic,*/, NtSetlazy:
+			case NtOneloop, NtOneloopatomic, NtOnelazy,
+				NtNotoneloop, NtNotoneloopatomic, NtNotonelazy,
+				NtSetloop, NtSetloopatomic, NtSetlazy:
 				if node.M > 0 {
 					return node
 				}
