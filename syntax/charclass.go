@@ -1016,7 +1016,7 @@ func knownDistinctSets(set1, set2 *CharSet) bool {
 
 func mayOverlapByEnumeration(set1, set2 *CharSet) bool {
 	for i := 0; i < len(set2.ranges); i++ {
-		for c := set2.ranges[i].First; c < set2.ranges[i].Last; c++ {
+		for c := set2.ranges[i].First; c <= set2.ranges[i].Last; c++ {
 			if set1.CharIn(c) {
 				return true
 			}

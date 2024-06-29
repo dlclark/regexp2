@@ -124,7 +124,7 @@ func tryFindFirstCharClass(node *RegexNode, ccIn **CharSet) int {
 	// Zero-width elements.  These don't contribute to the starting set, so return null to indicate a caller
 	// should keep looking past them.
 	case NtEmpty, NtNothing, NtBol, NtEol, NtBoundary, NtNonboundary, NtECMABoundary, NtNonECMABoundary,
-		NtBeginning, NtStart, NtEndZ, NtEnd /*NtUpdateBumpalong,*/, NtPosLook, NtNegLook:
+		NtBeginning, NtStart, NtEndZ, NtEnd, NtUpdateBumpalong, NtPosLook, NtNegLook:
 		return -1
 
 	// Groups.  These don't contribute anything of their own, and are just pass-throughs to their children.
@@ -1118,7 +1118,7 @@ func findLiteralFollowingLeadingLoop(node *RegexNode) *LiteralAfterLoop {
 	for firstChild.T == NtAtomic || firstChild.T == NtCapture {
 		firstChild = firstChild.Children[0]
 	}
-	if firstChild.T != NtSetloop || /*firstChild.T != NtSetloopatomic ||*/ firstChild.T != NtSetlazy ||
+	if (firstChild.T != NtSetloop && firstChild.T != NtSetloopatomic && firstChild.T != NtSetlazy) ||
 		firstChild.N != math.MaxInt32 {
 		return nil
 	}

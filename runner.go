@@ -902,6 +902,17 @@ func executeDefault(r *Runner) error {
 			r.advance(2)
 			continue
 
+		case syntax.UpdateBumpalong:
+			// UpdateBumpalong should only exist in the code stream at such a point where the root
+			// of the backtracking stack contains the runtextpos from the start of this Go call. Replace
+			// that tracking value with the current runtextpos value if it's greater.
+			trackingpos := r.runtrack[len(r.runtrack)-1]
+			if trackingpos < r.Runtextpos {
+				r.runtrack[len(r.runtrack)-1] = r.Runtextpos
+			}
+			r.advance(0)
+			continue
+
 		default:
 			return fmt.Errorf("unknown state in regex runner: %v", r.operator)
 		}

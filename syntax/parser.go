@@ -673,7 +673,7 @@ BreakOuterScan:
 		return nil, err
 	}
 
-	return p.unit, nil
+	return p.unit.finalOptimize(), nil
 
 }
 

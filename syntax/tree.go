@@ -247,6 +247,10 @@ func (n *RegexNode) IsNotoneloopFamily() bool {
 	return n.T == NtNotoneloop || n.T == NtNotonelazy || n.T == NtNotoneloopatomic
 }
 
+func (n *RegexNode) IsAtomicloopFamily() bool {
+	return n.T == NtOneloopatomic || n.T == NtNotoneloopatomic || n.T == NtSetloopatomic
+}
+
 func (n *RegexNode) writeStrToBuf(buf *bytes.Buffer) {
 	for i := 0; i < len(n.Str); i++ {
 		buf.WriteRune(n.Str[i])
@@ -288,6 +292,181 @@ func (n *RegexNode) makeRep(t NodeType, min, max int) {
 	n.T += (t - NtOne)
 	n.M = min
 	n.N = max
+}
+
+// Performs additional optimizations on an entire tree prior to being used.
+//
+// Some optimizations are performed by the parser while parsing, and others are performed
+// as nodes are being added to the tree.  The optimizations here expect the tree to be fully
+// formed, as they inspect relationships between nodes that may not have been in place as
+// individual nodes were being processed/added to the tree.
+func (n *RegexNode) finalOptimize() *RegexNode {
+	rootNode := n
+
+	// Only apply optimization when LTR to avoid needing additional code for the much rarer RTL case.
+	// Also only apply these optimizations when not using NonBacktracking, as these optimizations are
+	// all about avoiding things that are impactful for the backtracking engines but nops for non-backtracking.
+	if n.Options&RightToLeft == 0 {
+		// Optimization: eliminate backtracking for loops.
+		// For any single-character loop (Oneloop, Notoneloop, Setloop), see if we can automatically convert
+		// that into its atomic counterpart (Oneloopatomic, Notoneloopatomic, Setloopatomic) based on what
+		// comes after it in the expression tree.
+		rootNode.findAndMakeLoopsAtomic()
+
+		// Optimization: backtracking removal at expression end.
+		// If we find backtracking construct at the end of the regex, we can instead make it non-backtracking,
+		// since nothing would ever backtrack into it anyway.  Doing this then makes the construct available
+		// to implementations that don't support backtracking.
+		rootNode.eliminateEndingBacktracking()
+
+		// Optimization: unnecessary re-processing of starting loops.
+		// If an expression is guaranteed to begin with a single-character unbounded loop that isn't part of an alternation (in which case it
+		// wouldn't be guaranteed to be at the beginning) or a capture (in which case a back reference could be influenced by its length), then we
+		// can update the tree with a temporary node to indicate that the implementation should use that node's ending position in the input text
+		// as the next starting position at which to start the next match. This avoids redoing matches we've already performed, e.g. matching
+		// "\w+@dot.net" against "is this a valid address@dot.net", the \w+ will initially match the "is" and then will fail to match the "@".
+		// Rather than bumping the scan loop by 1 and trying again to match at the "s", we can instead start at the " ".  For functional correctness
+		// we can only consider unbounded loops, as to be able to start at the end of the loop we need the loop to have consumed all possible matches;
+		// otherwise, you could end up with a pattern like "a{1,3}b" matching against "aaaabc", which should match, but if we pre-emptively stop consuming
+		// after the first three a's and re-start from that position, we'll end up failing the match even though it should have succeeded.  We can also
+		// apply this optimization to non-atomic loops: even though backtracking could be necessary, such backtracking would be handled within the processing
+		// of a single starting position.  Lazy loops similarly benefit, as a failed match will result in exploring the exact same search space as with
+		// a greedy loop, just in the opposite order (and a successful match will overwrite the bumpalong position); we need to avoid atomic lazy loops,
+		// however, as they will only end up as a repeater for the minimum length and thus will effectively end up with a non-infinite upper bound, which
+		// we've already outlined is problematic.
+		node := rootNode.Children[0] // skip implicit root capture node
+		atomicByAncestry := true     // the root is implicitly atomic because nothing comes after it (same for the implicit root capture)
+		for {
+			if node.T == NtAtomic {
+				node = node.Children[0]
+				continue
+			} else if node.T == NtConcatenate {
+				atomicByAncestry = false
+				node = node.Children[0]
+				continue
+			} else if node.N == math.MaxInt32 &&
+				((node.T == NtOneloop || node.T == NtOneloopatomic || node.T == NtNotoneloop || node.T == NtNotoneloopatomic || node.T == NtSetloop || node.T == NtSetloopatomic) ||
+					((node.T == NtOnelazy || node.T == NtNotonelazy || node.T == NtSetlazy) && !atomicByAncestry)) {
+
+				if node.Parent != nil && node.Parent.T == NtConcatenate {
+					node.Parent.Children = slices.Insert(node.Parent.Children, 1, &RegexNode{T: NtUpdateBumpalong, Options: node.Options, Parent: node.Parent})
+				}
+			}
+
+			break
+		}
+
+	}
+
+	//debug helper
+	//rootNode.ValidateFinalTreeInvariants()
+
+	// Done optimizing.  Return the final tree.
+	return rootNode
+}
+
+// Finds {one/notone/set}loop nodes in the concatenation that can be automatically upgraded
+// to {one/notone/set}loopatomic nodes.  Such changes avoid potential useless backtracking.
+// e.g. A*B (where sets A and B don't overlap) => (?>A*)B.
+func (n *RegexNode) findAndMakeLoopsAtomic() {
+	if n.Options&RightToLeft != 0 {
+		// RTL is so rare, we don't need to spend additional time/code optimizing for it.
+		return
+	}
+
+	// For all node types that have children, recur into each of those children.
+	for i := 0; i < len(n.Children); i++ {
+		n.Children[i].findAndMakeLoopsAtomic()
+	}
+
+	// If this isn't a concatenation, nothing more to do.
+	if n.T != NtConcatenate {
+		return
+	}
+
+	// This is a concatenation.  Iterate through each pair of nodes in the concatenation seeing whether we can
+	// make the first node (or its right-most child) atomic based on the second node (or its left-most child).
+	for i := 0; i < len(n.Children)-1; i++ {
+		n.Children[i].processNode(n.Children[i+1])
+	}
+}
+
+func (node *RegexNode) processNode(subsequent *RegexNode) {
+	// Skip down the node past irrelevant nodes.
+	for {
+		// We can always recur into captures and into the last node of concatenations.
+		if node.T == NtCapture || node.T == NtConcatenate {
+			node = node.Children[len(node.Children)-1]
+			continue
+		}
+
+		// For loops with at least one guaranteed iteration, we can recur into them, but
+		// we need to be careful not to just always do so; the ending node of a loop can only
+		// be made atomic if what comes after the loop but also the beginning of the loop are
+		// compatible for the optimization.
+		if node.T == NtLoop {
+			loopDescendent := node.FindLastExpressionInLoopForAutoAtomic()
+			if loopDescendent != nil {
+				node = loopDescendent
+				continue
+			}
+		}
+
+		// Can't skip any further.
+		break
+	}
+
+	// If the node can be changed to atomic based on what comes after it, do so.
+	switch node.T {
+	case NtOneloop, NtNotoneloop, NtSetloop:
+		if node.canBeMadeAtomic(subsequent, true, false) {
+			// The greedy loop doesn't overlap with what comes after it, which means giving anything it matches back will not
+			// help the overall match to succeed, which means it can simply become atomic to match as much as possible. The call
+			// to CanBeMadeAtomic passes iterateNullableSubsequent=true because, in a pattern like a*b*c*, when analyzing a*, we
+			// want to examine the b* and the c* rather than just giving up after seeing that b* is nullable; in order to make
+			// the a* atomic, we need to know that anything that could possibly come after the loop doesn't overlap.
+			node.makeLoopAtomic()
+		}
+
+	case NtOnelazy, NtNotonelazy, NtSetlazy:
+		if node.canBeMadeAtomic(subsequent, false, true) {
+			// The lazy loop doesn't overlap with what comes after it, which means it needs to match as much as its allowed
+			// to match in order for there to be a possibility that what comes next matches (if it doesn't match as much
+			// as it's allowed and there was still more it could match, then what comes next is guaranteed to not match,
+			// since it doesn't match any of the same things the loop matches).  We don't want to just make the lazy loop
+			// atomic, as an atomic lazy loop matches as little as possible, not as much as possible.  Instead, we want to
+			// make the lazy loop into an atomic greedy loop.  Note that when we check CanBeMadeAtomic, we need to set
+			// "iterateNullableSubsequent" to false so that we only inspect non-nullable subsequent nodes.  For example,
+			// given a pattern like a*?b, we want to upgrade that loop to being greedy atomic, e.g. (?>a*)b.  But given a
+			// pattern like a*?b*, the subsequent node is nullable, which means it doesn't have to be part of a match, which
+			// means the a*? could match by itself, in which case as it's lazy it needs to match as few a's as possible, e.g.
+			// a+?b* against the input "aaaab" should match "a", not "aaaa" nor "aaaab". (Technically for lazy, we only need to prevent
+			// walking off the end of the pattern, but it's not currently worth complicating the implementation for that case.)
+			// allowLazy is set to true so that the implementation will analyze rather than ignore this node; generally lazy nodes
+			// are ignored due to making them atomic not generally being a sound change, but here we're explicitly choosing to
+			// given the circumstances.
+			node.T -= NtOnelazy - NtOneloop // lazy to greedy
+			node.makeLoopAtomic()
+		}
+
+	case NtAlternate, NtBackRefCond, NtExprCond:
+		// In the case of alternation, we can't change the alternation node itself
+		// based on what comes after it (at least not with more complicated analysis
+		// that factors in all branches together), but we can look at each individual
+		// branch, and analyze ending loops in each branch individually to see if they
+		// can be made atomic.  Then if we do end up backtracking into the alternation,
+		// we at least won't need to backtrack into that loop.  The same is true for
+		// conditionals, though we don't want to process the condition expression
+		// itself, as it's already considered atomic and handled as part of ReduceExpressionConditional.
+		b := 0
+		if node.T == NtExprCond {
+			b = 1
+		}
+		for ; b < len(node.Children); b++ {
+			node.Children[b].processNode(subsequent)
+		}
+
+	}
 }
 
 func (n *RegexNode) reduce() *RegexNode {
@@ -524,7 +703,6 @@ func (n *RegexNode) makeLoopAtomic() {
 		// For loops, we simply change the Type to the atomic variant.
 		// Atomic greedy loops should consume as many values as they can.
 		n.T += NtOneloopatomic - NtOneloop
-		break
 
 	case NtOnelazy, NtNotonelazy, NtSetlazy:
 		// For lazy, we not only change the Type, we also lower the max number of iterations
@@ -547,7 +725,6 @@ func (n *RegexNode) makeLoopAtomic() {
 			n.M = 0
 			n.N = 0
 		}
-		break
 	}
 }
 
@@ -641,11 +818,9 @@ func (n *RegexNode) eliminateEndingBacktracking() {
 	}
 }
 
-// / <summary>
-// / Recurs into the last expression of a loop node, looking to see if it can find a node
-// / that could be made atomic _assuming_ the conditions exist for it with the loop's ancestors.
-// / </summary>
-// / <returns>The found node that should be explored further for auto-atomicity; null if it doesn't exist.</returns>
+// Recurs into the last expression of a loop node, looking to see if it can find a node
+// that could be made atomic _assuming_ the conditions exist for it with the loop's ancestors.
+// Returns The found node that should be explored further for auto-atomicity; null if it doesn't exist.
 func (n *RegexNode) FindLastExpressionInLoopForAutoAtomic() *RegexNode {
 	node := n
 
@@ -1232,8 +1407,147 @@ func (n *RegexNode) reduceConcatenation() *RegexNode {
 	return n.replaceNodeIfUnnecessary()
 }
 
+func canCombineCounts(nodeMin, nodeMax, nextMin, nextMax int) bool {
+	// We shouldn't have an infinite minimum; bail if we find one. Also check for the
+	// degenerate case where we'd make the min overflow or go infinite when it wasn't already.
+	if nodeMin == math.MaxInt32 ||
+		nextMin == math.MaxInt32 ||
+		nodeMin+nextMin >= math.MaxInt32 {
+		return false
+	}
+
+	// Similar overflow / go infinite check for max (which can be infinite).
+	if nodeMax != math.MaxInt32 &&
+		nextMax != math.MaxInt32 &&
+		nodeMax+nextMax >= math.MaxInt32 {
+		return false
+	}
+
+	return true
+}
+
+// Combine adjacent loops.
+// e.g. a*a*a* => a*
+// e.g. a+ab => a{2,}b
 func (n *RegexNode) reduceConcatenationWithAdjacentLoops() {
-	// TODO: This
+	current, next, nextSave := 0, 1, 1
+
+	for next < len(n.Children) {
+		currentNode := n.Children[current]
+		nextNode := n.Children[next]
+
+		if currentNode.Options == nextNode.Options {
+			// Coalescing a loop with its same type
+			if ((currentNode.IsOneloopFamily() || currentNode.IsNotoneloopFamily()) && nextNode.T == currentNode.T && currentNode.Ch == nextNode.Ch) ||
+				(currentNode.IsSetloopFamily() && currentNode.T == nextNode.T && currentNode.Set.Equals(nextNode.Set)) {
+				if nextNode.M > 0 && currentNode.IsAtomicloopFamily() {
+					// Atomic loops can only be combined if the second loop has no lower bound, as if it has a lower bound,
+					// combining them changes behavior. Uncombined, the first loop can consume all matching items;
+					// the second loop might then not be able to meet its minimum and fail.  But if they're combined, the combined
+					// minimum of the sole loop could now be met, introducing matches where there shouldn't have been any.
+					goto End
+				}
+
+				if canCombineCounts(currentNode.M, currentNode.N, nextNode.M, nextNode.N) {
+					goto End
+				}
+				currentNode.M += nextNode.M
+				if currentNode.N != math.MaxInt32 {
+					if nextNode.N == math.MaxInt32 {
+						currentNode.N = math.MaxInt32
+					} else {
+						currentNode.N += nextNode.N
+					}
+				}
+				next++
+				continue
+
+			} else if ((currentNode.T == NtOneloop || currentNode.T == NtOnelazy) && nextNode.T == NtOne && currentNode.Ch == nextNode.Ch) ||
+				((currentNode.T == NtNotoneloop || currentNode.T == NtNotonelazy) && nextNode.T == NtNotone && currentNode.Ch == nextNode.Ch) ||
+				((currentNode.T == NtSetloop || currentNode.T == NtSetlazy) && nextNode.T == NtSet && currentNode.Set.Equals(nextNode.Set)) {
+				// Coalescing a loop with an additional item of the same type
+				if canCombineCounts(currentNode.M, currentNode.N, 1, 1) {
+					currentNode.M++
+					if currentNode.N != math.MaxInt32 {
+						currentNode.N++
+					}
+					next++
+					continue
+				}
+			} else if (currentNode.T == NtOneloop || currentNode.T == NtOnelazy) && nextNode.T == NtMulti && currentNode.Ch == nextNode.Str[0] {
+				// Coalescing a loop with a subsequent string
+				// Determine how many of the multi's characters can be combined.
+				// We already checked for the first, so we know it's at least one.
+				matchingCharsInMulti := 1
+				for matchingCharsInMulti < len(nextNode.Str) && currentNode.Ch == nextNode.Str[matchingCharsInMulti] {
+					matchingCharsInMulti++
+				}
+
+				if canCombineCounts(currentNode.M, currentNode.N, matchingCharsInMulti, matchingCharsInMulti) {
+					// Update the loop's bounds to include those characters from the multi
+					currentNode.M += matchingCharsInMulti
+					if currentNode.N != math.MaxInt32 {
+						currentNode.N += matchingCharsInMulti
+					}
+
+					// If it was the full multi, skip/remove the multi and continue processing this loop.
+					if len(nextNode.Str) == matchingCharsInMulti {
+						next++
+						continue
+					}
+
+					// Otherwise, trim the characters from the multiple that were absorbed into the loop.
+					// If it now only has a single character, it becomes a One.
+					if len(nextNode.Str)-matchingCharsInMulti == 1 {
+						nextNode.T = NtOne
+						nextNode.Ch = nextNode.Str[len(nextNode.Str)-1]
+						nextNode.Str = nil
+					} else {
+						nextNode.Str = nextNode.Str[matchingCharsInMulti:]
+					}
+				}
+
+				// NOTE: We could add support for coalescing a string with a subsequent loop, but the benefits of that
+				// are limited. Pulling a subsequent string's prefix back into the loop helps with making the loop atomic,
+				// but if the loop is after the string, pulling the suffix of the string forward into the loop may actually
+				// be a deoptimization as those characters could end up matching more slowly as part of loop matching.
+
+			} else if (currentNode.T == NtOne && nextNode.IsOneloopFamily() && currentNode.Ch == nextNode.Ch) ||
+				(currentNode.T == NtNotone && nextNode.IsNotoneloopFamily() && currentNode.Ch == nextNode.Ch) ||
+				(currentNode.T == NtSet && nextNode.IsSetloopFamily() && currentNode.Set.Equals(nextNode.Set)) {
+				// Coalescing an individual item with a loop.
+				if canCombineCounts(1, 1, nextNode.M, nextNode.N) {
+					currentNode.T = nextNode.T
+					currentNode.M = nextNode.M + 1
+					if nextNode.N == math.MaxInt32 {
+						currentNode.N = math.MaxInt32
+					} else {
+						currentNode.N = nextNode.N + 1
+					}
+					next++
+					continue
+				}
+			} else if (currentNode.T == NtNotone && nextNode.T == NtNotone && currentNode.Ch == nextNode.Ch) ||
+				(currentNode.T == NtSet && nextNode.T == NtSet && currentNode.Set.Equals(nextNode.Set)) {
+				// Coalescing an individual item with another individual item.
+				// We don't coalesce adjacent One nodes into a Oneloop as we'd rather they be joined into a Multi.
+				currentNode.makeRep(NtOneloop, 2, 2)
+				next++
+				continue
+			}
+
+		End:
+		}
+
+		n.Children[nextSave] = n.Children[next]
+		nextSave++
+		current = next
+		next++
+	}
+
+	if nextSave < len(n.Children) {
+		n.Children = slices.Delete(n.Children, nextSave, len(n.Children))
+	}
 }
 
 // Basic optimization. Adjacent strings can be concatenated.
@@ -1325,19 +1639,25 @@ func (n *RegexNode) reduceRep() *RegexNode {
 	min := n.M
 	max := n.N
 
-	for {
-		if len(u.Children) == 0 {
-			break
-		}
-
+	for len(u.Children) > 0 {
 		child := u.Children[0]
 
 		// multiply reps of the same type only
 		if child.T != t {
-			childType := child.T
-
-			if !(childType >= NtOneloop && childType <= NtSetloop && t == NtLoop ||
-				childType >= NtOnelazy && childType <= NtSetlazy && t == NtLazyloop) {
+			valid := false
+			if t == NtLoop {
+				switch child.T {
+				case NtOneloop, NtOneloopatomic, NtNotoneloop,
+					NtNotoneloopatomic, NtSetloop, NtSetloopatomic:
+					valid = true
+				}
+			} else {
+				switch child.T {
+				case NtOnelazy, NtNotonelazy, NtSetlazy:
+					valid = true
+				}
+			}
+			if !valid {
 				break
 			}
 		}
@@ -1353,21 +1673,39 @@ func (n *RegexNode) reduceRep() *RegexNode {
 			if (math.MaxInt32-1)/u.M < min {
 				u.M = math.MaxInt32
 			} else {
-				u.M = u.M * min
+				u.M *= min
 			}
 		}
 		if u.N > 0 {
 			if (math.MaxInt32-1)/u.N < max {
 				u.N = math.MaxInt32
 			} else {
-				u.N = u.N * max
+				u.N *= max
 			}
 		}
 	}
 
-	if math.MaxInt32 == min {
+	if min == math.MaxInt32 {
 		return newRegexNode(NtNothing, n.Options)
 	}
+
+	// If the Loop or Lazyloop now only has one child node and its a Set, One, or Notone,
+	// reduce to just Setloop/lazy, Oneloop/lazy, or Notoneloop/lazy.  The parser will
+	// generally have only produced the latter, but other reductions could have exposed
+	// this.
+	if len(u.Children) == 1 {
+		child := u.Children[0]
+		switch child.T {
+		case NtOne, NtNotone, NtSet:
+			if u.T == NtLazyloop {
+				child.makeRep(NtOnelazy, u.M, u.N)
+			} else {
+				child.makeRep(NtOneloop, u.M, u.N)
+			}
+			u = child
+		}
+	}
+
 	return u
 
 }
@@ -1554,10 +1892,10 @@ func (n *RegexNode) computeMaxLength() int {
 		// A node graph repeated a fixed number of times
 		if c := n.Children[0].computeMaxLength(); c >= 0 {
 			maxLen := n.N * c
-			if maxLen >= math.MaxInt32 {
-				return -1
+			if maxLen < math.MaxInt32 {
+				return maxLen
 			}
-			return maxLen
+			return -1
 		}
 	case NtAlternate:
 		// The maximum length of any child branch, as long as they all have one.
