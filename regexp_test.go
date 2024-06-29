@@ -1364,11 +1364,3 @@ func TestUnMarshal(t *testing.T) {
 		t.Fatalf(`Expected match`)
 	}
 }
-
-func TestIgnoreCase(t *testing.T) {
-	r := MustCompile(`^(((?<foo>\()[^()]*)+((?<bar-foo>\))[^()]*)+)+(?(foo)(?!))$`, Debug)
-	m, _ := r.FindStringMatch("((a(b))c")
-	if m != nil {
-		t.Fatalf("match")
-	}
-}

@@ -338,7 +338,7 @@ func (n *RegexNode) reduceLookaround() *RegexNode {
 		if n.T == NtPosLook {
 			n.T = NtEmpty
 		} else {
-			n.T = NtEmpty
+			n.T = NtNothing
 		}
 		n.Children = nil
 	}
