@@ -39,6 +39,22 @@ func TestAsciiSearchValues_Boundaries(t *testing.T) {
 	}
 }
 
+func TestStringSearchValues_Basic(t *testing.T) {
+	sv := NewStringSearchValues([][]rune{[]rune("saturday"), []rune("sunday")}, false)
+	i := sv.IndexOfAny([]rune("testing saturday"))
+	if want, got := 8, i; want != got {
+		t.Errorf("Failed to find index, want %v got %v", want, got)
+	}
+}
+
+func TestStringSearchValues_IgnoreCase(t *testing.T) {
+	sv := NewStringSearchValues([][]rune{[]rune("saturday"), []rune("sunday")}, true)
+	i := sv.IndexOfAny([]rune("testing sat no SundAy"))
+	if want, got := 15, i; want != got {
+		t.Errorf("Failed to find index, want %v got %v", want, got)
+	}
+}
+
 var text []rune
 
 func makeText(n int) []rune {

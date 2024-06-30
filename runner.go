@@ -116,7 +116,7 @@ func (r *Runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 	}
 
 	r.Runtextpos = textstart
-	initted := false
+	//initted := false
 
 	// setup our scanner functions
 	findFirstChar := r.re.findFirstChar
@@ -127,6 +127,8 @@ func (r *Runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 	if execute == nil {
 		execute = executeDefault
 	}
+
+	r.initMatch()
 
 	r.startTimeoutWatch()
 	for {
@@ -139,11 +141,6 @@ func (r *Runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 		if findFirstChar(r) {
 			if err := r.CheckTimeout(); err != nil {
 				return nil, err
-			}
-
-			if !initted {
-				r.initMatch()
-				initted = true
 			}
 
 			if r.re.Debug() {

@@ -52,7 +52,7 @@ func tryFindFirstCharClass(node *RegexNode, ccIn **CharSet) int {
 	switch node.T {
 	// Base cases where we have results to add to the result set. Add the values into the result set, if possible.
 	// If this is a loop and it has a lower bound of 0, then it's zero-width, so return null.
-	case NtOne, NtOneloop, NtOnelazy: //, NtOneloopatomic:
+	case NtOne, NtOneloop, NtOnelazy, NtOneloopatomic:
 		if cc == nil {
 			cc = &CharSet{}
 			*ccIn = cc
@@ -66,20 +66,22 @@ func tryFindFirstCharClass(node *RegexNode, ccIn **CharSet) int {
 		}
 		return 0
 
-	case NtNotone, NtNotoneloop, NtNotonelazy: //NtNotoneloopatomic,
+	case NtNotone, NtNotoneloop, NtNotonelazy, NtNotoneloopatomic:
 		if cc == nil {
 			cc = &CharSet{}
 			*ccIn = cc
 		}
 		if cc.IsMergeable() {
-			if node.Ch > 0 {
+			cc.addChar(node.Ch)
+			cc.negate = true
+			/*if node.Ch > 0 {
 				// Add the range before the excluded char.
 				cc.addRange(0, (node.Ch - 1))
 			}
 			if node.Ch < unicode.MaxRune {
 				// Add the range after the excluded char.
 				cc.addRange(node.Ch+1, unicode.MaxRune)
-			}
+			}*/
 			if node.T == NtNotone || node.M > 0 {
 				return 1
 			}
@@ -87,7 +89,7 @@ func tryFindFirstCharClass(node *RegexNode, ccIn **CharSet) int {
 		}
 		return 0
 
-	case NtSet, NtSetloop, NtSetlazy: //, NtSetloopatomic:
+	case NtSet, NtSetloop, NtSetlazy, NtSetloopatomic:
 		{
 			setSuccess := false
 			if cc == nil {
@@ -759,7 +761,7 @@ func tryFindRawFixedSets(node *RegexNode, res *[]FixedDistanceSet, distance *int
 		}
 		return false
 
-	case NtOnelazy, NtOneloop /*, NtOneloopatomic*/ :
+	case NtOnelazy, NtOneloop, NtOneloopatomic:
 		if node.M > 0 {
 			set := &CharSet{}
 			set.addChar(node.Ch)
@@ -796,7 +798,7 @@ func tryFindRawFixedSets(node *RegexNode, res *[]FixedDistanceSet, distance *int
 		}
 		return false
 
-	case NtSetlazy, NtSetloop /*, NtSetloopatomic*/ :
+	case NtSetlazy, NtSetloop, NtSetloopatomic:
 		if node.M > 0 {
 			minIterations := maxLoopExpansion
 			if node.M < minIterations {
@@ -817,7 +819,7 @@ func tryFindRawFixedSets(node *RegexNode, res *[]FixedDistanceSet, distance *int
 		*distance++
 		return true
 
-	case NtNotonelazy, NtNotoneloop /*, NtNotoneloopatomic*/ :
+	case NtNotonelazy, NtNotoneloop, NtNotoneloopatomic:
 		if node.M == node.N {
 			*distance += node.M
 			return true

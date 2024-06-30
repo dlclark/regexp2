@@ -900,7 +900,7 @@ func (n *RegexNode) canBeMadeAtomic(subsequent *RegexNode, iterateNullableSubseq
 		// If this node is a {one/notone/set}loop, see if it overlaps with its successor in the concatenation.
 		// If it doesn't, then we can upgrade it to being a {one/notone/set}loopatomic.
 		// Doing so avoids unnecessary backtracking.
-		if n.T == NtLoop || (n.T == NtLazyloop && allowLazy) {
+		if n.T == NtOneloop || (n.T == NtOnelazy && allowLazy) {
 
 			if (subsequent.T == NtOne && n.Ch != subsequent.Ch) ||
 				(subsequent.T == NtNotone && n.Ch == subsequent.Ch) ||

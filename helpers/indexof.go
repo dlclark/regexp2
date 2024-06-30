@@ -125,6 +125,7 @@ func IndexFunc(in []rune, f func(ch rune) bool) int {
 
 func IndexOfAnyExceptInSet(in []rune, set syntax.CharSet) int {
 	//TODO: this
+	panic("not implemented")
 	return -1
 }
 
@@ -184,13 +185,36 @@ func LastIndexOfAnyInRange(in []rune, first, last rune) int {
 //LastIndexOfAnyInRange
 //LastIndexOfAnyExceptInRange
 
+// find should always be sent in lower-case
 func IndexOfIgnoreCase(in []rune, find []rune) int {
-	if len(find) == 0 {
-		return -1
-	}
 	// search the in slice for the "find" slice, ignoring case in the comparisons
-	//TODO: this
-	return 0
+	end := len(in) - len(find)
+	first := find[0]
+	for i := 0; i <= end; i++ {
+		if in[i] != first && unicode.ToLower(in[i]) != first {
+			continue
+		}
+		match := true
+		for j := 1; j < len(find); j++ {
+			inChar := in[i+j]
+			if inChar != find[j] && unicode.ToLower(inChar) != find[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i
+		}
+	}
+	return -1
+}
+
+// TODO: this
+func IndexOfIgnoreCaseAscii(in []rune, find []rune) int {
+	// search the in slice for the "find" slice, ignoring case in the comparisons
+	// we can assume the find chars are ascii and do simple masks on them
+	panic("not implemented")
+	return -1
 }
 
 func IndexOf(in []rune, find []rune) int {
@@ -202,12 +226,10 @@ func IndexOf(in []rune, find []rune) int {
 		}*/
 	end := len(in) - len(find)
 	first := find[0]
-	lastOffset := len(find) - 1
-	last := find[lastOffset]
-	for i := 0; i < end; i++ {
-		//TODO: check 2 chars needed?
-		// match start and end...check the middle
-		if in[i] == first && in[i+lastOffset] == last {
+	//TODO: benchmark checking last char too or first two chars
+	for i := 0; i <= end; i++ {
+		// match start...check the rest
+		if in[i] == first {
 			// found our first char
 			// check if the rest are equal
 			if bytesEqual(in[i:i+len(find)], find) {
@@ -272,5 +294,28 @@ func bytesEqual(a, b []rune) bool {
 }
 
 func Equals(in []rune, start int, length int, find []rune) bool {
+	if len(find) == 0 {
+		return true
+	}
 	return bytesEqual(in[start:start+length], find)
+}
+
+func EqualsIgnoreCase(in []rune, start int, length int, find []rune) bool {
+	//fast path if case matches
+	if Equals(in, start, length, find) {
+		return true
+	}
+
+	// search the in slice for the "find" slice, ignoring case in the comparisons
+	// we can't assume casing or ascii-ness for either letter, have to toLower them both
+	for j := 0; j < len(find); j++ {
+		inChar := in[start+j]
+		findChar := find[j]
+		if inChar != findChar && unicode.ToLower(inChar) != unicode.ToLower(findChar) {
+			return false
+		}
+	}
+
+	// we've checked all chars and found matches every time
+	return true
 }

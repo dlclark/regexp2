@@ -1364,3 +1364,10 @@ func TestUnMarshal(t *testing.T) {
 		t.Fatalf(`Expected match`)
 	}
 }
+
+func TestLoopCombine(t *testing.T) {
+	re := MustCompile(`[^a]`, 0)
+	if m, _ := re.MatchString("aaaaabc"); !m {
+		t.Fail()
+	}
+}

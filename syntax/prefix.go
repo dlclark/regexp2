@@ -913,7 +913,7 @@ func findLeadingOrTrailingAnchor(node *RegexNode, leading bool) NodeType {
 
 			if leading {
 				for i := 0; i < len(node.Children); i++ {
-					t := node.Children[0].T
+					t := node.Children[i].T
 					if t != NtEmpty && t != NtPosLook && t != NtNegLook {
 						child = node.Children[i]
 						break
@@ -921,7 +921,7 @@ func findLeadingOrTrailingAnchor(node *RegexNode, leading bool) NodeType {
 				}
 			} else {
 				for i := len(node.Children) - 1; i >= 0; i-- {
-					t := node.Children[0].T
+					t := node.Children[i].T
 					if t != NtEmpty && t != NtPosLook && t != NtNegLook {
 						child = node.Children[i]
 						break

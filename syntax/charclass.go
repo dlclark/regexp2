@@ -256,7 +256,7 @@ func NewCharSetRuntime(buf string) CharSet {
 	for i := 0; i < int(lenCats); i++ {
 		var lenCat int8
 		c := Category{}
-		binary.Read(b, binary.LittleEndian, lenCat)
+		binary.Read(b, binary.LittleEndian, &lenCat)
 		if lenCat < 0 {
 			c.Negate = true
 			lenCat *= -1
@@ -269,10 +269,6 @@ func NewCharSetRuntime(buf string) CharSet {
 	if b.Len() > 0 {
 		sub := NewCharSetRuntime(b.String())
 		retVal.sub = &sub
-	}
-
-	if lenCats == 0 && lenRanges == 0 && retVal.sub == nil {
-		retVal.makeAnything()
 	}
 
 	return retVal
@@ -1077,8 +1073,10 @@ func (c *CharSet) GetSetChars(maxChars int) []rune {
 	return chars
 }
 
-func (c *CharSet) HashInto(buf []byte) {
-	c.mapHashFill(bytes.NewBuffer(buf))
+func (c *CharSet) Hash() []byte {
+	b := &bytes.Buffer{}
+	c.mapHashFill(b)
+	return b.Bytes()
 }
 
 func (c *CharSet) Equals(c2 *CharSet) bool {
@@ -1305,7 +1303,7 @@ func (set *CharSet) Analyze() CharClassAnalysisResults {
 	}
 
 	firstValueInclusive := set.ranges[0].First
-	lastValueExclusive := set.ranges[len(set.ranges)-1].Last
+	lastValueExclusive := set.ranges[len(set.ranges)-1].Last + 1
 
 	if set.IsNegated() {
 		// We're negated: if the upper bound of the range is ASCII, that means everything
