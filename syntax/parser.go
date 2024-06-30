@@ -549,6 +549,11 @@ func (p *parser) scanRegex() (*RegexNode, error) {
 		case '$':
 			if p.useOptionM() {
 				p.addUnitType(NtEol)
+			} else if p.useRE2() || p.useOptionE() {
+				// RE2 and EcmaScript define $ as "asserts position at the end of the string"
+				// PCRE/.NET adds "or before the line terminator right at the end of the string (if any)"
+				// which is NtEnd, not NtEndZ
+				p.addUnitType(NtEnd)
 			} else {
 				p.addUnitType(NtEndZ)
 			}

@@ -576,15 +576,7 @@ func executeDefault(r *Runner) error {
 			if rchars > 1 {
 				break
 			}
-			// RE2 and EcmaScript define $ as "asserts position at the end of the string"
-			// PCRE/.NET adds "or before the line terminator right at the end of the string (if any)"
-			if (r.re.options & (RE2 | ECMAScript)) != 0 {
-				// RE2/Ecmascript mode
-				if rchars > 0 {
-					break
-				}
-			} else if rchars == 1 && r.charAt(r.textPos()) != '\n' {
-				// "regular" mode
+			if rchars == 1 && r.charAt(r.textPos()) != '\n' {
 				break
 			}
 
