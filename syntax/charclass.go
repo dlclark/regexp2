@@ -293,37 +293,7 @@ func (c CharSet) CharIn(ch rune) bool {
 
 	//check categories if we haven't already found a range
 	if !val && len(c.categories) > 0 {
-		for _, ct := range c.categories {
-			// special categories...then unicode
-			if ct.Cat == SpaceCategoryText {
-				if unicode.IsSpace(ch) {
-					// we found a space so we're done
-					// negate means this is a "bad" thing
-					val = !ct.Negate
-					break
-				} else if ct.Negate {
-					val = true
-					break
-				}
-			} else if ct.Cat == WordCategoryText {
-				if IsWordChar(ch) {
-					val = !ct.Negate
-					break
-				} else if ct.Negate {
-					val = true
-					break
-				}
-			} else if unicode.Is(unicodeCategories[ct.Cat], ch) {
-				// if we're in this unicode category then we're done
-				// if negate=true on this category then we "failed" our test
-				// otherwise we're good that we found it
-				val = !ct.Negate
-				break
-			} else if ct.Negate {
-				val = true
-				break
-			}
-		}
+		val = c.charInCategories(ch)
 	}
 
 	// negate the whole char set
@@ -338,6 +308,35 @@ func (c CharSet) CharIn(ch rune) bool {
 
 	//log.Printf("Char '%v' in %v == %v", string(ch), c.String(), val)
 	return val
+}
+
+func (c *CharSet) charInCategories(ch rune) bool {
+	for _, ct := range c.categories {
+		// special categories...then unicode
+		if ct.Cat == SpaceCategoryText {
+			if unicode.IsSpace(ch) {
+				// we found a space so we're done
+				// negate means this is a "bad" thing
+				return !ct.Negate
+			} else if ct.Negate {
+				return true
+			}
+		} else if ct.Cat == WordCategoryText {
+			if IsWordChar(ch) {
+				return !ct.Negate
+			} else if ct.Negate {
+				return true
+			}
+		} else if unicode.Is(unicodeCategories[ct.Cat], ch) {
+			// if we're in this unicode category then we're done
+			// if negate=true on this category then we "failed" our test
+			// otherwise we're good that we found it
+			return !ct.Negate
+		} else if ct.Negate {
+			return true
+		}
+	}
+	return false
 }
 
 func (c Category) String() string {
@@ -442,7 +441,7 @@ func (c CharSet) IsAnything() bool {
 	return c.anything
 }
 
-func (c *CharSet) addDigit(ecma, negate bool, pattern string) {
+func (c *CharSet) addDigit(ecma, negate bool) {
 	if ecma {
 		if negate {
 			c.addRanges(NotECMADigitClass().ranges)
@@ -575,10 +574,10 @@ func isValidUnicodeCat(catName string) bool {
 	return ok
 }
 
-func (c *CharSet) addCategory(categoryName string, negate, caseInsensitive bool, pattern string) {
+func (c *CharSet) addCategory(categoryName string, negate, caseInsensitive bool) {
 	if !isValidUnicodeCat(categoryName) {
 		// unknown unicode category, script, or property "blah"
-		panic(fmt.Errorf("Unknown unicode category, script, or property '%v'", categoryName))
+		panic(fmt.Errorf("unknown unicode category, script, or property '%v'", categoryName))
 
 	}
 
@@ -620,18 +619,21 @@ func (c *CharSet) addCaseEquivalenceRange(chMin, chMax rune) {
 }
 
 // Performs a fast lookup which determines if a character is involved in case conversion, as well as
-// returns the characters that should be considered equivalent in case it does participate in case conversion.
+// returns the OTHER characters that should be considered equivalent in case it does participate in case conversion.
 func tryFindCaseEquivalences(ch rune) []rune {
-	if isLow, isUp := unicode.IsLower(ch), unicode.IsUpper(ch); isLow || isUp {
-		// it's a capitalizable char
-		if isUp {
-			return []rune{unicode.ToLower(ch)}
-		} else {
-			return []rune{unicode.ToUpper(ch)}
-		}
+	newCh := unicode.SimpleFold(ch)
+	if newCh == ch {
+		// no case support
+		return nil
 	}
-	//TODO: equalfold?
-	return nil
+	equiv := []rune{newCh}
+	for {
+		newCh = unicode.SimpleFold(newCh)
+		if newCh == ch {
+			return equiv
+		}
+		equiv = append(equiv, newCh)
+	}
 }
 
 func (c *CharSet) addSubtraction(sub *CharSet) {
@@ -648,33 +650,33 @@ func (c *CharSet) addNamedASCII(name string, negate bool) bool {
 
 	switch name {
 	case "alnum":
-		rs = []SingleRange{SingleRange{'0', '9'}, SingleRange{'A', 'Z'}, SingleRange{'a', 'z'}}
+		rs = []SingleRange{{'0', '9'}, {'A', 'Z'}, {'a', 'z'}}
 	case "alpha":
-		rs = []SingleRange{SingleRange{'A', 'Z'}, SingleRange{'a', 'z'}}
+		rs = []SingleRange{{'A', 'Z'}, {'a', 'z'}}
 	case "ascii":
-		rs = []SingleRange{SingleRange{0, 0x7f}}
+		rs = []SingleRange{{0, 0x7f}}
 	case "blank":
-		rs = []SingleRange{SingleRange{'\t', '\t'}, SingleRange{' ', ' '}}
+		rs = []SingleRange{{'\t', '\t'}, {' ', ' '}}
 	case "cntrl":
-		rs = []SingleRange{SingleRange{0, 0x1f}, SingleRange{0x7f, 0x7f}}
+		rs = []SingleRange{{0, 0x1f}, {0x7f, 0x7f}}
 	case "digit":
-		c.addDigit(false, negate, "")
+		c.addDigit(false, negate)
 	case "graph":
-		rs = []SingleRange{SingleRange{'!', '~'}}
+		rs = []SingleRange{{'!', '~'}}
 	case "lower":
-		rs = []SingleRange{SingleRange{'a', 'z'}}
+		rs = []SingleRange{{'a', 'z'}}
 	case "print":
-		rs = []SingleRange{SingleRange{' ', '~'}}
+		rs = []SingleRange{{' ', '~'}}
 	case "punct": //[!-/:-@[-`{-~]
-		rs = []SingleRange{SingleRange{'!', '/'}, SingleRange{':', '@'}, SingleRange{'[', '`'}, SingleRange{'{', '~'}}
+		rs = []SingleRange{{'!', '/'}, {':', '@'}, {'[', '`'}, {'{', '~'}}
 	case "space":
 		c.addSpace(true, false, negate)
 	case "upper":
-		rs = []SingleRange{SingleRange{'A', 'Z'}}
+		rs = []SingleRange{{'A', 'Z'}}
 	case "word":
 		c.addWord(true, negate)
 	case "xdigit":
-		rs = []SingleRange{SingleRange{'0', '9'}, SingleRange{'A', 'F'}, SingleRange{'a', 'f'}}
+		rs = []SingleRange{{'0', '9'}, {'A', 'F'}, {'a', 'f'}}
 	default:
 		return false
 	}
@@ -701,6 +703,10 @@ func (c *CharSet) canonicalize() {
 	var i, j int
 	var last rune
 
+	if len(c.ranges) == 0 {
+		return
+	}
+
 	//
 	// Find and eliminate overlapping or abutting ranges
 	//
@@ -712,7 +718,7 @@ func (c *CharSet) canonicalize() {
 
 		for i, j = 1, 0; ; i++ {
 			for last = c.ranges[j].Last; ; i++ {
-				if i == len(c.ranges) || last == utf8.MaxRune {
+				if i == len(c.ranges) || last >= unicode.MaxRune {
 					done = true
 					break
 				}
@@ -741,6 +747,67 @@ func (c *CharSet) canonicalize() {
 		}
 
 		c.ranges = append(c.ranges[:j], c.ranges[len(c.ranges):]...)
+	}
+
+	// If the class now represents a single negated range, but does so by including every
+	// other character, invert it to produce a normalized form with a single range.  This
+	// is valuable for subsequent optimizations in most of the engines.
+	if !c.negate && c.sub == nil && len(c.categories) == 0 {
+		if len(c.ranges) == 2 {
+			// There are two ranges in the list.  See if there's one missing range between them.
+			// Such a range might be as small as a single character.
+			if c.ranges[0].First == 0 &&
+				c.ranges[1].Last >= unicode.MaxRune &&
+				c.ranges[0].Last < c.ranges[1].First-1 {
+				c.ranges = []SingleRange{{c.ranges[0].Last + 1, c.ranges[1].First - 1}}
+				c.negate = true
+			}
+		} else if len(c.ranges) == 1 {
+			if c.ranges[0].First == 0 {
+				// There's only one range in the list.  Does it include everything but the last char?
+				if c.ranges[0].Last == unicode.MaxRune-1 {
+					c.ranges[0] = SingleRange{unicode.MaxRune, unicode.MaxRune}
+					c.negate = true
+				}
+			} else if c.ranges[0].First == 1 {
+				// Or everything but the first char?
+				if c.ranges[0].Last >= unicode.MaxRune {
+					c.ranges[0] = SingleRange{'\x00', '\x00'}
+					c.negate = true
+				}
+			}
+		}
+	}
+
+	// If the class now has a range that includes everything, and if it doesn't have subtraction,
+	// we can remove all of its categories, as they're duplicative (the set already includes everything).
+	if !c.negate &&
+		c.sub == nil &&
+		len(c.categories) > 0 &&
+		len(c.ranges) == 1 && c.ranges[0].First == 0 && c.ranges[0].Last >= unicode.MaxRune {
+
+		c.makeAnything()
+	}
+
+	// If there's only a single character omitted from ranges, if there's no subtractor, and if there are categories,
+	// see if that character is in the categories.  If it is, then we can replace whole thing with a complete "any" range.
+	// If it's not, then we can remove the categories, as they're only duplicating the rest of the range, turning the set
+	// into a "not one". This primarily helps in the case of a synthesized set from analysis that ends up combining '.' with
+	// categories, as we want to reduce that set down to either [^\n] or [\0-\uFFFF]. (This can be extrapolated to any number
+	// of missing characters; in fact, categories in general are superfluous and the entire set can be represented as ranges.
+	// But categories serve as a space optimization, and we strike a balance between testing many characters and the time/complexity
+	// it takes to do so.  Thus, we limit this to the common case of a single missing character.)
+	if !c.negate && c.sub == nil && len(c.categories) > 0 &&
+		len(c.ranges) == 2 && c.ranges[0].First == 0 && c.ranges[0].Last+2 == c.ranges[1].First && c.ranges[1].Last == unicode.MaxRune {
+
+		if c.charInCategories(c.ranges[0].Last + 1) {
+			//c.ranges = []SingleRange{{'\x00', unicode.MaxRune}}
+			c.makeAnything()
+		} else {
+			c.negate = true
+			c.ranges = []SingleRange{{c.ranges[0].Last + 1, c.ranges[0].Last + 1}}
+			c.categories = []Category{}
+		}
 	}
 }
 
@@ -1091,13 +1158,12 @@ func (c *CharSet) equals(c2 *CharSet, ignoreNegate bool) bool {
 		return false
 	}
 
-	// TODO: optimize checks instead of hashing both
 	if !ignoreNegate {
 		if c.negate != c2.negate {
 			return false
 		}
 	}
-	if c.anything != c.anything {
+	if c.anything != c2.anything {
 		return false
 	}
 
@@ -1109,12 +1175,6 @@ func (c *CharSet) equals(c2 *CharSet, ignoreNegate bool) bool {
 	}
 
 	return c.sub.equals(c2.sub, false)
-}
-
-func checkHashEqual(hash []byte, c *CharSet, buf *bytes.Buffer) bool {
-	buf.Reset()
-	c.mapHashFill(buf)
-	return bytes.Equal(hash, buf.Bytes())
 }
 
 var whitespaceChars = []rune{'\u0009', '\u000A', '\u000B', '\u000C', '\u000D',
@@ -1137,16 +1197,11 @@ func (c *CharSet) IsUnicodeCategoryOfSmallCharCount() (isSmall bool, chars []run
 		return true, []rune{c.SingletonChar()}, true, ""
 	}
 
-	buf := &bytes.Buffer{}
-	c.mapHashFill(buf)
-	hash := buf.Bytes()
-
-	buf2 := &bytes.Buffer{}
-	if checkHashEqual(hash, SpaceClass(), buf2) {
+	if c.Equals(SpaceClass()) {
 		// we're SpaceClass
 		return true, whitespaceChars, false, "whitespace"
 	}
-	if checkHashEqual(hash, NotSpaceClass(), buf2) {
+	if c.Equals(NotSpaceClass()) {
 		// we're NotSpaceClass
 		return true, whitespaceChars, true, "whitespace"
 	}
@@ -1160,7 +1215,8 @@ func (c *CharSet) containsAsciiIgnoreCaseCharacter() (bool, []rune) {
 	if c.IsNegated() {
 		return false, nil
 	}
-	twoChars := c.GetSetChars(2)
+	// get up to 3 chars, just to be able to error on both "too many" and "too few"
+	twoChars := c.GetSetChars(3)
 	return len(twoChars) == 2 && twoChars[0] < unicode.MaxASCII && twoChars[1] < unicode.MaxASCII &&
 		(twoChars[0]|0x20) == (twoChars[1]|0x20) &&
 		unicode.IsLetter(twoChars[0]) && unicode.IsLetter(twoChars[1]), twoChars

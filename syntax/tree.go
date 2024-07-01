@@ -188,7 +188,7 @@ func nodeWithCaseConversion(n *RegexNode) *RegexNode {
 	if n.Ch > 0 {
 		ch := n.Ch
 		if isLow, isUp := unicode.IsLower(ch), unicode.IsUpper(ch); isLow || isUp {
-			var upper, lower rune
+			/*var upper, lower rune
 			// it's a capitalizable char
 			if isUp {
 				upper = ch
@@ -196,10 +196,10 @@ func nodeWithCaseConversion(n *RegexNode) *RegexNode {
 			} else {
 				lower = ch
 				upper = unicode.ToUpper(ch)
-			}
+			}*/
 			set := &CharSet{}
-			set.addChar(upper)
-			set.addChar(lower)
+			set.addChar(ch)
+			set.addCaseEquivalences()
 			t := NtSet
 
 			if n.T == NtOneloop || n.T == NtNotoneloop {
@@ -1448,7 +1448,7 @@ func (n *RegexNode) reduceConcatenationWithAdjacentLoops() {
 					goto End
 				}
 
-				if canCombineCounts(currentNode.M, currentNode.N, nextNode.M, nextNode.N) {
+				if !canCombineCounts(currentNode.M, currentNode.N, nextNode.M, nextNode.N) {
 					goto End
 				}
 				currentNode.M += nextNode.M
@@ -1770,11 +1770,25 @@ func (n *RegexNode) reverseLeft() *RegexNode {
 }
 
 func (n *RegexNode) makeQuantifier(lazy bool, min, max int) *RegexNode {
+	// Certain cases of repeaters (min == max) can be handled specially
 	if min == 0 && max == 0 {
+		// The node is repeated 0 times, so it's actually empty.
 		return newRegexNode(NtEmpty, n.Options)
 	}
 
 	if min == 1 && max == 1 {
+		// The node is repeated 1 time, so it's not actually a repeater.
+		return n
+	}
+
+	if min == max && max <= MultiVsRepeaterLimit && n.T == NtOne {
+		// The same character is repeated a fixed number of times, so it's actually a multi.
+		// While this could remain a repeater, multis are more readily optimized later in
+		// processing. The counts used here in real-world expressions are invariably small (e.g. 4),
+		// but we set an upper bound just to avoid creating really large strings.
+		n.T = NtMulti
+		n.Str = []rune(strings.Repeat(string(n.Ch), max))
+		n.Ch = 0
 		return n
 	}
 
@@ -1816,7 +1830,7 @@ func (n *RegexNode) ComputeMinLength() int {
 		return n.M
 	case NtLazyloop, NtLoop:
 		// A node graph repeated at least M times.
-		return n.M * n.Children[0].ComputeMinLength()
+		return min(math.MaxInt32-1, n.M*n.Children[0].ComputeMinLength())
 	case NtAlternate:
 		// The minimum required length for any of the alternation's branches.
 		childCount := len(n.Children)
@@ -1856,7 +1870,7 @@ func (n *RegexNode) ComputeMinLength() int {
 		for i := 0; i < len(n.Children); i++ {
 			sum += n.Children[i].ComputeMinLength()
 		}
-		return sum
+		return min(math.MaxInt32-1, sum)
 	case NtAtomic, NtCapture, NtGroup:
 		// For groups, we just delegate to the sole child.
 		return n.Children[0].ComputeMinLength()
@@ -1879,7 +1893,8 @@ func (n *RegexNode) computeMaxLength() int {
 	case NtMulti:
 		return len(n.Str)
 	case NtNotonelazy, NtNotoneloop, NtNotoneloopatomic,
-		NtOnelazy, NtOneloop, NtOneloopatomic, NtSetlazy, NtSetloop, NtSetloopatomic:
+		NtOnelazy, NtOneloop, NtOneloopatomic,
+		NtSetlazy, NtSetloop, NtSetloopatomic:
 		// Return the max number of iterations if there's an upper bound, or null if it's infinite
 		if n.N == math.MaxInt32 {
 			return -1
@@ -1905,13 +1920,12 @@ func (n *RegexNode) computeMaxLength() int {
 			return -1
 		}
 		for i := 1; i < len(n.Children); i++ {
-			c2 := n.Children[0].computeMaxLength()
+			c2 := n.Children[i].computeMaxLength()
 			if c2 < 0 {
 				return -1
 			}
-			if c2 > c {
-				c = c2
-			}
+
+			c = max(c, c2)
 		}
 		return c
 	case NtBackRefCond:
@@ -1922,12 +1936,10 @@ func (n *RegexNode) computeMaxLength() int {
 		}
 		b2 := n.Children[1].computeMaxLength()
 		if b2 < 0 {
-			return b2
+			return -1
 		}
-		if b1 > b2 {
-			return b1
-		}
-		return b2
+		return max(b1, b2)
+
 	case NtExprCond:
 		// The condition for an expression conditional is a zero-width assertion.
 		b1 := n.Children[1].computeMaxLength()
@@ -1936,12 +1948,10 @@ func (n *RegexNode) computeMaxLength() int {
 		}
 		b2 := n.Children[2].computeMaxLength()
 		if b2 < 0 {
-			return b2
+			return -1
 		}
-		if b1 > b2 {
-			return b1
-		}
-		return b2
+		return max(b1, b2)
+
 	case NtConcatenate:
 		// The sum of all of the concatenation's children's max lengths, as long as they all have one.
 		sum := 0
@@ -1952,12 +1962,15 @@ func (n *RegexNode) computeMaxLength() int {
 			}
 			sum += c
 		}
-		return sum
+		if sum < math.MaxInt32 {
+			return sum
+		}
+		return -1
 
 	case NtAtomic, NtCapture:
 		// For groups, we just delegate to the sole child.
 		return n.Children[0].computeMaxLength()
-	case NtEmpty, NtNothing,
+	case NtEmpty, NtNothing, NtUpdateBumpalong,
 		NtBeginning, NtBol, NtBoundary, NtECMABoundary, NtEnd, NtEndZ, NtEol,
 		NtNonboundary, NtNonECMABoundary, NtStart, NtNegLook, NtPosLook:
 		//zero-width
@@ -2133,7 +2146,7 @@ func (n *RegexNode) TryGetOrdinalCaseInsensitiveString(childIndex int, exclusive
 
 			vsb.WriteString(string(child.Str))
 		} else if child.T == NtSet ||
-			((child.T == NtSetloop || child.T == NtSetlazy /*|| child.T == NtSetloopatomic*/) && child.M == child.N) {
+			((child.T == NtSetloop || child.T == NtSetlazy || child.T == NtSetloopatomic) && child.M == child.N) {
 			// In particular we want to look for sets that contain only the upper and lowercase variant
 			// of the same ASCII letter.
 			ok, twoChars := child.Set.containsAsciiIgnoreCaseCharacter()
@@ -2177,12 +2190,15 @@ func (n *RegexNode) TryGetOrdinalCaseInsensitiveString(childIndex int, exclusive
 }
 
 func (child *RegexNode) canJoinLengthCheck() bool {
-	return child.T == NtOne || child.T == NtNotone || child.T == NtSet ||
-		child.T == NtMulti ||
-		(child.M == child.N &&
-			(child.T == NtOneloop || child.T == NtOnelazy ||
-				child.T == NtNotoneloop || child.T == NtNotonelazy ||
-				child.T == NtSetloop || child.T == NtSetlazy))
+	if child.T == NtOne || child.T == NtNotone || child.T == NtSet || child.T == NtMulti {
+		return true
+	}
+	if (child.IsSetloopFamily() || child.IsNotoneloopFamily() || child.IsOneloopFamily()) &&
+		child.M == child.N {
+		return true
+	}
+
+	return false
 }
 
 // Determine whether the specified child node is the beginning of a sequence that can

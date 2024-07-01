@@ -398,6 +398,13 @@ func min(x, y int) int {
 		return y
 	}
 }
+func max(x, y int) int {
+	if x > y {
+		return x
+	} else {
+		return y
+	}
+}
 
 // Minimum string length for prefixes to be useful. If any prefix has length 1,
 // then we're generally better off just using IndexOfAny with chars.
@@ -419,7 +426,7 @@ func findPrefixes(node *RegexNode, ignoreCase bool) []string {
 	findPrefixesCore(node, &results, ignoreCase)
 
 	// If we found too many prefixes or if any found is too short, fail.
-	if len(results) > maxPrefixes || !slices.ContainsFunc(results, func(sb *bytes.Buffer) bool { return sb.Len() >= minPrefixLength }) {
+	if len(results) > maxPrefixes || slices.ContainsFunc(results, func(sb *bytes.Buffer) bool { return sb.Len() < minPrefixLength }) {
 		return nil
 	}
 
@@ -476,7 +483,7 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 		// don't participate in case conversion. Single character loops are handled the same as single characters
 		// up to the min iteration limit. We can continue processing after them as well if they're repeaters such
 		// that their min and max are the same.
-		case NtOne, NtOneloop, NtOnelazy /*, NtOneloopatomic*/ :
+		case NtOne, NtOneloop, NtOnelazy, NtOneloopatomic:
 			if !ignoreCase || !participatesInCaseConversion(node.Ch) {
 				reps := maxPrefixLength
 				if node.T == NtOne {
@@ -523,61 +530,58 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 		// them each as a prefix. Effectively, this is an alternation of the characters
 		// that comprise the set. For case-insensitive, we need the set to be two ASCII letters that case fold to the same thing.
 		// As with One and loops, set loops are handled the same as sets up to the min iteration limit.
-		case NtSet, NtSetloop, NtSetlazy /*, NtSetloopatomic*/ :
-			// negated sets are too complex to analyze
-			if !node.Set.IsNegated() {
-				setChars := node.Set.GetSetChars(maxPrefixes)
+		case NtSet, NtSetloop, NtSetlazy, NtSetloopatomic:
 
-				if len(setChars) == 0 {
-					return false
-				}
+			setChars := node.Set.GetSetChars(maxPrefixes)
 
-				reps := maxPrefixLength
-				if node.T == NtSet {
-					reps = 1
-				} else if node.M < reps {
-					reps = node.M
-				}
-				if !ignoreCase {
-					for rep := 0; rep < reps; rep++ {
-						existingCount := len(results)
-						if existingCount*len(setChars) > maxPrefixes {
-							return false
-						}
+			if len(setChars) == 0 {
+				return false
+			}
 
-						// Duplicate all of the existing strings for all of the new suffixes, other than the first.
-						for _, suffix := range setChars[1:] {
-							for existing := 0; existing < existingCount; existing++ {
-								newSb := &bytes.Buffer{}
-								newSb.Write(results[existing].Bytes())
-								results[existing] = newSb
-								newSb.WriteRune(suffix)
-								results = append(results, newSb)
-							}
-						}
-						res = &results
-
-						// Then append the first suffix to all of the existing strings.
-						for existing := 0; existing < existingCount; existing++ {
-							results[existing].WriteRune(setChars[0])
-						}
-					}
-				} else {
-					// For ignore-case, we currently only handle the simple (but common) case of a single
-					// ASCII character that case folds to the same char.
-					ok, setChars := node.Set.containsAsciiIgnoreCaseCharacter()
-					if !ok {
+			reps := maxPrefixLength
+			if node.T == NtSet {
+				reps = 1
+			} else if node.M < reps {
+				reps = node.M
+			}
+			if !ignoreCase {
+				for rep := 0; rep < reps; rep++ {
+					existingCount := len(results)
+					if existingCount*len(setChars) > maxPrefixes {
 						return false
 					}
 
-					// Append it to each.
-					for _, sb := range results {
-						sb.WriteString(strings.Repeat(string(setChars[1]), reps))
+					// Duplicate all of the existing strings for all of the new suffixes, other than the first.
+					for _, suffix := range setChars[1:] {
+						for existing := 0; existing < existingCount; existing++ {
+							newSb := bytes.NewBuffer(slices.Clone(results[existing].Bytes()))
+							newSb.WriteRune(suffix)
+							results = append(results, newSb)
+						}
+					}
+					*res = results
+
+					// Then append the first suffix to all of the existing strings.
+					for existing := 0; existing < existingCount; existing++ {
+						results[existing].WriteRune(setChars[0])
 					}
 				}
+			} else {
+				// For ignore-case, we currently only handle the simple (but common) case of a single
+				// ASCII character that case folds to the same char.
+				ok, setChars := node.Set.containsAsciiIgnoreCaseCharacter()
+				if !ok {
+					return false
+				}
 
-				return node.T == NtSet || reps == node.N
+				// Append it to each.
+				for _, sb := range results {
+					sb.WriteString(strings.Repeat(string(setChars[1]), reps))
+				}
 			}
+
+			*res = results
+			return node.T == NtSet || reps == node.N
 
 		case NtConcatenate:
 			for i := 0; i < len(node.Children); i++ {

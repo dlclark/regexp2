@@ -107,6 +107,7 @@ func newFindOptimizations(tree *RegexTree, opt RegexOptions) *FindOptimizations 
 		rightToLeft:       opt&RightToLeft != 0,
 		MinRequiredLength: tree.Root.ComputeMinLength(),
 		LeadingAnchor:     findLeadingOrTrailingAnchor(tree.Root, true),
+		MaxPossibleLength: -1,
 	}
 
 	if f.rightToLeft && f.LeadingAnchor == NtBol {

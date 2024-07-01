@@ -1181,7 +1181,7 @@ func (p *parser) scanBackslash(scanOnly bool) (*RegexNode, error) {
 			return nil, err
 		}
 		cc := &CharSet{}
-		cc.addCategory(prop, (ch != 'p'), p.useOptionI(), p.patternRaw)
+		cc.addCategory(prop, (ch != 'p'), p.useOptionI())
 		if p.useOptionI() {
 			cc.addLowercase()
 		}
@@ -1486,7 +1486,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					if inRange {
 						return nil, p.getErr(ErrBadClassInCharRange, ch)
 					}
-					cc.addDigit(p.useOptionE() || p.useRE2(), ch == 'D', p.patternRaw)
+					cc.addDigit(p.useOptionE() || p.useRE2(), ch == 'D')
 				}
 				continue
 
@@ -1518,7 +1518,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					if err != nil {
 						return nil, err
 					}
-					cc.addCategory(prop, (ch != 'p'), caseInsensitive, p.patternRaw)
+					cc.addCategory(prop, (ch != 'p'), caseInsensitive)
 				} else {
 					p.parseProperty()
 				}
@@ -1539,7 +1539,6 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					return nil, err
 				}
 				fTranslatedChar = true
-				break // this break will only break out of the switch
 			}
 		} else if ch == '[' {
 			// This is code for Posix style properties - [:Ll:] or [:IsTibetan:].
