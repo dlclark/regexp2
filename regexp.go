@@ -10,6 +10,7 @@ package regexp2
 
 import (
 	"errors"
+	"log"
 	"math"
 	"strconv"
 	"sync"
@@ -62,6 +63,10 @@ func Compile(expr string, opt RegexOptions) (*Regexp, error) {
 	tree, err := syntax.Parse(expr, syntax.RegexOptions(opt))
 	if err != nil {
 		return nil, err
+	}
+
+	if opt&Debug > 0 {
+		log.Print(tree.Dump())
 	}
 
 	// translate it to code

@@ -3,7 +3,6 @@ package syntax
 import (
 	"fmt"
 	"math"
-	"os"
 	"sort"
 	"strconv"
 	"unicode"
@@ -176,10 +175,6 @@ func Parse(re string, op RegexOptions) (*RegexTree, error) {
 		Options:    op,
 	}
 	tree.FindOptimizations = newFindOptimizations(tree, op)
-
-	if tree.Options&Debug > 0 {
-		os.Stdout.WriteString(tree.Dump())
-	}
 
 	return tree, nil
 }
