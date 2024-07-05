@@ -1365,9 +1365,9 @@ func TestUnMarshal(t *testing.T) {
 	}
 }
 
-func TestLoopCombine(t *testing.T) {
-	re := MustCompile(`[^a]`, 0)
-	if m, _ := re.MatchString("aaaaabc"); !m {
+func TestAnythingSet(t *testing.T) {
+	re := MustCompile(`(?ism)<(.+?)`, 0)
+	if m, _ := re.MatchString("<a"); !m {
 		t.Fail()
 	}
 }

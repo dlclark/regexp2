@@ -140,6 +140,10 @@ func getCharSetFromOldString(setText []rune, negate bool) func() *CharSet {
 		if !first {
 			c.ranges[i].Last = utf8.MaxRune
 		}
+		if len(c.ranges) == 1 && c.ranges[0].First == 0 && c.ranges[0].Last >= unicode.MaxRune {
+			// this is anything...or nothing
+			c.anything = !negate
+		}
 	}
 
 	return func() *CharSet {
@@ -505,7 +509,7 @@ func (c *CharSet) addSet(set CharSet) {
 func (c *CharSet) makeAnything() {
 	c.anything = true
 	c.categories = []Category{}
-	c.ranges = AnyClass().ranges
+	c.ranges = []SingleRange{{First: 0, Last: unicode.MaxRune}}
 }
 
 func (c *CharSet) addCategories(cats ...Category) {
@@ -594,6 +598,10 @@ func (c *CharSet) addCategory(categoryName string, negate, caseInsensitive bool)
 // Adds to the class any case-equivalence versions of characters already
 // in the class. Used for case-insensitivity.
 func (c *CharSet) addCaseEquivalences() {
+	// we already have all case equiv
+	if c.anything {
+		return
+	}
 	for i := 0; i < len(c.ranges); i++ {
 		r := c.ranges[i]
 		if r.First == r.Last {
@@ -783,7 +791,6 @@ func (c *CharSet) canonicalize() {
 	// we can remove all of its categories, as they're duplicative (the set already includes everything).
 	if !c.negate &&
 		c.sub == nil &&
-		len(c.categories) > 0 &&
 		len(c.ranges) == 1 && c.ranges[0].First == 0 && c.ranges[0].Last >= unicode.MaxRune {
 
 		c.makeAnything()
