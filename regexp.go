@@ -233,14 +233,22 @@ func (re *Regexp) FindNextMatch(m *Match) (*Match, error) {
 	// infinite loop
 	startAt := m.textpos
 	if m.Length == 0 {
-		if m.textpos == len(m.text) {
-			return nil, nil
-		}
-
 		if re.RightToLeft() {
-			startAt--
+			if m.textpos == 0 {
+				return nil, nil
+			}
+			if startAt == m.textstart {
+				startAt--
+			}
 		} else {
-			startAt++
+			if m.textpos == len(m.text) {
+				return nil, nil
+			}
+
+			if startAt == m.textstart {
+				startAt++
+			}
+
 		}
 	}
 	return re.run(false, startAt, m.text)

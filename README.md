@@ -158,7 +158,7 @@ In this mode the engine provides compatibility with the [regex engine](https://t
 Additionally a Unicode mode is provided which allows parsing of `\u{CodePoint}` syntax that is only when both are provided.
 
 ## Library features that I'm still working on
-- Regex split
+- Regex split (this is coded and has basic smoke testing)
 
 ## Potential bugs
 I've run a battery of tests against regexp2 from various sources and found the debug output matches the .NET engine, but .NET and Go handle strings very differently.  I've attempted to handle these differences, but most of my testing deals with basic ASCII with a little bit of multi-byte Unicode.  There's a chance that there are bugs in the string handling related to character sets with supplementary Unicode chars.  Right-to-Left support is coded, but not well tested either.
