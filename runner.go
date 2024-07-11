@@ -121,7 +121,7 @@ func (r *runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 	r.startTimeoutWatch()
 	for {
 		if r.re.Debug() {
-			//fmt.Printf("\nSearch content: %v\n", string(r.runtext))
+			// fmt.Printf("\nSearch content: %v\n", string(r.runtext))
 			fmt.Printf("\nSearch range: from 0 to %v\n", r.runtextend)
 			fmt.Printf("Firstchar search starting at %v stopping at %v\n", r.runtextpos, stoppos)
 		}
@@ -1332,7 +1332,7 @@ func (r *runner) findFirstChar() bool {
 	} else {
 		for i := r.forwardchars(); i > 0; i-- {
 			n := r.forwardcharnext()
-			//fmt.Printf("%v in %v: %v\n", string(n), set.String(), set.CharIn(n))
+			// fmt.Printf("%v in %v: %v\n", string(n), set.String(), set.CharIn(n))
 			if set.CharIn(n) {
 				r.backwardnext()
 				return true
@@ -1467,7 +1467,7 @@ func (r *runner) uncapture() {
 	r.runmatch.removeMatch(capnum)
 }
 
-//debug
+// debug
 
 func (r *runner) dumpState() {
 	back := ""
@@ -1563,13 +1563,13 @@ func (r *runner) checkTimeout() error {
 	}
 
 	if r.re.Debug() {
-		//Debug.WriteLine("")
-		//Debug.WriteLine("RegEx match timeout occurred!")
-		//Debug.WriteLine("Specified timeout:       " + TimeSpan.FromMilliseconds(_timeout).ToString())
-		//Debug.WriteLine("Timeout check frequency: " + TimeoutCheckFrequency)
-		//Debug.WriteLine("Search pattern:          " + _runregex._pattern)
-		//Debug.WriteLine("Input:                   " + r.runtext)
-		//Debug.WriteLine("About to throw RegexMatchTimeoutException.")
+		// Debug.WriteLine("")
+		// Debug.WriteLine("RegEx match timeout occurred!")
+		// Debug.WriteLine("Specified timeout:       " + TimeSpan.FromMilliseconds(_timeout).ToString())
+		// Debug.WriteLine("Timeout check frequency: " + TimeoutCheckFrequency)
+		// Debug.WriteLine("Search pattern:          " + _runregex._pattern)
+		// Debug.WriteLine("Input:                   " + r.runtext)
+		// Debug.WriteLine("About to throw RegexMatchTimeoutException.")
 	}
 
 	return fmt.Errorf("match timeout after %v on input `%v`", r.timeout, string(r.runtext))
@@ -1604,6 +1604,10 @@ func (re *Regexp) getRunner() *runner {
 // run using re.  (The cache empties when re gets garbage collected.)
 func (re *Regexp) putRunner(r *runner) {
 	re.muRun.Lock()
+	r.runtext = nil
+	if r.runmatch != nil {
+		r.runmatch.text = nil
+	}
 	re.runner = append(re.runner, r)
 	re.muRun.Unlock()
 }
