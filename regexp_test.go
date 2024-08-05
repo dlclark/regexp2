@@ -1364,3 +1364,15 @@ func TestUnMarshal(t *testing.T) {
 		t.Fatalf(`Expected match`)
 	}
 }
+
+func TestRegexpECMAScriptWithSingleline(t *testing.T) {
+	re := MustCompile(`.`, Singleline)
+	if isMatch, _ := re.MatchString("\n"); !isMatch {
+		t.Fatal("Expected match")
+	}
+
+	re = MustCompile(`.`, ECMAScript|Singleline)
+	if isMatch, _ := re.MatchString("\n"); !isMatch {
+		t.Fatal("Expected match")
+	}
+}
