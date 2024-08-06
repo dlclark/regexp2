@@ -1,6 +1,9 @@
 package regexp2
 
-import "errors"
+import (
+	"errors"
+	"math"
+)
 
 // Split splits the given input string using the pattern and returns
 // a slice of the parts. Count limits the number of matches to process.
@@ -21,6 +24,10 @@ func (re *Regexp) Split(input string, count int) ([]string, error) {
 	}
 	if count == 1 {
 		return []string{input}, nil
+	}
+	if count == -1 {
+		// no limit
+		count = math.MaxInt64
 	}
 
 	// iterate through the matches
