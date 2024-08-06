@@ -1365,6 +1365,18 @@ func TestUnMarshal(t *testing.T) {
 	}
 }
 
+func TestRegexpECMAScriptWithSingleline(t *testing.T) {
+	re := MustCompile(`.`, Singleline)
+	if isMatch, _ := re.MatchString("\n"); !isMatch {
+		t.Fatal("Expected match")
+	}
+
+	re = MustCompile(`.`, ECMAScript|Singleline)
+	if isMatch, _ := re.MatchString("\n"); !isMatch {
+		t.Fatal("Expected match")
+	}
+}
+
 func TestAnythingSet(t *testing.T) {
 	re := MustCompile(`(?ism)<(.+?)`, 0)
 	if m, _ := re.MatchString("<a"); !m {

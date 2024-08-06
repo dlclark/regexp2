@@ -1623,6 +1623,10 @@ func (re *Regexp) getRunner() *Runner {
 // run using re.  (The cache empties when re gets garbage collected.)
 func (re *Regexp) putRunner(r *Runner) {
 	re.muRun.Lock()
+	r.Runtext = nil
+	if r.runmatch != nil {
+		r.runmatch.text = nil
+	}
 	re.runner = append(re.runner, r)
 	re.muRun.Unlock()
 }

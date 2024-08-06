@@ -16,7 +16,6 @@ To use the new Code Generation (while it's in beta) you'll need to use the `code
 
     go get github.com/dlclark/regexp2@code_gen
 
-
 ## Usage
 Usage is similar to the Go `regexp` package.  Just like in `regexp`, you start by converting a regex into a state machine via the `Compile` or `MustCompile` methods.  They ultimately do the same thing, but `MustCompile` will panic if the regex is invalid.  You can then use the provided `Regexp` struct to find matches repeatedly.  A `Regexp` struct is safe to use across goroutines.
 
