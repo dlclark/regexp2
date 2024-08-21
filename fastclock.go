@@ -49,7 +49,7 @@ func makeDeadline(d time.Duration) fasttime {
 	// during match
 	if !fast.running && !fast.start.IsZero() {
 		// update fast.current
-		fast.clockEnd.write(durationToTicks(time.Since(fast.start)))
+		fast.current.write(durationToTicks(time.Since(fast.start)))
 	}
 	// Increase the deadline since the clock we are reading may be
 	// just about to tick forwards.

@@ -56,3 +56,29 @@ func TestStopTimeoutClock(t *testing.T) {
 		t.Errorf("Expected isRunning to be %v, got %v", want, got)
 	}
 }
+func TestIncorrectDeadline(t *testing.T) {
+	if fast.start.IsZero() {
+		fast.start = time.Now()
+	}
+	// make fast stopped
+	for fast.running {
+		time.Sleep(clockPeriod)
+	}
+	t.Logf("current fast: %+v", fast)
+	timeout := 5 * clockPeriod
+	// make the error time much bigger
+	time.Sleep(10 * clockPeriod)
+	nowTick := durationToTicks(time.Since(fast.start))
+	// before fix, fast.current will be the time fast stopped, and end is incorrect too
+	// after fix, fast.current will be current time.
+	d := makeDeadline(timeout)
+	gotTick := fast.current.read()
+	t.Logf("nowTick: %+v, gotTick: %+v", nowTick, gotTick)
+	if nowTick > gotTick {
+		t.Errorf("Expectd current should bigger than %v, got %v", gotTick, nowTick)
+	}
+	expectedDeadTick := nowTick + durationToTicks(timeout)
+	if d < expectedDeadTick {
+		t.Errorf("Expectd deadTick %v, got %v", expectedDeadTick, d)
+	}
+}
