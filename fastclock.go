@@ -44,6 +44,13 @@ func (t fasttime) reached() bool {
 
 // makeDeadline returns a time that is approximately time.Now().Add(d)
 func makeDeadline(d time.Duration) fasttime {
+	// If time.Since(last use) > timeout, fast.current will no longer be updated,
+	// which can lead to incorrect 'end' calculations resulting in trigger a timeout error
+	// during match
+	if !fast.running && !fast.start.IsZero() {
+		// update fast.current
+		fast.clockEnd.write(durationToTicks(time.Since(fast.start)))
+	}
 	// Increase the deadline since the clock we are reading may be
 	// just about to tick forwards.
 	end := fast.current.read() + durationToTicks(d+clockPeriod)
