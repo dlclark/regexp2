@@ -75,7 +75,7 @@ func TestIncorrectDeadline(t *testing.T) {
 	gotTick := fast.current.read()
 	t.Logf("nowTick: %+v, gotTick: %+v", nowTick, gotTick)
 	if nowTick > gotTick {
-		t.Errorf("Expectd current should bigger than %v, got %v", gotTick, nowTick)
+		t.Errorf("Expectd current should greater than %v, got %v", gotTick, nowTick)
 	}
 	expectedDeadTick := nowTick + durationToTicks(timeout)
 	if d < expectedDeadTick {
