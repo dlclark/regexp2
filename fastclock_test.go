@@ -82,3 +82,26 @@ func TestIncorrectDeadline(t *testing.T) {
 		t.Errorf("Expectd deadTick %v, got %v", expectedDeadTick, d)
 	}
 }
+
+func TestIncorrectTimeoutError(t *testing.T) {
+	if fast.start.IsZero() {
+		fast.start = time.Now()
+	}
+	// make fast stopped
+	for fast.running {
+		time.Sleep(clockPeriod)
+	}
+	re := MustCompile(`\[(\d+)\]\s+\[([\s\S]+)\]\s+([\s\S]+).*`, RE2)
+	re.MatchTimeout = 5 * clockPeriod
+
+	// get wrong deadline
+	time.Sleep(10 * clockPeriod)
+
+	// try multi times, if fast.current updated, FindStringMatch will trigger timeout
+	for i := 0; i < 100000; i++ {
+		_, err := re.FindStringMatch("[10000] [Dec 15, 2012 1:42:43 AM] com.dev.log.LoggingExample main")
+		if err != nil {
+			t.Errorf("Expecting error, got nil")
+		}
+	}
+}
