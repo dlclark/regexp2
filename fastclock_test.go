@@ -2,6 +2,7 @@ package regexp2
 
 import (
 	"fmt"
+	"log"
 	"testing"
 	"time"
 )
@@ -84,24 +85,30 @@ func TestIncorrectDeadline(t *testing.T) {
 }
 
 func TestIncorrectTimeoutError(t *testing.T) {
-	if fast.start.IsZero() {
-		fast.start = time.Now()
-	}
-	// make fast stopped
-	for fast.running {
-		time.Sleep(clockPeriod)
-	}
+	log.SetFlags(log.Lmicroseconds)
 	re := MustCompile(`\[(\d+)\]\s+\[([\s\S]+)\]\s+([\s\S]+).*`, RE2)
+	// there's a lot of slop in the timeout process (on purpose to keep resources low)
+	// need a timeout of at least 5x the clockPeriod to have consistent test behavior
 	re.MatchTimeout = 5 * clockPeriod
 
-	// get wrong deadline
-	time.Sleep(10 * clockPeriod)
+	_, err := re.FindStringMatch("[10000] [Dec 15, 2012 1:42:43 AM] com.dev.log.LoggingExample main")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
 
-	// try multi times, if fast.current updated, FindStringMatch will trigger timeout
-	for i := 0; i < 100000; i++ {
+	// now wait - this makes sure the background timer goroutine is stopped
+	time.Sleep(time.Second + re.MatchTimeout*2)
+
+	if val := fast.clockEnd.read() - fast.current.read(); val > 0 {
+		t.Fatalf("unexpected bg timer running: %v", val)
+	}
+
+	// each of these should be plenty fast to not timeout
+	for i := 0; i < 1000; i++ {
 		_, err := re.FindStringMatch("[10000] [Dec 15, 2012 1:42:43 AM] com.dev.log.LoggingExample main")
 		if err != nil {
-			t.Errorf("Expecting error, got nil")
+			log.Printf("timeout")
+			t.Fatalf("Expecting no error, got: '%v' on iteration %v", err, i)
 		}
 	}
 }
