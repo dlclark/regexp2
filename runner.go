@@ -7,6 +7,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -1346,48 +1347,36 @@ func (r *runner) findFirstChar() bool {
 func (r *runner) initMatch() {
 	// Use a hashtable'ed Match object if the capture numbers are sparse
 
-	if r.runmatch == nil {
-		if r.re.caps != nil {
-			r.runmatch = newMatchSparse(r.re, r.re.caps, r.re.capsize, r.runtext, r.runtextstart)
-		} else {
-			r.runmatch = newMatch(r.re, r.re.capsize, r.runtext, r.runtextstart)
-		}
+	if r.re.caps != nil {
+		r.runmatch = newMatchSparse(r.re, r.re.caps, r.re.capsize, r.runtext, r.runtextstart)
 	} else {
-		r.runmatch.reset(r.runtext, r.runtextstart)
-	}
-
-	// note we test runcrawl, because it is the last one to be allocated
-	// If there is an alloc failure in the middle of the three allocations,
-	// we may still return to reuse this instance, and we want to behave
-	// as if the allocations didn't occur. (we used to test _trackcount != 0)
-
-	if r.runcrawl != nil {
-		r.runtrackpos = len(r.runtrack)
-		r.runstackpos = len(r.runstack)
-		r.runcrawlpos = len(r.runcrawl)
-		return
+		r.runmatch = newMatch(r.re, r.re.capsize, r.runtext, r.runtextstart)
 	}
 
 	r.initTrackCount()
 
-	tracksize := r.runtrackcount * 8
-	stacksize := r.runtrackcount * 8
-
-	if tracksize < 32 {
-		tracksize = 32
+	if r.runtrack == nil {
+		tracksize := r.runtrackcount * 8
+		if tracksize < 32 {
+			tracksize = 32
+		}
+		r.runtrack = make([]int, tracksize)
+		r.runtrackpos = tracksize
 	}
-	if stacksize < 16 {
-		stacksize = 16
+
+	if r.runstack == nil {
+		stacksize := r.runtrackcount * 8
+		if stacksize < 16 {
+			stacksize = 16
+		}
+		r.runstack = make([]int, stacksize)
+		r.runstackpos = stacksize
 	}
 
-	r.runtrack = make([]int, tracksize)
-	r.runtrackpos = tracksize
-
-	r.runstack = make([]int, stacksize)
-	r.runstackpos = stacksize
-
-	r.runcrawl = make([]int, 32)
-	r.runcrawlpos = 32
+	if r.runcrawl == nil {
+		r.runcrawl = make([]int, 32)
+		r.runcrawlpos = 32
+	}
 }
 
 func (r *runner) tidyMatch(quick bool) *Match {
@@ -1579,35 +1568,27 @@ func (r *runner) initTrackCount() {
 	r.runtrackcount = r.code.TrackCount
 }
 
+// Pool of runners, use getRunner and putRunner to retrieve and put back
+// runners, respectively.
+var runnerPool = sync.Pool{
+	New: func() interface{} {
+		return new(runner)
+	},
+}
+
 // getRunner returns a run to use for matching re.
-// It uses the re's runner cache if possible, to avoid
-// unnecessary allocation.
+// It uses the runner cache if possible, to avoid unnecessary allocation.
 func (re *Regexp) getRunner() *runner {
-	re.muRun.Lock()
-	if n := len(re.runner); n > 0 {
-		z := re.runner[n-1]
-		re.runner = re.runner[:n-1]
-		re.muRun.Unlock()
-		return z
-	}
-	re.muRun.Unlock()
-	z := &runner{
-		re:   re,
-		code: re.code,
-	}
+	z := runnerPool.Get().(*runner)
+	z.re = re
+	z.code = re.code
 	return z
 }
 
-// putRunner returns a runner to the re's cache.
-// There is no attempt to limit the size of the cache, so it will
-// grow to the maximum number of simultaneous matches
-// run using re.  (The cache empties when re gets garbage collected.)
+// putRunner returns a runner to the runner pool.
 func (re *Regexp) putRunner(r *runner) {
-	re.muRun.Lock()
 	r.runtext = nil
-	if r.runmatch != nil {
-		r.runmatch.text = nil
-	}
-	re.runner = append(re.runner, r)
-	re.muRun.Unlock()
+	r.runmatch = nil
+
+	runnerPool.Put(r)
 }

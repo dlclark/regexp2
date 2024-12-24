@@ -12,7 +12,6 @@ import (
 	"errors"
 	"math"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/dlclark/regexp2/syntax"
@@ -45,10 +44,6 @@ type Regexp struct {
 	capsize  int            // size of the capture array
 
 	code *syntax.Code // compiled program
-
-	// cache of machines for running regexp
-	muRun  *sync.Mutex
-	runner []*runner
 }
 
 // Compile parses a regular expression and returns, if successful,
@@ -76,7 +71,6 @@ func Compile(expr string, opt RegexOptions) (*Regexp, error) {
 		capsize:      code.Capsize,
 		code:         code,
 		MatchTimeout: DefaultMatchTimeout,
-		muRun:        &sync.Mutex{},
 	}, nil
 }
 
