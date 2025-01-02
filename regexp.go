@@ -240,6 +240,16 @@ func (re *Regexp) MatchString(s string) (bool, error) {
 	return m != nil, nil
 }
 
+// MatchStringSafe returns true if the string matches the regex.
+// It ignores any errors and simply returns false if an error occurs.
+func (re *Regexp) MatchStringSafe(s string) bool {
+	m, err := re.run(true, -1, getRunes(s))
+	if err != nil {
+		return false
+	}
+	return m != nil
+}
+
 func (re *Regexp) getRunesAndStart(s string, startAt int) ([]rune, int) {
 	if startAt < 0 {
 		if re.RightToLeft() {
