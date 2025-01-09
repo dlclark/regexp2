@@ -1583,18 +1583,9 @@ func (r *runner) initTrackCount() {
 // It uses the re's runner cache if possible, to avoid
 // unnecessary allocation.
 func (re *Regexp) getRunner() *runner {
-	re.muRun.Lock()
-	if n := len(re.runner); n > 0 {
-		z := re.runner[n-1]
-		re.runner = re.runner[:n-1]
-		re.muRun.Unlock()
-		return z
-	}
-	re.muRun.Unlock()
-	z := &runner{
-		re:   re,
-		code: re.code,
-	}
+	z := re.runner.Get().(*runner)
+	z.re = re
+	z.code = re.code
 	return z
 }
 
@@ -1603,11 +1594,9 @@ func (re *Regexp) getRunner() *runner {
 // grow to the maximum number of simultaneous matches
 // run using re.  (The cache empties when re gets garbage collected.)
 func (re *Regexp) putRunner(r *runner) {
-	re.muRun.Lock()
 	r.runtext = nil
 	if r.runmatch != nil {
 		r.runmatch.text = nil
 	}
-	re.runner = append(re.runner, r)
-	re.muRun.Unlock()
+	re.runner.Put(r)
 }

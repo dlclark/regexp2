@@ -47,8 +47,7 @@ type Regexp struct {
 	code *syntax.Code // compiled program
 
 	// cache of machines for running regexp
-	muRun  *sync.Mutex
-	runner []*runner
+	runner sync.Pool
 }
 
 // Compile parses a regular expression and returns, if successful,
@@ -76,7 +75,11 @@ func Compile(expr string, opt RegexOptions) (*Regexp, error) {
 		capsize:      code.Capsize,
 		code:         code,
 		MatchTimeout: DefaultMatchTimeout,
-		muRun:        &sync.Mutex{},
+		runner: sync.Pool{
+			New: func() interface{} {
+				return new(runner)
+			},
+		},
 	}, nil
 }
 
