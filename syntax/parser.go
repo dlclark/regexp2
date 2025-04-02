@@ -132,8 +132,9 @@ type parser struct {
 	captop   int
 	capsize  int
 
-	caps     map[int]int
-	capnames map[string]int
+	caps             map[int]int
+	capnames         map[string]int
+	explicitcapnames []string
 
 	capnumlist  []int
 	capnamelist []string
@@ -167,13 +168,14 @@ func Parse(re string, op RegexOptions) (*RegexTree, error) {
 		return nil, err
 	}
 	tree := &RegexTree{
-		root:       root,
-		caps:       p.caps,
-		capnumlist: p.capnumlist,
-		captop:     p.captop,
-		Capnames:   p.capnames,
-		Caplist:    p.capnamelist,
-		options:    op,
+		root:             root,
+		caps:             p.caps,
+		capnumlist:       p.capnumlist,
+		captop:           p.captop,
+		Capnames:         p.capnames,
+		explicitcapnames: p.explicitcapnames,
+		Caplist:          p.capnamelist,
+		options:          op,
 	}
 
 	if tree.options&Debug > 0 {
@@ -221,6 +223,10 @@ func (p *parser) noteCaptureName(name string, pos int) {
 		p.capnames[name] = pos
 		p.capnamelist = append(p.capnamelist, name)
 	}
+}
+
+func (p *parser) noteCaptureExplicitName(name string) {
+	p.explicitcapnames = append(p.explicitcapnames, name)
 }
 
 func (p *parser) assignNameSlots() {
@@ -333,6 +339,7 @@ func (p *parser) countCaptures() error {
 
 		case '(':
 			if p.charsRight() >= 2 && p.rightChar(1) == '#' && p.rightChar(0) == '?' {
+				// comment (?#...)
 				p.moveLeft()
 				p.scanBlank()
 			} else {
@@ -354,8 +361,11 @@ func (p *parser) countCaptures() error {
 									return err
 								}
 								p.noteCaptureSlot(dec, pos)
+								p.noteCaptureExplicitName(strconv.Itoa(dec))
 							} else {
-								p.noteCaptureName(p.scanCapname(), pos)
+								name := p.scanCapname()
+								p.noteCaptureName(name, pos)
+								p.noteCaptureExplicitName(name)
 							}
 						}
 					} else if p.useRE2() && p.charsRight() > 2 && (p.rightChar(0) == 'P' && p.rightChar(1) == '<') {
@@ -363,7 +373,9 @@ func (p *parser) countCaptures() error {
 						p.moveRight(2)
 						ch = p.rightChar(0)
 						if IsWordChar(ch) {
-							p.noteCaptureName(p.scanCapname(), pos)
+							name := p.scanCapname()
+							p.noteCaptureName(name, pos)
+							p.noteCaptureExplicitName(name)
 						}
 
 					} else {
