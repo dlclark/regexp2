@@ -8,13 +8,14 @@ import (
 )
 
 type RegexTree struct {
-	root       *regexNode
-	caps       map[int]int
-	capnumlist []int
-	captop     int
-	Capnames   map[string]int
-	Caplist    []string
-	options    RegexOptions
+	root             *regexNode
+	caps             map[int]int
+	capnumlist       []int
+	captop           int
+	Capnames         map[string]int
+	explicitcapnames []string
+	Caplist          []string
+	options          RegexOptions
 }
 
 // It is built into a parsed tree for a regular expression.
@@ -614,6 +615,12 @@ func (n *regexNode) description() string {
 }
 
 var padSpace = []byte("                                ")
+
+func (t *RegexTree) GetExplicitlyNamedCaptureGroups() []string {
+	result := make([]string, len(t.explicitcapnames))
+	copy(result, t.explicitcapnames)
+	return result
+}
 
 func (t *RegexTree) Dump() string {
 	return t.root.dump()
