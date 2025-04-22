@@ -853,6 +853,89 @@ func TestECMANamedGroup(t *testing.T) {
 	}
 }
 
+func TestECMAGroupNameUnicode(t *testing.T) {
+	t.Run("unicode-escape", func(t *testing.T) {
+		re := MustCompile(`(?<\u03C0>a)`, ECMAScript)
+		names := re.GetGroupNames()
+		if len(names) != 2 || names[1] != "π" {
+			t.Fatalf("Group names: %v", names)
+		}
+	})
+
+	t.Run("extended-unicode-escape", func(t *testing.T) {
+		re := MustCompile(`(?<\u{03C0}>a)`, ECMAScript|Unicode)
+		names := re.GetGroupNames()
+		if len(names) != 2 || names[1] != "π" {
+			t.Fatalf("Group names: %v", names)
+		}
+		m, err := re.FindStringMatch("bab")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m == nil {
+			t.Fatal("Expected match")
+		}
+		if g := m.GroupByName("π"); g != nil {
+			if s := g.Capture.String(); s != "a" {
+				t.Fatalf("Group capture != a ('%s')", s)
+			}
+		} else {
+			t.Fatal("No group capture by name")
+		}
+		if g := m.GroupByNumber(1); g != nil {
+			if s := g.Capture.String(); s != "a" {
+				t.Fatalf("Group capture != a ('%s')", s)
+			}
+		} else {
+			t.Fatal("No group capture by number")
+		}
+	})
+
+	t.Run("invalid-escape-x", func(t *testing.T) {
+		_, err := Compile(`(?<\x68>>a)`, ECMAScript)
+		if err == nil {
+			t.Fatal("Expected error")
+		}
+	})
+
+	t.Run("invalid-escape-u", func(t *testing.T) {
+		_, err := Compile(`(?<\ubob>>a)`, ECMAScript)
+		if err == nil {
+			t.Fatal("Expected error")
+		}
+	})
+
+	t.Run("duplicate-name", func(t *testing.T) {
+		_, err := Compile(`(?<a>a)(?<a>a)`, ECMAScript)
+		if err == nil {
+			t.Fatal("Expected error")
+		}
+	})
+
+}
+
+func TestECMANamedGroupNumberAssignment(t *testing.T) {
+	re := MustCompile(`(.)(?<x>a)(?<y>\1)(\k<x>)`, ECMAScript)
+	m, err := re.FindStringMatch("baba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m == nil {
+		t.Fatal("Expected match")
+	}
+	groups := m.Groups()
+	if len(groups) != 5 {
+		t.Fatalf("Groups: %v", groups)
+	}
+	if groups[0].Name != "0" || groups[0].Index != 0 || groups[0].String() != "baba" {
+		t.Fatalf("Groups[0]: %v", groups[0])
+	}
+
+	for _, group := range m.Groups() {
+		t.Log(group.Index, group.Name, group.String())
+	}
+}
+
 func TestECMAInvalidEscapeCharClass(t *testing.T) {
 	re := MustCompile(`[\x0]`, ECMAScript)
 	if m, err := re.MatchString("x"); err != nil {
