@@ -354,6 +354,15 @@ func IsECMAWordChar(r rune) bool {
 	//return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_'
 }
 
+func IsECMAIdentifierStartChar(r rune) bool {
+	return r == '$' || r == '_' || unicode.In(r, unicode.L, unicode.Nl, unicode.Other_ID_Start)
+}
+
+func IsECMAIdentifierChar(r rune) bool {
+	return IsECMAIdentifierStartChar(r) || r == '\u200C' || r == '\u200D' ||
+		unicode.In(r, unicode.Mn, unicode.Mc, unicode.Nd, unicode.Pc, unicode.Other_ID_Continue)
+}
+
 // SingletonChar will return the char from the first range without validation.
 // It assumes you have checked for IsSingleton or IsSingletonInverse and will panic given bad input
 func (c CharSet) SingletonChar() rune {
