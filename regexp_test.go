@@ -855,10 +855,15 @@ func TestECMANamedGroup(t *testing.T) {
 
 func TestECMAGroupNameUnicode(t *testing.T) {
 	t.Run("unicode-escape", func(t *testing.T) {
-		re := MustCompile(`(?<\u03C0>a)`, ECMAScript)
+		const RE = `(?<\u03C0>a)`
+		re := MustCompile(RE, ECMAScript)
 		names := re.GetGroupNames()
 		if len(names) != 2 || names[1] != "π" {
 			t.Fatalf("Group names: %v", names)
+		}
+		_, err := Compile(RE, 0)
+		if err == nil {
+			t.Fatal("Expected error")
 		}
 	})
 
@@ -906,9 +911,14 @@ func TestECMAGroupNameUnicode(t *testing.T) {
 	})
 
 	t.Run("duplicate-name", func(t *testing.T) {
-		_, err := Compile(`(?<a>a)(?<a>a)`, ECMAScript)
+		const RE = `(?<a>a)(?<a>a)`
+		_, err := Compile(RE, ECMAScript)
 		if err == nil {
 			t.Fatal("Expected error")
+		}
+		_, err = Compile(RE, 0)
+		if err != nil {
+			t.Fatal(err)
 		}
 	})
 
@@ -927,12 +937,20 @@ func TestECMANamedGroupNumberAssignment(t *testing.T) {
 	if len(groups) != 5 {
 		t.Fatalf("Groups: %v", groups)
 	}
-	if groups[0].Name != "0" || groups[0].Index != 0 || groups[0].String() != "baba" {
+	if groups[0].Name != "" || groups[0].Index != 0 || groups[0].String() != "baba" {
 		t.Fatalf("Groups[0]: %v", groups[0])
 	}
-
-	for _, group := range m.Groups() {
-		t.Log(group.Index, group.Name, group.String())
+	if groups[1].Name != "" || groups[1].Index != 0 || groups[1].String() != "b" {
+		t.Fatalf("Groups[1]: %v", groups[1])
+	}
+	if groups[2].Name != "x" || groups[2].Index != 1 || groups[2].String() != "a" {
+		t.Fatalf("Groups[2]: %v", groups[1])
+	}
+	if groups[3].Name != "y" || groups[3].Index != 2 || groups[3].String() != "b" {
+		t.Fatalf("Groups[3]: %v", groups[3])
+	}
+	if groups[4].Name != "" || groups[4].Index != 3 || groups[4].String() != "a" {
+		t.Fatalf("Groups[4]: %v", groups[4])
 	}
 }
 
