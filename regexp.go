@@ -46,9 +46,8 @@ type Regexp struct {
 
 	code *syntax.Code // compiled program
 
-	// cache of machines for running regexp
-	muRun  *sync.Mutex
-	runner []*runner
+	// cache of machines for running regexp -- uses sync.Pool for lock-free fast path
+	runnerPool sync.Pool
 }
 
 // Compile parses a regular expression and returns, if successful,
@@ -76,7 +75,6 @@ func Compile(expr string, opt RegexOptions) (*Regexp, error) {
 		capsize:      code.Capsize,
 		code:         code,
 		MatchTimeout: DefaultMatchTimeout,
-		muRun:        &sync.Mutex{},
 	}, nil
 }
 
@@ -185,6 +183,70 @@ func (re *Regexp) FindStringMatch(s string) (*Match, error) {
 // FindRunesMatch searches the input rune slice for a Regexp match
 func (re *Regexp) FindRunesMatch(r []rune) (*Match, error) {
 	return re.run(false, -1, r)
+}
+
+// FindStringMatchIndices returns all matches as [start,end) rune offsets.
+//
+// Unlike repeated FindStringMatch/FindNextMatch calls, this method reuses a
+// single internal match object for the full scan to reduce allocation churn.
+func (re *Regexp) FindStringMatchIndices(s string) ([][2]int, error) {
+	return re.FindRunesMatchIndicesInto(getRunes(s), nil)
+}
+
+// FindRunesMatchIndices returns all matches as [start,end) rune offsets.
+func (re *Regexp) FindRunesMatchIndices(input []rune) ([][2]int, error) {
+	return re.FindRunesMatchIndicesInto(input, nil)
+}
+
+// FindStringMatchIndicesInto appends match ranges into dst and returns it.
+func (re *Regexp) FindStringMatchIndicesInto(s string, dst [][2]int) ([][2]int, error) {
+	return re.FindRunesMatchIndicesInto(getRunes(s), dst)
+}
+
+// FindRunesMatchIndicesInto appends match ranges into dst and returns it.
+func (re *Regexp) FindRunesMatchIndicesInto(input []rune, dst [][2]int) ([][2]int, error) {
+	startAt := 0
+	if re.RightToLeft() {
+		startAt = len(input)
+	}
+
+	runner := re.getRunner()
+	defer re.putRunner(runner)
+
+	if dst == nil {
+		dst = make([][2]int, 0, 8)
+	} else {
+		dst = dst[:0]
+	}
+	for {
+		m, err := runner.scan(input, startAt, true, re.MatchTimeout)
+		if err != nil {
+			return nil, err
+		}
+		if m == nil {
+			return dst, nil
+		}
+
+		dst = append(dst, [2]int{m.Index, m.Index + m.Length})
+
+		startAt = m.textpos
+		if m.Length != 0 {
+			continue
+		}
+
+		if re.RightToLeft() {
+			if startAt == 0 {
+				return dst, nil
+			}
+			startAt--
+			continue
+		}
+
+		if startAt == len(input) {
+			return dst, nil
+		}
+		startAt++
+	}
 }
 
 // FindStringMatchStartingAt searches the input string for a Regexp match starting at the startAt index

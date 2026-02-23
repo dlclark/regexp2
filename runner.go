@@ -14,8 +14,9 @@ import (
 )
 
 type runner struct {
-	re   *Regexp
-	code *syntax.Code
+	re    *Regexp
+	code  *syntax.Code
+	debug bool
 
 	runtextstart int // starting point for search
 
@@ -103,6 +104,7 @@ func (re *Regexp) run(quick bool, textstart int, input []rune) (*Match, error) {
 func (r *runner) scan(rt []rune, textstart int, quick bool, timeout time.Duration) (*Match, error) {
 	r.timeout = timeout
 	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
+	r.debug = r.re.Debug()
 	r.runtextstart = textstart
 	r.runtext = rt
 	r.runtextend = len(rt)
@@ -120,15 +122,17 @@ func (r *runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 
 	r.startTimeoutWatch()
 	for {
-		if r.re.Debug() {
+		if r.debug {
 			//fmt.Printf("\nSearch content: %v\n", string(r.runtext))
 			fmt.Printf("\nSearch range: from 0 to %v\n", r.runtextend)
 			fmt.Printf("Firstchar search starting at %v stopping at %v\n", r.runtextpos, stoppos)
 		}
 
 		if r.findFirstChar() {
-			if err := r.checkTimeout(); err != nil {
-				return nil, err
+			if !r.ignoreTimeout {
+				if err := r.checkTimeout(); err != nil {
+					return nil, err
+				}
 			}
 
 			if !initted {
@@ -136,7 +140,7 @@ func (r *runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 				initted = true
 			}
 
-			if r.re.Debug() {
+			if r.debug {
 				fmt.Printf("Executing engine starting at %v\n\n", r.runtextpos)
 			}
 
@@ -177,12 +181,14 @@ func (r *runner) execute() error {
 
 	for {
 
-		if r.re.Debug() {
+		if r.debug {
 			r.dumpState()
 		}
 
-		if err := r.checkTimeout(); err != nil {
-			return err
+		if !r.ignoreTimeout {
+			if err := r.checkTimeout(); err != nil {
+				return err
+			}
 		}
 
 		switch r.operator {
@@ -1032,7 +1038,7 @@ func (r *runner) backtrack() {
 	newpos := r.runtrack[r.runtrackpos]
 	r.runtrackpos++
 
-	if r.re.Debug() {
+	if r.debug {
 		if newpos < 0 {
 			fmt.Printf("       Backtracking (back2) to code position %v\n", -newpos)
 		} else {
@@ -1145,15 +1151,19 @@ func (r *runner) forwardchars() int {
 }
 
 func (r *runner) forwardcharnext() rune {
-	var ch rune
-	if r.rightToLeft {
-		r.runtextpos--
-		ch = r.runtext[r.runtextpos]
-	} else {
-		ch = r.runtext[r.runtextpos]
+	// Fast path: left-to-right, case-sensitive (the overwhelmingly common case).
+	// Keeping this as the first check with a quick return allows the CPU branch
+	// predictor to stay on the fast path and avoids unnecessary work.
+	if !r.rightToLeft {
+		ch := r.runtext[r.runtextpos]
 		r.runtextpos++
+		if r.caseInsensitive {
+			return unicode.ToLower(ch)
+		}
+		return ch
 	}
-
+	r.runtextpos--
+	ch := r.runtext[r.runtextpos]
 	if r.caseInsensitive {
 		return unicode.ToLower(ch)
 	}
@@ -1320,7 +1330,7 @@ func (r *runner) findFirstChar() bool {
 	r.rightToLeft = r.code.RightToLeft
 	r.caseInsensitive = r.code.FcPrefix.CaseInsensitive
 
-	set := r.code.FcPrefix.PrefixSet
+	set := &r.code.FcPrefix.PrefixSet
 	if set.IsSingleton() {
 		ch := set.SingletonChar()
 		for i := r.forwardchars(); i > 0; i-- {
@@ -1332,7 +1342,6 @@ func (r *runner) findFirstChar() bool {
 	} else {
 		for i := r.forwardchars(); i > 0; i-- {
 			n := r.forwardcharnext()
-			//fmt.Printf("%v in %v: %v\n", string(n), set.String(), set.CharIn(n))
 			if set.CharIn(n) {
 				r.backwardnext()
 				return true
@@ -1373,11 +1382,11 @@ func (r *runner) initMatch() {
 	tracksize := r.runtrackcount * 8
 	stacksize := r.runtrackcount * 8
 
-	if tracksize < 32 {
-		tracksize = 32
+	if tracksize < 64 {
+		tracksize = 64
 	}
-	if stacksize < 16 {
-		stacksize = 16
+	if stacksize < 32 {
+		stacksize = 32
 	}
 
 	r.runtrack = make([]int, tracksize)
@@ -1401,7 +1410,20 @@ func (r *runner) tidyMatch(quick bool) *Match {
 	} else {
 		// send back our match -- it's not leaving the package, so it's safe to not clean it up
 		// this reduces allocs for frequent calls to the "IsMatch" bool-only functions
-		return r.runmatch
+		//
+		// We still need to populate textpos, Index, and Length so that callers like
+		// FindRunesMatchIndices can advance correctly and read match positions.
+		m := r.runmatch
+		if m == nil {
+			return nil
+		}
+		m.textpos = r.runtextpos
+		if m.matchcount[0] > 0 {
+			interval := m.matches[0]
+			m.Index = interval[0]
+			m.Length = interval[1]
+		}
+		return m
 	}
 }
 
@@ -1562,7 +1584,7 @@ func (r *runner) checkTimeout() error {
 		return nil
 	}
 
-	if r.re.Debug() {
+	if r.debug {
 		//Debug.WriteLine("")
 		//Debug.WriteLine("RegEx match timeout occurred!")
 		//Debug.WriteLine("Specified timeout:       " + TimeSpan.FromMilliseconds(_timeout).ToString())
@@ -1579,35 +1601,23 @@ func (r *runner) initTrackCount() {
 	r.runtrackcount = r.code.TrackCount
 }
 
-// getRunner returns a run to use for matching re.
-// It uses the re's runner cache if possible, to avoid
-// unnecessary allocation.
+// getRunner returns a runner to use for matching re.
+// It uses a sync.Pool for lock-free caching on the fast path.
 func (re *Regexp) getRunner() *runner {
-	re.muRun.Lock()
-	if n := len(re.runner); n > 0 {
-		z := re.runner[n-1]
-		re.runner = re.runner[:n-1]
-		re.muRun.Unlock()
-		return z
+	if v := re.runnerPool.Get(); v != nil {
+		return v.(*runner)
 	}
-	re.muRun.Unlock()
-	z := &runner{
+	return &runner{
 		re:   re,
 		code: re.code,
 	}
-	return z
 }
 
-// putRunner returns a runner to the re's cache.
-// There is no attempt to limit the size of the cache, so it will
-// grow to the maximum number of simultaneous matches
-// run using re.  (The cache empties when re gets garbage collected.)
+// putRunner returns a runner to the re's pool cache.
 func (re *Regexp) putRunner(r *runner) {
-	re.muRun.Lock()
 	r.runtext = nil
 	if r.runmatch != nil {
 		r.runmatch.text = nil
 	}
-	re.runner = append(re.runner, r)
-	re.muRun.Unlock()
+	re.runnerPool.Put(r)
 }

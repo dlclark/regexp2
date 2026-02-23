@@ -64,6 +64,35 @@ func regexp2FindAllString(re *regexp2.Regexp, s string) []string {
 
 The internals of `regexp2` always operate on `[]rune` so `Index` and `Length` data in a `Match` always reference a position in `rune`s rather than `byte`s (even if the input was given as a string). This is a dramatic difference between `regexp` and `regexp2`.  It's advisable to use the provided `String()` methods to avoid having to work with indices.
 
+### Zero-allocation rune-based API
+
+Every `string`-based method has a `[]rune` counterpart that avoids the `string` to `[]rune` conversion allocation. If you already have a `[]rune` or can pre-convert once and match many times, prefer these methods for hot paths:
+
+| String API | Rune API (zero-alloc) |
+| --- | --- |
+| `MatchString(s)` | `MatchRunes(r)` |
+| `FindStringMatch(s)` | `FindRunesMatch(r)` |
+| `FindStringMatchStartingAt(s, i)` | `FindRunesMatchStartingAt(r, i)` |
+
+### Bulk match index collection
+
+If you only need match positions (not capture groups), `FindStringMatchIndices` and `FindRunesMatchIndices` return all matches as `[][2]int` pairs of `[start, end)` rune offsets. These methods reuse a single internal runner for the full scan, avoiding per-match allocation overhead:
+
+```go
+re := regexp2.MustCompile(`\b\w+\b`, 0)
+indices, _ := re.FindStringMatchIndices("hello world")
+for _, idx := range indices {
+    fmt.Printf("match at runes [%d, %d)\n", idx[0], idx[1])
+}
+```
+
+For even tighter control over allocations, `FindRunesMatchIndicesInto` lets you pass a pre-allocated destination slice:
+
+```go
+buf := make([][2]int, 0, 64)
+buf, _ = re.FindRunesMatchIndicesInto(input, buf)
+```
+
 ## Compare `regexp` and `regexp2`
 | Category | regexp | regexp2 |
 | --- | --- | --- |
