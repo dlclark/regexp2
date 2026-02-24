@@ -21,6 +21,41 @@ type MatchEvaluator func(Match) string
 // Three very similar algorithms appear below: replace (pattern),
 // replace (evaluator), and split.
 
+// writeRunes writes text[start:end] to buf without allocating an intermediate string.
+func writeRunes(buf *bytes.Buffer, text []rune, start, end int) {
+	for i := start; i < end; i++ {
+		buf.WriteRune(text[i])
+	}
+}
+
+// compactBalancedMatches compacts match data for balanced groups in-place,
+// removing balance markers (negative values). This is the same compaction
+// as Match.tidy() but without the Group.Captures allocation.
+func compactBalancedMatches(m *Match) {
+	for cap := 0; cap < len(m.matchcount); cap++ {
+		limit := m.matchcount[cap] * 2
+		matcharray := m.matches[cap]
+		var i, j int
+		for i = 0; i < limit; i++ {
+			if matcharray[i] < 0 {
+				break
+			}
+		}
+		for j = i; i < limit; i++ {
+			if matcharray[i] < 0 {
+				j--
+			} else {
+				if i != j {
+					matcharray[j] = matcharray[i]
+				}
+				j++
+			}
+		}
+		m.matchcount[cap] = j / 2
+	}
+	m.balancing = false
+}
+
 // Replace Replaces all occurrences of the regex in the string with the
 // replacement pattern.
 //
@@ -34,6 +69,16 @@ func replace(regex *Regexp, data *syntax.ReplacerData, evaluator MatchEvaluator,
 	}
 	if count == 0 {
 		return "", nil
+	}
+
+	// Fast path: pattern replacement (no evaluator) uses the runner directly,
+	// scanning with quick=true to reuse the internal Match object across all
+	// iterations instead of allocating a new one per match.
+	if evaluator == nil {
+		if !regex.RightToLeft() {
+			return replaceRunnerLTR(regex, data, input, startAt, count)
+		}
+		return replaceRunnerRTL(regex, data, input, startAt, count)
 	}
 
 	m, err := regex.FindStringMatchStartingAt(input, startAt)
@@ -52,14 +97,10 @@ func replace(regex *Regexp, data *syntax.ReplacerData, evaluator MatchEvaluator,
 		prevat := 0
 		for m != nil {
 			if m.Index != prevat {
-				buf.WriteString(string(text[prevat:m.Index]))
+				writeRunes(buf, text, prevat, m.Index)
 			}
 			prevat = m.Index + m.Length
-			if evaluator == nil {
-				replacementImpl(data, buf, m)
-			} else {
-				buf.WriteString(evaluator(*m))
-			}
+			buf.WriteString(evaluator(*m))
 
 			count--
 			if count == 0 {
@@ -72,7 +113,7 @@ func replace(regex *Regexp, data *syntax.ReplacerData, evaluator MatchEvaluator,
 		}
 
 		if prevat < len(text) {
-			buf.WriteString(string(text[prevat:]))
+			writeRunes(buf, text, prevat, len(text))
 		}
 	} else {
 		prevat := len(text)
@@ -83,11 +124,7 @@ func replace(regex *Regexp, data *syntax.ReplacerData, evaluator MatchEvaluator,
 				al = append(al, string(text[m.Index+m.Length:prevat]))
 			}
 			prevat = m.Index
-			if evaluator == nil {
-				replacementImplRTL(data, &al, m)
-			} else {
-				al = append(al, evaluator(*m))
-			}
+			al = append(al, evaluator(*m))
 
 			count--
 			if count == 0 {
@@ -106,6 +143,137 @@ func replace(regex *Regexp, data *syntax.ReplacerData, evaluator MatchEvaluator,
 		for i := len(al) - 1; i >= 0; i-- {
 			buf.WriteString(al[i])
 		}
+	}
+
+	return buf.String(), nil
+}
+
+// replaceRunnerLTR handles left-to-right pattern replacement using the runner
+// directly. By scanning with quick=true, the internal Match object is reused
+// across all iterations, eliminating the ~5 allocations per match that
+// FindNextMatch incurs.
+func replaceRunnerLTR(regex *Regexp, data *syntax.ReplacerData, input string, startAt, count int) (string, error) {
+	runner := regex.getRunner()
+	defer regex.putRunner(runner)
+
+	text, runeStart := runner.decodeStringWithStart(input, startAt)
+	if runeStart < 0 {
+		runeStart = 0
+	}
+
+	m, err := runner.scan(text, runeStart, true, regex.MatchTimeout)
+	if err != nil {
+		return "", err
+	}
+	if m == nil {
+		return input, nil
+	}
+
+	buf := &runner.replaceBuf
+	buf.Reset()
+	buf.Grow(len(input))
+
+	prevat := 0
+	for m != nil {
+		if m.balancing {
+			compactBalancedMatches(m)
+		}
+
+		if m.Index != prevat {
+			writeRunes(buf, text, prevat, m.Index)
+		}
+		prevat = m.Index + m.Length
+		replacementImpl(data, buf, m)
+
+		count--
+		if count == 0 {
+			break
+		}
+
+		// Advance past zero-length match
+		scanStart := m.textpos
+		if m.Length == 0 {
+			if scanStart >= len(text) {
+				break
+			}
+			scanStart++
+		}
+
+		m, err = runner.scan(text, scanStart, true, regex.MatchTimeout)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	if prevat < len(text) {
+		writeRunes(buf, text, prevat, len(text))
+	}
+
+	return buf.String(), nil
+}
+
+// replaceRunnerRTL handles right-to-left pattern replacement using the runner directly.
+func replaceRunnerRTL(regex *Regexp, data *syntax.ReplacerData, input string, startAt, count int) (string, error) {
+	runner := regex.getRunner()
+	defer regex.putRunner(runner)
+
+	text, runeStart := runner.decodeStringWithStart(input, startAt)
+	if runeStart < 0 {
+		runeStart = len(text)
+	}
+
+	m, err := runner.scan(text, runeStart, true, regex.MatchTimeout)
+	if err != nil {
+		return "", err
+	}
+	if m == nil {
+		return input, nil
+	}
+
+	buf := &runner.replaceBuf
+	buf.Reset()
+	buf.Grow(len(input))
+
+	prevat := len(text)
+	var al []string
+
+	for m != nil {
+		if m.balancing {
+			compactBalancedMatches(m)
+		}
+
+		if m.Index+m.Length != prevat {
+			al = append(al, string(text[m.Index+m.Length:prevat]))
+		}
+		prevat = m.Index
+		replacementImplRTL(data, &al, m)
+
+		count--
+		if count == 0 {
+			break
+		}
+
+		// Advance past zero-length match
+		scanStart := m.textpos
+		if m.Length == 0 {
+			if scanStart <= 0 {
+				break
+			}
+			scanStart--
+		}
+
+		m, err = runner.scan(text, scanStart, true, regex.MatchTimeout)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	if prevat > 0 {
+		writeRunes(buf, text, 0, prevat)
+	}
+
+	for i := len(al) - 1; i >= 0; i-- {
+		buf.WriteString(al[i])
 	}
 
 	return buf.String(), nil

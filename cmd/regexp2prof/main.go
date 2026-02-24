@@ -64,14 +64,33 @@ func main() {
 	}
 
 	fmt.Printf("running %d workloads, %ds each\n", len(selected), *seconds)
+	fmt.Printf("%-26s %9s %12s %12s %12s %12s %12s\n",
+		"workload", "ops", "ns/op", "ops/s", "B/op", "allocs/op", "heap-B")
+	fmt.Println(strings.Repeat("-", 26+9+12+12+12+12+12+6*1))
 	for _, w := range selected {
+		// snapshot memory before workload
+		runtime.GC()
+		var memBefore runtime.MemStats
+		runtime.ReadMemStats(&memBefore)
+
 		ops, elapsed, err := runForDuration(w, time.Duration(*seconds)*time.Second)
 		if err != nil {
 			log.Fatalf("workload failed for %s: %v", w.name, err)
 		}
+
+		// snapshot memory after workload
+		runtime.GC()
+		var memAfter runtime.MemStats
+		runtime.ReadMemStats(&memAfter)
+
 		nsPerOp := float64(elapsed.Nanoseconds()) / float64(ops)
 		opsPerSec := float64(ops) / elapsed.Seconds()
-		fmt.Printf("%-26s ops=%9d ns/op=%12.1f ops/s=%12.0f\n", w.name, ops, nsPerOp, opsPerSec)
+		allocBytes := memAfter.TotalAlloc - memBefore.TotalAlloc
+		allocCount := memAfter.Mallocs - memBefore.Mallocs
+		bytesPerOp := float64(allocBytes) / float64(ops)
+		allocsPerOp := float64(allocCount) / float64(ops)
+		fmt.Printf("%-26s %9d %12.1f %12.0f %12.1f %12.1f %12d\n",
+			w.name, ops, nsPerOp, opsPerSec, bytesPerOp, allocsPerOp, memAfter.HeapInuse)
 	}
 
 	if cpuFile != nil {

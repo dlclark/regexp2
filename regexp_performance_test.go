@@ -10,6 +10,7 @@ func BenchmarkLiteral(b *testing.B) {
 	x := strings.Repeat("x", 50) + "y"
 	b.StopTimer()
 	re := MustCompile("y", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchString(x); !m || err != nil {
@@ -22,6 +23,7 @@ func BenchmarkNotLiteral(b *testing.B) {
 	x := strings.Repeat("x", 50) + "y"
 	b.StopTimer()
 	re := MustCompile(".y", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchString(x); !m || err != nil {
@@ -34,6 +36,7 @@ func BenchmarkMatchClass(b *testing.B) {
 	b.StopTimer()
 	x := strings.Repeat("xxxx", 20) + "w"
 	re := MustCompile("[abcdw]", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchString(x); !m || err != nil {
@@ -49,6 +52,7 @@ func BenchmarkMatchClass_InRange(b *testing.B) {
 	// range checking is no help here.
 	x := strings.Repeat("bbbb", 20) + "c"
 	re := MustCompile("[ac]", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchString(x); !m || err != nil {
@@ -74,6 +78,7 @@ func BenchmarkAnchoredLiteralShortNonMatch(b *testing.B) {
 	b.StopTimer()
 	x := "abcdefghijklmnopqrstuvwxyz"
 	re := MustCompile("^zbc(d|e)", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchString(x); m || err != nil {
@@ -94,6 +99,7 @@ func BenchmarkAnchoredLiteralLongNonMatch(b *testing.B) {
 	}
 
 	re := MustCompile("^zbc(d|e)", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchRunes(x); m || err != nil {
@@ -106,6 +112,7 @@ func BenchmarkAnchoredShortMatch(b *testing.B) {
 	b.StopTimer()
 	x := "abcdefghijklmnopqrstuvwxyz"
 	re := MustCompile("^.bc(d|e)", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchString(x); !m || err != nil {
@@ -125,6 +132,7 @@ func BenchmarkAnchoredLongMatch(b *testing.B) {
 	}
 
 	re := MustCompile("^.bc(d|e)", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchRunes(x); !m || err != nil {
@@ -137,6 +145,7 @@ func BenchmarkOnePassShortA(b *testing.B) {
 	b.StopTimer()
 	x := "abcddddddeeeededd"
 	re := MustCompile("^.bc(d|e)*$", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchString(x); !m || err != nil {
@@ -149,6 +158,7 @@ func BenchmarkNotOnePassShortA(b *testing.B) {
 	b.StopTimer()
 	x := "abcddddddeeeededd"
 	re := MustCompile(".bc(d|e)*$", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchString(x); !m || err != nil {
@@ -161,6 +171,7 @@ func BenchmarkOnePassShortB(b *testing.B) {
 	b.StopTimer()
 	x := "abcddddddeeeededd"
 	re := MustCompile("^.bc(?:d|e)*$", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchString(x); !m || err != nil {
@@ -173,6 +184,7 @@ func BenchmarkNotOnePassShortB(b *testing.B) {
 	b.StopTimer()
 	x := "abcddddddeeeededd"
 	re := MustCompile(".bc(?:d|e)*$", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchString(x); !m || err != nil {
@@ -185,6 +197,7 @@ func BenchmarkOnePassLongPrefix(b *testing.B) {
 	b.StopTimer()
 	x := "abcdefghijklmnopqrstuvwxyz"
 	re := MustCompile("^abcdefghijklmnopqrstuvwxyz.*$", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchString(x); !m || err != nil {
@@ -197,6 +210,7 @@ func BenchmarkOnePassLongNotPrefix(b *testing.B) {
 	b.StopTimer()
 	x := "abcdefghijklmnopqrstuvwxyz"
 	re := MustCompile("^.bcdefghijklmnopqrstuvwxyz.*$", 0)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := re.MatchString(x); !m || err != nil {
@@ -231,6 +245,7 @@ func makeText(n int) []rune {
 func benchmark(b *testing.B, re string, n int) {
 	r := MustCompile(re, 0)
 	t := makeText(n)
+	b.ReportAllocs()
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
@@ -299,6 +314,7 @@ func BenchmarkLeading(b *testing.B) {
 	b.StopTimer()
 	r := MustCompile("[a-q][^u-z]{13}x", 0)
 	inp := makeText(1000000)
+	b.ReportAllocs()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if m, err := r.MatchRunes(inp); !m {
@@ -329,6 +345,7 @@ func BenchmarkShortSearch(b *testing.B) {
 	} {
 		b.Run(mode.name, func(b *testing.B) {
 			t := makeText(100)
+			b.ReportAllocs()
 			b.SetBytes(int64(len(t)))
 			matchOnce := func(r *Regexp) {
 				if m, err := r.MatchRunes(t); m {

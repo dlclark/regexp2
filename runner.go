@@ -59,6 +59,17 @@ type runner struct {
 
 	runmatch *Match // result object
 
+	// runeBuf is a reusable buffer for string→[]rune conversion in quick-path
+	// methods (MatchString, FindStringMatchIndices, Replace). The buffer is
+	// retained across calls via the runner pool, so only the first call allocates.
+	// SAFETY: only used when the caller will NOT return a Match to the user
+	// (since the Match's text field would alias this mutable buffer).
+	runeBuf []rune
+
+	// replaceBuf is a reusable bytes.Buffer for building replacement strings.
+	// Retained across calls via the runner pool to avoid repeated allocation.
+	replaceBuf bytes.Buffer
+
 	ignoreTimeout bool
 	timeout       time.Duration // timeout in milliseconds (needed for actual)
 	deadline      fasttime
@@ -1599,6 +1610,44 @@ func (r *runner) checkTimeout() error {
 
 func (r *runner) initTrackCount() {
 	r.runtrackcount = r.code.TrackCount
+}
+
+// decodeString converts s to []rune using the runner's reusable buffer.
+// The returned slice is only valid until the next call to decodeString
+// or decodeStringWithStart.
+func (r *runner) decodeString(s string) []rune {
+	if cap(r.runeBuf) < len(s) {
+		// len(s) is an upper bound on rune count (runes <= bytes).
+		r.runeBuf = make([]rune, len(s))
+	}
+	n := 0
+	for _, ch := range s {
+		r.runeBuf[n] = ch
+		n++
+	}
+	return r.runeBuf[:n]
+}
+
+// decodeStringWithStart converts s to []rune using the reusable buffer and
+// maps a byte-offset startAt to the corresponding rune index. If startAt < 0,
+// runeStart is returned as -1 (caller should map based on direction).
+func (r *runner) decodeStringWithStart(s string, startAt int) (runes []rune, runeStart int) {
+	if cap(r.runeBuf) < len(s) {
+		r.runeBuf = make([]rune, len(s))
+	}
+	n := 0
+	runeStart = -1
+	for strIdx, ch := range s {
+		if startAt >= 0 && strIdx == startAt {
+			runeStart = n
+		}
+		r.runeBuf[n] = ch
+		n++
+	}
+	if startAt >= 0 && startAt == len(s) {
+		runeStart = n
+	}
+	return r.runeBuf[:n], runeStart
 }
 
 // getRunner returns a runner to use for matching re.

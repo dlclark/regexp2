@@ -48,6 +48,10 @@ type Regexp struct {
 
 	// cache of machines for running regexp -- uses sync.Pool for lock-free fast path
 	runnerPool sync.Pool
+
+	// cache of parsed replacement patterns keyed by replacement string.
+	// ReplacerData is immutable once created, so concurrent reads are safe.
+	replaceCache sync.Map // map[string]*syntax.ReplacerData
 }
 
 // Compile parses a regular expression and returns, if successful,
@@ -157,13 +161,27 @@ func (re *Regexp) Debug() bool {
 // us to skip past possible matches at the start of the input (left or right depending on RightToLeft option).
 // Set startAt and count to -1 to go through the whole string
 func (re *Regexp) Replace(input, replacement string, startAt, count int) (string, error) {
-	data, err := syntax.NewReplacerData(replacement, re.caps, re.capsize, re.capnames, syntax.RegexOptions(re.options))
+	data, err := re.getReplacerData(replacement)
 	if err != nil {
 		return "", err
 	}
-	//TODO: cache ReplacerData
 
 	return replace(re, data, nil, input, startAt, count)
+}
+
+// getReplacerData returns a cached ReplacerData for the given replacement
+// string, parsing it on first use. ReplacerData is immutable once created.
+func (re *Regexp) getReplacerData(replacement string) (*syntax.ReplacerData, error) {
+	if v, ok := re.replaceCache.Load(replacement); ok {
+		return v.(*syntax.ReplacerData), nil
+	}
+	data, err := syntax.NewReplacerData(replacement, re.caps, re.capsize, re.capnames, syntax.RegexOptions(re.options))
+	if err != nil {
+		return nil, err
+	}
+	// Store-or-load to handle concurrent first-call; either way we get a valid *ReplacerData.
+	v, _ := re.replaceCache.LoadOrStore(replacement, data)
+	return v.(*syntax.ReplacerData), nil
 }
 
 // ReplaceFunc searches the input string and replaces each match found using the string from the evaluator
@@ -190,7 +208,10 @@ func (re *Regexp) FindRunesMatch(r []rune) (*Match, error) {
 // Unlike repeated FindStringMatch/FindNextMatch calls, this method reuses a
 // single internal match object for the full scan to reduce allocation churn.
 func (re *Regexp) FindStringMatchIndices(s string) ([][2]int, error) {
-	return re.FindRunesMatchIndicesInto(getRunes(s), nil)
+	// Use the runner's pooled rune buffer to avoid a per-call []rune allocation.
+	runner := re.getRunner()
+	defer re.putRunner(runner)
+	return re.findMatchIndicesWithRunner(runner, runner.decodeString(s), nil)
 }
 
 // FindRunesMatchIndices returns all matches as [start,end) rune offsets.
@@ -200,18 +221,25 @@ func (re *Regexp) FindRunesMatchIndices(input []rune) ([][2]int, error) {
 
 // FindStringMatchIndicesInto appends match ranges into dst and returns it.
 func (re *Regexp) FindStringMatchIndicesInto(s string, dst [][2]int) ([][2]int, error) {
-	return re.FindRunesMatchIndicesInto(getRunes(s), dst)
+	runner := re.getRunner()
+	defer re.putRunner(runner)
+	return re.findMatchIndicesWithRunner(runner, runner.decodeString(s), dst)
 }
 
 // FindRunesMatchIndicesInto appends match ranges into dst and returns it.
 func (re *Regexp) FindRunesMatchIndicesInto(input []rune, dst [][2]int) ([][2]int, error) {
+	runner := re.getRunner()
+	defer re.putRunner(runner)
+	return re.findMatchIndicesWithRunner(runner, input, dst)
+}
+
+// findMatchIndicesWithRunner is the shared implementation for FindStringMatchIndices
+// and FindRunesMatchIndicesInto. The caller must provide a runner (and defer putRunner).
+func (re *Regexp) findMatchIndicesWithRunner(runner *runner, input []rune, dst [][2]int) ([][2]int, error) {
 	startAt := 0
 	if re.RightToLeft() {
 		startAt = len(input)
 	}
-
-	runner := re.getRunner()
-	defer re.putRunner(runner)
 
 	if dst == nil {
 		dst = make([][2]int, 0, 8)
@@ -295,7 +323,19 @@ func (re *Regexp) FindNextMatch(m *Match) (*Match, error) {
 // MatchString return true if the string matches the regex
 // error will be set if a timeout occurs
 func (re *Regexp) MatchString(s string) (bool, error) {
-	m, err := re.run(true, -1, getRunes(s))
+	// Use the runner's pooled rune buffer to avoid allocating a new []rune
+	// every call. This is safe because MatchString never returns the Match
+	// to the caller (quick=true), so no one holds a reference to the buffer.
+	runner := re.getRunner()
+	defer re.putRunner(runner)
+
+	runes := runner.decodeString(s)
+	textstart := 0
+	if re.RightToLeft() {
+		textstart = len(runes)
+	}
+
+	m, err := runner.scan(runes, textstart, true, re.MatchTimeout)
 	if err != nil {
 		return false, err
 	}
