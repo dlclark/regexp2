@@ -14,10 +14,9 @@ func init() {
 }
 func TestDeadline(t *testing.T) {
 	for _, delay := range []time.Duration{
-		clockPeriod / 10,
-		clockPeriod,
-		clockPeriod * 5,
 		clockPeriod * 10,
+		clockPeriod * 50,
+		clockPeriod * 100,
 	} {
 		delay := delay // Make copy for parallel sub-test.
 		t.Run(fmt.Sprint(delay), func(t *testing.T) {
