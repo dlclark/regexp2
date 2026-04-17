@@ -23,5 +23,8 @@ _testmain.go
 *.test
 *.prof
 *.out
+*.pprof
 
 .DS_Store
+.bench/
+regexp2prof

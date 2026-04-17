@@ -16,6 +16,17 @@ type CharSet struct {
 	sub        *CharSet //optional subtractor
 	negate     bool
 	anything   bool
+
+	// ASCII fast-path bitmap, lazily allocated on first CharIn call.
+	// Kept as a pointer so the CharSet value stays small during compilation
+	// where CharSets are copied frequently.
+	ascii *asciiBitmap
+}
+
+// asciiBitmap is a 128-bit bitmap covering ASCII chars 0-127.
+// bits[ch/64] has bit (ch%64) set if ch is in the character set.
+type asciiBitmap struct {
+	bits [2]uint64
 }
 
 type category struct {
@@ -226,20 +237,68 @@ func (c CharSet) mapHashFill(buf *bytes.Buffer) {
 	}
 }
 
+// buildASCIIBitmap precomputes a 128-bit bitmap covering ASCII (0-127).
+// For each ASCII char, it evaluates full membership (ranges + categories + negate + sub)
+// and sets the corresponding bit. This makes subsequent ASCII lookups O(1).
+func (c *CharSet) buildASCIIBitmap() {
+	bm := &asciiBitmap{}
+	for i := rune(0); i < 128; i++ {
+		if c.charInSlow(i) {
+			bm.bits[i/64] |= 1 << (uint(i) % 64)
+		}
+	}
+	c.ascii = bm
+}
+
 // CharIn returns true if the rune is in our character set (either ranges or categories).
 // It handles negations and subtracted sub-charsets.
-func (c CharSet) CharIn(ch rune) bool {
+func (c *CharSet) CharIn(ch rune) bool {
+	// ASCII fast-path: use precomputed bitmap
+	if ch < 128 {
+		if c.ascii == nil {
+			c.buildASCIIBitmap()
+		}
+		return (c.ascii.bits[ch/64] & (1 << (uint(ch) % 64))) != 0
+	}
+
+	return c.charInSlow(ch)
+}
+
+// charInSlow is the full evaluation path used for non-ASCII characters
+// and also to build the ASCII bitmap.
+func (c *CharSet) charInSlow(ch rune) bool {
 	val := false
 	// in s && !s.subtracted
 
-	//check ranges
-	for _, r := range c.ranges {
-		if ch < r.first {
-			continue
-		}
-		if ch <= r.last {
-			val = true
-			break
+	//check ranges -- binary search for sets with many ranges, linear for small sets
+	n := len(c.ranges)
+	if n > 0 {
+		if n <= 4 {
+			// linear scan for small sets (avoids function call overhead)
+			for _, r := range c.ranges {
+				if ch < r.first {
+					break
+				}
+				if ch <= r.last {
+					val = true
+					break
+				}
+			}
+		} else {
+			// binary search: find the last range where first <= ch
+			lo, hi := 0, n
+			for lo < hi {
+				mid := int(uint(lo+hi) >> 1)
+				if c.ranges[mid].first <= ch {
+					lo = mid + 1
+				} else {
+					hi = mid
+				}
+			}
+			// lo-1 is the index of the last range with first <= ch (if any)
+			if lo > 0 && ch <= c.ranges[lo-1].last {
+				val = true
+			}
 		}
 	}
 
