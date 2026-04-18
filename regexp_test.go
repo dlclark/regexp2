@@ -1266,6 +1266,36 @@ func TestFuzzBytes_Match(t *testing.T) {
 	}
 }
 
+func TestIssue37FuzzBytes_NoPanic(t *testing.T) {
+	// Regression test for #37: these fuzzed ECMAScript inputs used to panic.
+	var testCases = []struct {
+		r, s []byte
+	}{
+		{
+			r: []byte{0x30, 0x28, 0x3f, 0x3e, 0x28, 0x29, 0x2b, 0x3f, 0x30, 0x29, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x77},
+			s: []byte{0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30},
+		},
+		{
+			r: []byte{0x28, 0x3f, 0x3e, 0x28, 0x3f, 0x3e, 0x29, 0x2b, 0x3f, 0x3e, 0x29, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30},
+			s: []byte{0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x3e, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30},
+		},
+	}
+
+	for _, c := range testCases {
+		r := string(c.r)
+		t.Run(r, func(t *testing.T) {
+			re, err := Compile(r, ECMAScript)
+			if err != nil {
+				t.Fatalf("should compile, but got %v", err)
+			}
+
+			if _, err := re.FindStringMatch(string(c.s)); err != nil {
+				t.Fatalf("unexpected match error: %v", err)
+			}
+		})
+	}
+}
+
 func TestConcatAccidentalPatternCharge(t *testing.T) {
 	// originally this pattern would parse incorrectly
 	// specifically the closing group would concat the string literals
@@ -1374,5 +1404,45 @@ func TestRegexpECMAScriptWithSingleline(t *testing.T) {
 	re = MustCompile(`.`, ECMAScript|Singleline)
 	if isMatch, _ := re.MatchString("\n"); !isMatch {
 		t.Fatal("Expected match")
+	}
+}
+
+func TestIssue34LazyEmptyLoopFindNextMatchTerminates(t *testing.T) {
+	re := MustCompile(`((?:0*)+?(?:.*)+?)?`, 0)
+	input := "0\xfd"
+
+	type matchRange struct {
+		index  int
+		length int
+	}
+
+	var got []matchRange
+	m, err := re.FindStringMatch(input)
+	for i := 0; m != nil; i++ {
+		if err != nil {
+			t.Fatalf("unexpected match error: %v", err)
+		}
+		got = append(got, matchRange{index: m.Index, length: m.Length})
+		if i > len([]rune(input))+1 {
+			t.Fatalf("FindNextMatch did not terminate; matches so far: %#v", got)
+		}
+
+		m, err = re.FindNextMatch(m)
+	}
+	if err != nil {
+		t.Fatalf("unexpected match error: %v", err)
+	}
+
+	want := []matchRange{
+		{index: 0, length: 2},
+		{index: 2, length: 0},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("match count mismatch: want %#v, got %#v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("match %d mismatch: want %#v, got %#v", i, want[i], got[i])
+		}
 	}
 }
