@@ -1048,7 +1048,11 @@ func TestMono_Basics(t *testing.T) {
 
 func runRegexTrial(t *testing.T, pattern string, options RegexOptions, input, expected string) {
 	result := ""
-
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("Panic! Pattern: %v with options %v -- expected %v -- %v", pattern, options, expected, r)
+		}
+	}()
 	re, err := Compile(pattern, options)
 	if err != nil {
 		if expected != "Error." {

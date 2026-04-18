@@ -3,7 +3,6 @@ package syntax
 import (
 	"fmt"
 	"math"
-	"os"
 	"sort"
 	"strconv"
 	"unicode"
@@ -115,11 +114,11 @@ func (e ErrorCode) String() string {
 }
 
 type parser struct {
-	stack         *regexNode
-	group         *regexNode
-	alternation   *regexNode
-	concatenation *regexNode
-	unit          *regexNode
+	stack         *RegexNode
+	group         *RegexNode
+	alternation   *RegexNode
+	concatenation *RegexNode
+	unit          *RegexNode
 
 	patternRaw string
 	pattern    []rune
@@ -167,18 +166,15 @@ func Parse(re string, op RegexOptions) (*RegexTree, error) {
 		return nil, err
 	}
 	tree := &RegexTree{
-		root:       root,
-		caps:       p.caps,
-		capnumlist: p.capnumlist,
-		captop:     p.captop,
+		Root:       root,
+		Caps:       p.caps,
+		Capnumlist: p.capnumlist,
+		Captop:     p.captop,
 		Capnames:   p.capnames,
 		Caplist:    p.capnamelist,
-		options:    op,
+		Options:    op,
 	}
-
-	if tree.options&Debug > 0 {
-		os.Stdout.WriteString(tree.Dump())
-	}
+	tree.FindOptimizations = newFindOptimizations(tree, op)
 
 	return tree, nil
 }
@@ -416,11 +412,11 @@ func (p *parser) reset(topopts RegexOptions) {
 	p.stack = nil
 }
 
-func (p *parser) scanRegex() (*regexNode, error) {
+func (p *parser) scanRegex() (*RegexNode, error) {
 	ch := '@' // nonspecial ch, means at beginning
 	isQuant := false
 
-	p.startGroup(newRegexNodeMN(ntCapture, p.options, 0, -1))
+	p.startGroup(newRegexNodeMN(NtCapture, p.options, 0, -1))
 
 	for p.charsRight() > 0 {
 		wasPrevQuantifier := isQuant
@@ -540,16 +536,21 @@ func (p *parser) scanRegex() (*regexNode, error) {
 
 		case '^':
 			if p.useOptionM() {
-				p.addUnitType(ntBol)
+				p.addUnitType(NtBol)
 			} else {
-				p.addUnitType(ntBeginning)
+				p.addUnitType(NtBeginning)
 			}
 
 		case '$':
 			if p.useOptionM() {
-				p.addUnitType(ntEol)
+				p.addUnitType(NtEol)
+			} else if p.useRE2() || p.useOptionE() {
+				// RE2 and EcmaScript define $ as "asserts position at the end of the string"
+				// PCRE/.NET adds "or before the line terminator right at the end of the string (if any)"
+				// which is NtEnd, not NtEndZ
+				p.addUnitType(NtEnd)
 			} else {
-				p.addUnitType(ntEndZ)
+				p.addUnitType(NtEndZ)
 			}
 
 		case '.':
@@ -672,17 +673,17 @@ BreakOuterScan:
 		return nil, err
 	}
 
-	return p.unit, nil
+	return p.unit.finalOptimize(), nil
 
 }
 
 /*
  * Simple parsing for replacement patterns
  */
-func (p *parser) scanReplacement() (*regexNode, error) {
+func (p *parser) scanReplacement() (*RegexNode, error) {
 	var c, startpos int
 
-	p.concatenation = newRegexNode(ntConcatenate, p.options)
+	p.concatenation = newRegexNode(NtConcatenate, p.options)
 
 	for {
 		c = p.charsRight()
@@ -717,9 +718,9 @@ func (p *parser) scanReplacement() (*regexNode, error) {
 /*
  * Scans $ patterns recognized within replacement patterns
  */
-func (p *parser) scanDollar() (*regexNode, error) {
+func (p *parser) scanDollar() (*RegexNode, error) {
 	if p.charsRight() == 0 {
-		return newRegexNodeCh(ntOne, p.options, '$'), nil
+		return newRegexNodeCh(NtOne, p.options, '$'), nil
 	}
 
 	ch := p.rightChar(0)
@@ -767,7 +768,7 @@ func (p *parser) scanDollar() (*regexNode, error) {
 			}
 			p.textto(lastEndPos)
 			if capnum >= 0 {
-				return newRegexNodeM(ntRef, p.options, capnum), nil
+				return newRegexNodeM(NtRef, p.options, capnum), nil
 			}
 		} else {
 			capnum, err := p.scanDecimal()
@@ -776,7 +777,7 @@ func (p *parser) scanDollar() (*regexNode, error) {
 			}
 			if !angled || p.charsRight() > 0 && p.moveRightGetChar() == '}' {
 				if p.isCaptureSlot(capnum) {
-					return newRegexNodeM(ntRef, p.options, capnum), nil
+					return newRegexNodeM(NtRef, p.options, capnum), nil
 				}
 			}
 		}
@@ -785,7 +786,7 @@ func (p *parser) scanDollar() (*regexNode, error) {
 
 		if p.charsRight() > 0 && p.moveRightGetChar() == '}' {
 			if p.isCaptureName(capname) {
-				return newRegexNodeM(ntRef, p.options, p.captureSlotFromName(capname)), nil
+				return newRegexNodeM(NtRef, p.options, p.captureSlotFromName(capname)), nil
 			}
 		}
 	} else if !angled {
@@ -794,7 +795,7 @@ func (p *parser) scanDollar() (*regexNode, error) {
 		switch ch {
 		case '$':
 			p.moveRight(1)
-			return newRegexNodeCh(ntOne, p.options, '$'), nil
+			return newRegexNodeCh(NtOne, p.options, '$'), nil
 		case '&':
 			capnum = 0
 		case '`':
@@ -809,22 +810,22 @@ func (p *parser) scanDollar() (*regexNode, error) {
 
 		if capnum != 1 {
 			p.moveRight(1)
-			return newRegexNodeM(ntRef, p.options, capnum), nil
+			return newRegexNodeM(NtRef, p.options, capnum), nil
 		}
 	}
 
 	// unrecognized $: literalize
 
 	p.textto(backpos)
-	return newRegexNodeCh(ntOne, p.options, '$'), nil
+	return newRegexNodeCh(NtOne, p.options, '$'), nil
 }
 
 // scanGroupOpen scans chars following a '(' (not counting the '('), and returns
 // a RegexNode for the type of group scanned, or nil if the group
 // simply changed options (?cimsx-cimsx) or was a comment (#...).
-func (p *parser) scanGroupOpen() (*regexNode, error) {
+func (p *parser) scanGroupOpen() (*RegexNode, error) {
 	var ch rune
-	var nt nodeType
+	var nt NodeType
 	var err error
 	close := '>'
 	start := p.textpos()
@@ -836,9 +837,9 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 	if p.charsRight() == 0 || p.rightChar(0) != '?' || (p.rightChar(0) == '?' && (p.charsRight() > 1 && p.rightChar(1) == ')')) {
 		if p.useOptionN() || p.ignoreNextParen {
 			p.ignoreNextParen = false
-			return newRegexNode(ntGroup, p.options), nil
+			return newRegexNode(NtGroup, p.options), nil
 		}
-		return newRegexNodeMN(ntCapture, p.options, p.consumeAutocap(), -1), nil
+		return newRegexNodeMN(NtCapture, p.options, p.consumeAutocap(), -1), nil
 	}
 
 	p.moveRight(1)
@@ -850,18 +851,18 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 
 		switch ch = p.moveRightGetChar(); ch {
 		case ':':
-			nt = ntGroup
+			nt = NtGroup
 
 		case '=':
 			p.options &= ^RightToLeft
-			nt = ntRequire
+			nt = NtPosLook
 
 		case '!':
 			p.options &= ^RightToLeft
-			nt = ntPrevent
+			nt = NtNegLook
 
 		case '>':
-			nt = ntGreedy
+			nt = NtAtomic
 
 		case '\'':
 			close = '\''
@@ -879,7 +880,7 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 				}
 
 				p.options |= RightToLeft
-				nt = ntRequire
+				nt = NtPosLook
 
 			case '!':
 				if close == '\'' {
@@ -887,7 +888,7 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 				}
 
 				p.options |= RightToLeft
-				nt = ntPrevent
+				nt = NtNegLook
 
 			default:
 				p.moveLeft()
@@ -976,7 +977,7 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 				// actually make the node
 
 				if (capnum != -1 || uncapnum != -1) && p.charsRight() > 0 && p.moveRightGetChar() == close {
-					return newRegexNodeMN(ntCapture, p.options, capnum, uncapnum), nil
+					return newRegexNodeMN(NtCapture, p.options, capnum, uncapnum), nil
 				}
 				goto BreakRecognize
 			}
@@ -996,7 +997,7 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 					}
 					if p.charsRight() > 0 && p.moveRightGetChar() == ')' {
 						if p.isCaptureSlot(capnum) {
-							return newRegexNodeM(ntTestref, p.options, capnum), nil
+							return newRegexNodeM(NtBackRefCond, p.options, capnum), nil
 						}
 						return nil, p.getErr(ErrUndefinedReference, capnum)
 					}
@@ -1007,12 +1008,12 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 					capname := p.scanCapname()
 
 					if p.isCaptureName(capname) && p.charsRight() > 0 && p.moveRightGetChar() == ')' {
-						return newRegexNodeM(ntTestref, p.options, p.captureSlotFromName(capname)), nil
+						return newRegexNodeM(NtBackRefCond, p.options, p.captureSlotFromName(capname)), nil
 					}
 				}
 			}
 			// not a backref
-			nt = ntTestgroup
+			nt = NtExprCond
 			p.textto(parenPos - 1)   // jump to the start of the parentheses
 			p.ignoreNextParen = true // but make sure we don't try to capture the insides
 
@@ -1065,7 +1066,7 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 					// actually make the node
 
 					if capnum != -1 && p.charsRight() > 0 && p.moveRightGetChar() == '>' {
-						return newRegexNodeMN(ntCapture, p.options, capnum, -1), nil
+						return newRegexNodeMN(NtCapture, p.options, capnum, -1), nil
 					}
 					goto BreakRecognize
 
@@ -1081,9 +1082,9 @@ func (p *parser) scanGroupOpen() (*regexNode, error) {
 		default:
 			p.moveLeft()
 
-			nt = ntGroup
+			nt = NtGroup
 			// disallow options in the children of a testgroup node
-			if p.group.t != ntTestgroup {
+			if p.group.T != NtExprCond {
 				p.scanOptions()
 			}
 			if p.charsRight() == 0 {
@@ -1111,7 +1112,7 @@ BreakRecognize:
 }
 
 // scans backslash specials and basics
-func (p *parser) scanBackslash(scanOnly bool) (*regexNode, error) {
+func (p *parser) scanBackslash(scanOnly bool) (*RegexNode, error) {
 
 	if p.charsRight() == 0 {
 		return nil, p.getErr(ErrIllegalEndEscape)
@@ -1125,48 +1126,48 @@ func (p *parser) scanBackslash(scanOnly bool) (*regexNode, error) {
 	case 'w':
 		p.moveRight(1)
 		if p.useOptionE() || p.useRE2() {
-			return newRegexNodeSet(ntSet, p.options, ECMAWordClass()), nil
+			return newRegexNodeSet(NtSet, p.options, ECMAWordClass()), nil
 		}
-		return newRegexNodeSet(ntSet, p.options, WordClass()), nil
+		return newRegexNodeSet(NtSet, p.options, WordClass()), nil
 
 	case 'W':
 		p.moveRight(1)
 		if p.useOptionE() || p.useRE2() {
-			return newRegexNodeSet(ntSet, p.options, NotECMAWordClass()), nil
+			return newRegexNodeSet(NtSet, p.options, NotECMAWordClass()), nil
 		}
-		return newRegexNodeSet(ntSet, p.options, NotWordClass()), nil
+		return newRegexNodeSet(NtSet, p.options, NotWordClass()), nil
 
 	case 's':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeSet(ntSet, p.options, ECMASpaceClass()), nil
+			return newRegexNodeSet(NtSet, p.options, ECMASpaceClass()), nil
 		} else if p.useRE2() {
-			return newRegexNodeSet(ntSet, p.options, RE2SpaceClass()), nil
+			return newRegexNodeSet(NtSet, p.options, RE2SpaceClass()), nil
 		}
-		return newRegexNodeSet(ntSet, p.options, SpaceClass()), nil
+		return newRegexNodeSet(NtSet, p.options, SpaceClass()), nil
 
 	case 'S':
 		p.moveRight(1)
 		if p.useOptionE() {
-			return newRegexNodeSet(ntSet, p.options, NotECMASpaceClass()), nil
+			return newRegexNodeSet(NtSet, p.options, NotECMASpaceClass()), nil
 		} else if p.useRE2() {
-			return newRegexNodeSet(ntSet, p.options, NotRE2SpaceClass()), nil
+			return newRegexNodeSet(NtSet, p.options, NotRE2SpaceClass()), nil
 		}
-		return newRegexNodeSet(ntSet, p.options, NotSpaceClass()), nil
+		return newRegexNodeSet(NtSet, p.options, NotSpaceClass()), nil
 
 	case 'd':
 		p.moveRight(1)
 		if p.useOptionE() || p.useRE2() {
-			return newRegexNodeSet(ntSet, p.options, ECMADigitClass()), nil
+			return newRegexNodeSet(NtSet, p.options, ECMADigitClass()), nil
 		}
-		return newRegexNodeSet(ntSet, p.options, DigitClass()), nil
+		return newRegexNodeSet(NtSet, p.options, DigitClass()), nil
 
 	case 'D':
 		p.moveRight(1)
 		if p.useOptionE() || p.useRE2() {
-			return newRegexNodeSet(ntSet, p.options, NotECMADigitClass()), nil
+			return newRegexNodeSet(NtSet, p.options, NotECMADigitClass()), nil
 		}
-		return newRegexNodeSet(ntSet, p.options, NotDigitClass()), nil
+		return newRegexNodeSet(NtSet, p.options, NotDigitClass()), nil
 
 	case 'p', 'P':
 		p.moveRight(1)
@@ -1175,12 +1176,12 @@ func (p *parser) scanBackslash(scanOnly bool) (*regexNode, error) {
 			return nil, err
 		}
 		cc := &CharSet{}
-		cc.addCategory(prop, (ch != 'p'), p.useOptionI(), p.patternRaw)
+		cc.addCategory(prop, (ch != 'p'), p.useOptionI())
 		if p.useOptionI() {
 			cc.addLowercase()
 		}
 
-		return newRegexNodeSet(ntSet, p.options, cc), nil
+		return newRegexNodeSet(NtSet, p.options, cc), nil
 
 	default:
 		return p.scanBasicBackslash(scanOnly)
@@ -1188,7 +1189,7 @@ func (p *parser) scanBackslash(scanOnly bool) (*regexNode, error) {
 }
 
 // Scans \-style backreferences and character escapes
-func (p *parser) scanBasicBackslash(scanOnly bool) (*regexNode, error) {
+func (p *parser) scanBasicBackslash(scanOnly bool) (*RegexNode, error) {
 	if p.charsRight() == 0 {
 		return nil, p.getErr(ErrIllegalEndEscape)
 	}
@@ -1249,7 +1250,7 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*regexNode, error) {
 
 		if p.charsRight() > 0 && p.moveRightGetChar() == close {
 			if p.isCaptureSlot(capnum) {
-				return newRegexNodeM(ntRef, p.options, capnum), nil
+				return newRegexNodeM(NtRef, p.options, capnum), nil
 			}
 			return nil, p.getErr(ErrUndefinedBackRef, capnum)
 		}
@@ -1264,7 +1265,7 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*regexNode, error) {
 		}
 
 		if p.isCaptureSlot(capnum) {
-			return newRegexNodeM(ntRef, p.options, capnum), nil
+			return newRegexNodeM(NtRef, p.options, capnum), nil
 		}
 		if capnum <= 9 && !p.useOptionE() {
 			return nil, p.getErr(ErrUndefinedBackRef, capnum)
@@ -1280,7 +1281,7 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*regexNode, error) {
 			}
 
 			if p.isCaptureName(capname) {
-				return newRegexNodeM(ntRef, p.options, p.captureSlotFromName(capname)), nil
+				return newRegexNodeM(NtRef, p.options, p.captureSlotFromName(capname)), nil
 			}
 			return nil, p.getErr(ErrUndefinedNameRef, capname)
 		} else {
@@ -1306,7 +1307,7 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*regexNode, error) {
 		ch = unicode.ToLower(ch)
 	}
 
-	return newRegexNodeCh(ntOne, p.options, ch), nil
+	return newRegexNodeCh(NtOne, p.options, ch), nil
 }
 
 // Scans X for \p{X} or \P{X}
@@ -1352,28 +1353,28 @@ func (p *parser) parseProperty() (string, error) {
 }
 
 // Returns ReNode type for zero-length assertions with a \ code.
-func (p *parser) typeFromCode(ch rune) nodeType {
+func (p *parser) typeFromCode(ch rune) NodeType {
 	switch ch {
 	case 'b':
 		if p.useOptionE() {
-			return ntECMABoundary
+			return NtECMABoundary
 		}
-		return ntBoundary
+		return NtBoundary
 	case 'B':
 		if p.useOptionE() {
-			return ntNonECMABoundary
+			return NtNonECMABoundary
 		}
-		return ntNonboundary
+		return NtNonboundary
 	case 'A':
-		return ntBeginning
+		return NtBeginning
 	case 'G':
-		return ntStart
+		return NtStart
 	case 'Z':
-		return ntEndZ
+		return NtEndZ
 	case 'z':
-		return ntEnd
+		return NtEnd
 	default:
-		return ntNothing
+		return NtNothing
 	}
 }
 
@@ -1480,7 +1481,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					if inRange {
 						return nil, p.getErr(ErrBadClassInCharRange, ch)
 					}
-					cc.addDigit(p.useOptionE() || p.useRE2(), ch == 'D', p.patternRaw)
+					cc.addDigit(p.useOptionE() || p.useRE2(), ch == 'D')
 				}
 				continue
 
@@ -1512,7 +1513,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					if err != nil {
 						return nil, err
 					}
-					cc.addCategory(prop, (ch != 'p'), caseInsensitive, p.patternRaw)
+					cc.addCategory(prop, (ch != 'p'), caseInsensitive)
 				} else {
 					p.parseProperty()
 				}
@@ -1533,7 +1534,6 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					return nil, err
 				}
 				fTranslatedChar = true
-				break // this break will only break out of the switch
 			}
 		} else if ch == '[' {
 			// This is code for Posix style properties - [:Ll:] or [:IsTibetan:].
@@ -2017,42 +2017,34 @@ func (p *parser) addConcatenate3(lazy bool, min, max int) {
 
 // Sets the current unit to a single char node
 func (p *parser) addUnitOne(ch rune) {
-	if p.useOptionI() {
-		ch = unicode.ToLower(ch)
-	}
-
-	p.unit = newRegexNodeCh(ntOne, p.options, ch)
+	p.unit = newRegexNodeCh(NtOne, p.options, ch)
 }
 
 // Sets the current unit to a single inverse-char node
 func (p *parser) addUnitNotone(ch rune) {
-	if p.useOptionI() {
-		ch = unicode.ToLower(ch)
-	}
-
-	p.unit = newRegexNodeCh(ntNotone, p.options, ch)
+	p.unit = newRegexNodeCh(NtNotone, p.options, ch)
 }
 
 // Sets the current unit to a single set node
 func (p *parser) addUnitSet(set *CharSet) {
-	p.unit = newRegexNodeSet(ntSet, p.options, set)
+	p.unit = newRegexNodeSet(NtSet, p.options, set)
 }
 
 // Sets the current unit to a subtree
-func (p *parser) addUnitNode(node *regexNode) {
+func (p *parser) addUnitNode(node *RegexNode) {
 	p.unit = node
 }
 
 // Sets the current unit to an assertion of the specified type
-func (p *parser) addUnitType(t nodeType) {
+func (p *parser) addUnitType(t NodeType) {
 	p.unit = newRegexNode(t, p.options)
 }
 
 // Finish the current group (in response to a ')' or end)
 func (p *parser) addGroup() error {
-	if p.group.t == ntTestgroup || p.group.t == ntTestref {
+	if p.group.T == NtExprCond || p.group.T == NtBackRefCond {
 		p.group.addChild(p.concatenation.reverseLeft())
-		if (p.group.t == ntTestref && len(p.group.children) > 2) || len(p.group.children) > 3 {
+		if (p.group.T == NtBackRefCond && len(p.group.Children) > 2) || len(p.group.Children) > 3 {
 			return p.getErr(ErrTooManyAlternates)
 		}
 	} else {
@@ -2085,57 +2077,51 @@ func (p *parser) pushOptions() {
 
 // Add a string to the last concatenate.
 func (p *parser) addToConcatenate(pos, cch int, isReplacement bool) {
-	var node *regexNode
-
 	if cch == 0 {
 		return
 	}
+	if cch == 1 {
+		var node *RegexNode
 
-	if cch > 1 {
-		str := make([]rune, cch)
-		copy(str, p.pattern[pos:pos+cch])
-
-		if p.useOptionI() && !isReplacement {
-			// We do the ToLower character by character for consistency.  With surrogate chars, doing
-			// a ToLower on the entire string could actually change the surrogate pair.  This is more correct
-			// linguistically, but since Regex doesn't support surrogates, it's more important to be
-			// consistent.
-			for i := 0; i < len(str); i++ {
-				str[i] = unicode.ToLower(str[i])
-			}
+		if isReplacement {
+			node = newRegexNodeCh(NtOne, p.options&^IgnoreCase, p.pattern[pos])
+		} else {
+			node = newRegexNodeCh(NtOne, p.options, p.pattern[pos])
 		}
-
-		node = newRegexNodeStr(ntMulti, p.options, str)
-	} else {
-		ch := p.charAt(pos)
-
-		if p.useOptionI() && !isReplacement {
-			ch = unicode.ToLower(ch)
-		}
-
-		node = newRegexNodeCh(ntOne, p.options, ch)
+		p.concatenation.addChild(node)
+		return
 	}
 
-	p.concatenation.addChild(node)
+	if cch > 1 && (!p.useOptionI() || isReplacement || !anyParticipateInCaseConversion(p.pattern[pos:pos+cch])) {
+		str := make([]rune, cch)
+		copy(str, p.pattern[pos:pos+cch])
+		p.concatenation.addChild(newRegexNodeStr(NtMulti, p.options&^IgnoreCase, str))
+		return
+	}
+
+	// each letter gets an upper-lower range
+	for i := pos; i < pos+cch; i++ {
+		p.concatenation.addChild(newRegexNodeCh(NtOne, p.options, p.pattern[i]))
+	}
 }
 
 // Push the parser state (in response to an open paren)
 func (p *parser) pushGroup() {
-	p.group.next = p.stack
-	p.alternation.next = p.group
-	p.concatenation.next = p.alternation
+	p.group.Parent = p.stack
+	p.alternation.Parent = p.group
+	p.concatenation.Parent = p.alternation
 	p.stack = p.concatenation
 }
 
 // Remember the pushed state (in response to a ')')
 func (p *parser) popGroup() error {
 	p.concatenation = p.stack
-	p.alternation = p.concatenation.next
-	p.group = p.alternation.next
-	p.stack = p.group.next
+	p.alternation = p.concatenation.Parent
+	p.group = p.alternation.Parent
+	p.stack = p.group.Parent
 
 	// The first () inside a Testgroup group goes directly to the group
-	if p.group.t == ntTestgroup && len(p.group.children) == 0 {
+	if p.group.T == NtExprCond && len(p.group.Children) == 0 {
 		if p.unit == nil {
 			return p.getErr(ErrConditionalExpression)
 		}
@@ -2152,23 +2138,23 @@ func (p *parser) emptyStack() bool {
 }
 
 // Start a new round for the parser state (in response to an open paren or string start)
-func (p *parser) startGroup(openGroup *regexNode) {
+func (p *parser) startGroup(openGroup *RegexNode) {
 	p.group = openGroup
-	p.alternation = newRegexNode(ntAlternate, p.options)
-	p.concatenation = newRegexNode(ntConcatenate, p.options)
+	p.alternation = newRegexNode(NtAlternate, p.options)
+	p.concatenation = newRegexNode(NtConcatenate, p.options)
 }
 
 // Finish the current concatenation (in response to a |)
 func (p *parser) addAlternate() {
 	// The | parts inside a Testgroup group go directly to the group
 
-	if p.group.t == ntTestgroup || p.group.t == ntTestref {
+	if p.group.T == NtExprCond || p.group.T == NtBackRefCond {
 		p.group.addChild(p.concatenation.reverseLeft())
 	} else {
 		p.alternation.addChild(p.concatenation.reverseLeft())
 	}
 
-	p.concatenation = newRegexNode(ntConcatenate, p.options)
+	p.concatenation = newRegexNode(NtConcatenate, p.options)
 }
 
 // For categorizing ascii characters.

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dlclark/regexp2/syntax"
+	"github.com/dlclark/regexp2/v2/syntax"
 )
 
 func TestBacktrack_CatastrophicTimeout(t *testing.T) {
@@ -434,7 +434,7 @@ func TestConcatLoopCaptureSet(t *testing.T) {
 	//(A|B)*?CD different Concat/Loop/Capture/Set (had [A-Z] should be [AB])
 	// we were not copying the Sets in the prefix FC stack, so the underlying sets were unexpectedly mutating
 	// so set [AB] becomes [ABC] when we see the the static C in FC stack generation (which are the valid start chars),
-	// but that was mutating the tree node's original set [AB] because even though we copied the slie header,
+	// but that was mutating the tree node's original set [AB] because even though we copied the slice header,
 	// the two header's pointed to the same underlying byte array...which was mutated.
 
 	re := MustCompile(`(A|B)*CD`, 0)
@@ -456,7 +456,7 @@ func TestFirstcharsIgnoreCase(t *testing.T) {
 		t.Fatalf("wanted prefix, got nil")
 	}
 
-	if want, got := "[ad]", re.code.FcPrefix.PrefixSet.String(); want != got {
+	if want, got := "[ADa]", re.code.FcPrefix.PrefixSet.String(); want != got {
 		t.Fatalf("wanted prefix %v, got %v", want, got)
 	}
 }
@@ -1444,5 +1444,12 @@ func TestIssue34LazyEmptyLoopFindNextMatchTerminates(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("match %d mismatch: want %#v, got %#v", i, want[i], got[i])
 		}
+	}
+}
+
+func TestAnythingSet(t *testing.T) {
+	re := MustCompile(`(?ism)<(.+?)`, 0)
+	if m, _ := re.MatchString("<a"); !m {
+		t.Fail()
 	}
 }

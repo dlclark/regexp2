@@ -10,11 +10,17 @@ For extra performance use `regexp2` with [`regexp2cg`](https://github.com/dlclar
 ## Installing
 This is a go-gettable library, so install is easy:
 
-    go get github.com/dlclark/regexp2
+    go get github.com/dlclark/regexp2/v2
 
-To use the new Code Generation (while it's in beta) you'll need to use the `code_gen` branch:
+## Changes in v2
+Version 2 includes changes that may affect compatibility with existing v1 users:
 
-    go get github.com/dlclark/regexp2@code_gen
+* The module path is now `github.com/dlclark/regexp2/v2`, so imports need to use the `/v2` suffix.
+* The minimum supported Go version is now Go 1.26.
+* Changes to support https://github.com/dlclark/regexp2cg are merged in to support generated regex engines.
+* `Regexp.Split` is now available for splitting strings with regexp matches.
+* The parser, optimizer, and runner internals have changed significantly to support generated regexes and additional matching optimizations.
+* Some types and constants in the `syntax` package have been exported or changed to support code generation.
 
 ## Usage
 Usage is similar to the Go `regexp` package.  Just like in `regexp`, you start by converting a regex into a state machine via the `Compile` or `MustCompile` methods.  They ultimately do the same thing, but `MustCompile` will panic if the regex is invalid.  You can then use the provided `Regexp` struct to find matches repeatedly.  A `Regexp` struct is safe to use across goroutines.
@@ -165,7 +171,7 @@ In this mode the engine provides compatibility with the [regex engine](https://t
 Additionally a Unicode mode is provided which allows parsing of `\u{CodePoint}` syntax that is only when both are provided.
 
 ## Library features that I'm still working on
-- Regex split
+- Regex split (this is coded and has basic smoke testing)
 
 ## Potential bugs
 I've run a battery of tests against regexp2 from various sources and found the debug output matches the .NET engine, but .NET and Go handle strings very differently.  I've attempted to handle these differences, but most of my testing deals with basic ASCII with a little bit of multi-byte Unicode.  There's a chance that there are bugs in the string handling related to character sets with supplementary Unicode chars.  Right-to-Left support is coded, but not well tested either.

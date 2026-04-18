@@ -1,3 +1,3 @@
-module github.com/dlclark/regexp2
+module github.com/dlclark/regexp2/v2
 
-go 1.13
+go 1.26
