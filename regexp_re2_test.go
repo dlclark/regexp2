@@ -138,12 +138,12 @@ func TestRE2ExtendedZero(t *testing.T) {
 func TestRegularExtendedZero(t *testing.T) {
 	notZero := "߀" // \u07c0
 
-	r := MustCompile(`^\d$`, 0)
+	r := MustCompile(`^\d$`)
 	if m, _ := r.MatchString(notZero); !m {
 		t.Fatal("Expected match")
 	}
 
-	r = MustCompile(`^\D$`, 0)
+	r = MustCompile(`^\D$`)
 	if m, _ := r.MatchString(notZero); m {
 		t.Fatal("Expected no match")
 	}
@@ -163,11 +163,11 @@ func TestRE2Word(t *testing.T) {
 }
 
 func TestRegularWord(t *testing.T) {
-	r := MustCompile(`\w`, 0)
+	r := MustCompile(`\w`)
 	if m, _ := r.MatchString("å"); !m {
 		t.Fatal("Expected match")
 	}
-	r = MustCompile(`\W`, 0)
+	r = MustCompile(`\W`)
 	if m, _ := r.MatchString("å"); m {
 		t.Fatal("Expected no match")
 	}
@@ -185,18 +185,18 @@ func TestRE2Space(t *testing.T) {
 }
 
 func TestRegularSpace(t *testing.T) {
-	r := MustCompile(`\s`, 0)
+	r := MustCompile(`\s`)
 	if m, _ := r.MatchString("\x0b"); !m {
 		t.Fatal("Expected match")
 	}
-	r = MustCompile(`\S`, 0)
+	r = MustCompile(`\S`)
 	if m, _ := r.MatchString("\x0b"); m {
 		t.Fatal("Expected no match")
 	}
 }
 
 func TestEscapeLiteralDefaults(t *testing.T) {
-	_, err := Compile(`a\_test`, 0)
+	_, err := Compile(`a\_test`)
 	if err == nil {
 		t.Fatal("Expected compile fail")
 	}

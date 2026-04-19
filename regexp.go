@@ -9,6 +9,7 @@ need to write very complex patterns or require compatibility with .NET.
 package regexp2
 
 import (
+	"container/list"
 	"errors"
 	"log"
 	"math"
@@ -22,8 +23,6 @@ import (
 var (
 	// DefaultMatchTimeout used when running regexp matches -- "forever"
 	DefaultMatchTimeout = time.Duration(math.MaxInt64)
-	// DefaultUnmarshalOptions used when unmarshaling a regex from text
-	DefaultUnmarshalOptions = None
 )
 
 // Regexp is the representation of a compiled regular expression.
@@ -47,9 +46,12 @@ type Regexp struct {
 
 	code *syntax.Code // compiled program
 
+	optimizations OptimizationOptions
+
 	// cache of machines for running regexp
-	muRun  *sync.Mutex
-	runner []*Runner
+	runnerPool *sync.Pool
+
+	replaceCache *replacerDataCache
 
 	// hook points to override runner functions
 	findFirstChar func(r *Runner) bool
@@ -58,7 +60,12 @@ type Regexp struct {
 
 // Compile parses a regular expression and returns, if successful,
 // a Regexp object that can be used to match against text.
-func Compile(expr string, opt RegexOptions) (*Regexp, error) {
+func Compile(expr string, options ...CompileOption) (*Regexp, error) {
+	c := newCompileConfig(options)
+	return compile(expr, c.regexOptions, c.optimizations)
+}
+
+func compile(expr string, opt RegexOptions, optimizations OptimizationOptions) (*Regexp, error) {
 	// parse it
 	tree, err := syntax.Parse(expr, syntax.RegexOptions(opt))
 	if err != nil {
@@ -74,33 +81,39 @@ func Compile(expr string, opt RegexOptions) (*Regexp, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !optimizations.DisableCharClassASCIIBitmap {
+		code.PrepareCharSetASCIIBitmaps()
+	}
 
 	// return it
 	re := &Regexp{
-		pattern:      expr,
-		options:      opt,
-		caps:         code.Caps,
-		capnames:     tree.Capnames,
-		capslist:     tree.Caplist,
-		capsize:      code.Capsize,
-		code:         code,
-		MatchTimeout: DefaultMatchTimeout,
-		muRun:        &sync.Mutex{},
+		pattern:       expr,
+		options:       opt,
+		caps:          code.Caps,
+		capnames:      tree.Capnames,
+		capslist:      tree.Caplist,
+		capsize:       code.Capsize,
+		code:          code,
+		MatchTimeout:  DefaultMatchTimeout,
+		optimizations: optimizations,
 	}
+	re.initCaches()
 	return re, nil
 }
 
 // MustCompile is like Compile but panics if the expression cannot be parsed.
 // It simplifies safe initialization of global variables holding compiled regular
 // expressions.
-func MustCompile(str string, opt RegexOptions) *Regexp {
+func MustCompile(str string, options ...CompileOption) *Regexp {
+	c := newCompileConfig(options)
+
 	// lookup if we have a pre-built state machine for this pattern and options
-	regexp := getEngineRegexp(str, opt)
+	regexp := getEngineRegexp(str, c.regexOptions, c.optimizations)
 	if regexp != nil {
 		return regexp
 	}
 
-	regexp, err := Compile(str, opt)
+	regexp, err := compile(str, c.regexOptions, c.optimizations)
 	if err != nil {
 		panic(`regexp2: Compile(` + quote(str) + `): ` + err.Error())
 	}
@@ -142,26 +155,6 @@ func quote(s string) string {
 	return strconv.Quote(s)
 }
 
-// RegexOptions impact the runtime and parsing behavior
-// for each specific regex.  They are setable in code as well
-// as in the regex pattern itself.
-type RegexOptions int32
-
-const (
-	None                    RegexOptions = 0x0
-	IgnoreCase              RegexOptions = 0x0001 // "i"
-	Multiline               RegexOptions = 0x0002 // "m"
-	ExplicitCapture         RegexOptions = 0x0004 // "n"
-	Compiled                RegexOptions = 0x0008 // "c"
-	Singleline              RegexOptions = 0x0010 // "s"
-	IgnorePatternWhitespace RegexOptions = 0x0020 // "x"
-	RightToLeft             RegexOptions = 0x0040 // "r"
-	Debug                   RegexOptions = 0x0080 // "d"
-	ECMAScript              RegexOptions = 0x0100 // "e"
-	RE2                     RegexOptions = 0x0200 // RE2 (regexp package) compatibility mode
-	Unicode                 RegexOptions = 0x0400 // "u"
-)
-
 func (re *Regexp) RightToLeft() bool {
 	return re.options&RightToLeft != 0
 }
@@ -175,13 +168,30 @@ func (re *Regexp) Debug() bool {
 // us to skip past possible matches at the start of the input (left or right depending on RightToLeft option).
 // Set startAt and count to -1 to go through the whole string
 func (re *Regexp) Replace(input, replacement string, startAt, count int) (string, error) {
-	data, err := syntax.NewReplacerData(replacement, re.caps, re.capsize, re.capnames, syntax.RegexOptions(re.options))
+	data, err := re.getReplacerData(replacement)
 	if err != nil {
 		return "", err
 	}
-	//TODO: cache ReplacerData
 
 	return replace(re, data, nil, input, startAt, count)
+}
+
+func (re *Regexp) getReplacerData(replacement string) (*syntax.ReplacerData, error) {
+	shouldCache := re.replaceCache != nil && re.optimizations.cacheReplacerData(replacement)
+	if shouldCache {
+		if data, ok := re.replaceCache.get(replacement); ok {
+			return data, nil
+		}
+	}
+
+	data, err := syntax.NewReplacerData(replacement, re.caps, re.capsize, re.capnames, syntax.RegexOptions(re.options))
+	if err != nil {
+		return nil, err
+	}
+	if shouldCache {
+		re.replaceCache.add(replacement, data)
+	}
+	return data, nil
 }
 
 // ReplaceFunc searches the input string and replaces each match found using the string from the evaluator
@@ -257,7 +267,16 @@ func (re *Regexp) FindNextMatch(m *Match) (*Match, error) {
 // MatchString return true if the string matches the regex
 // error will be set if a timeout occurs
 func (re *Regexp) MatchString(s string) (bool, error) {
-	m, err := re.run(true, -1, getRunes(s))
+	runner := re.getRunner()
+	defer re.putRunner(runner)
+
+	input := runner.decodeString(s)
+	textstart := 0
+	if re.RightToLeft() {
+		textstart = len(input)
+	}
+
+	m, err := runner.scan(input, textstart, true, re.MatchTimeout)
 	if err != nil {
 		return false, err
 	}
@@ -416,4 +435,70 @@ func (re *Regexp) UnmarshalText(text []byte) error {
 	}
 	*re = *newRE
 	return nil
+}
+
+func (re *Regexp) initCaches() {
+	re.runnerPool = &sync.Pool{
+		New: func() any {
+			return &Runner{
+				re:   re,
+				code: re.code,
+			}
+		},
+	}
+	if re.optimizations.MaxCachedReplacerDataEntries > 0 {
+		re.replaceCache = newReplacerDataCache(re.optimizations.MaxCachedReplacerDataEntries)
+	}
+}
+
+type replacerDataCache struct {
+	mu      sync.Mutex
+	maxSize int
+	ll      *list.List
+	cache   map[string]*list.Element
+}
+
+type replacerDataCacheEntry struct {
+	key  string
+	data *syntax.ReplacerData
+}
+
+func newReplacerDataCache(maxSize int) *replacerDataCache {
+	return &replacerDataCache{
+		maxSize: maxSize,
+		ll:      list.New(),
+		cache:   make(map[string]*list.Element),
+	}
+}
+
+func (c *replacerDataCache) get(key string) (*syntax.ReplacerData, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if ele, ok := c.cache[key]; ok {
+		c.ll.MoveToFront(ele)
+		return ele.Value.(*replacerDataCacheEntry).data, true
+	}
+	return nil, false
+}
+
+func (c *replacerDataCache) add(key string, data *syntax.ReplacerData) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if ele, ok := c.cache[key]; ok {
+		ele.Value.(*replacerDataCacheEntry).data = data
+		c.ll.MoveToFront(ele)
+		return
+	}
+
+	ele := c.ll.PushFront(&replacerDataCacheEntry{key: key, data: data})
+	c.cache[key] = ele
+	if c.maxSize > 0 && c.ll.Len() > c.maxSize {
+		oldest := c.ll.Back()
+		if oldest != nil {
+			c.ll.Remove(oldest)
+			delete(c.cache, oldest.Value.(*replacerDataCacheEntry).key)
+		}
+	}
 }

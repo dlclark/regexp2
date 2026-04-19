@@ -6,7 +6,7 @@ import (
 )
 
 func TestReplace_Basic(t *testing.T) {
-	re := MustCompile(`test`, 0)
+	re := MustCompile(`test`)
 	str, err := re.Replace("this is a test", "unit", -1, -1)
 	if err != nil {
 		t.Fatalf("Unexpected err: %v", err)
@@ -17,7 +17,7 @@ func TestReplace_Basic(t *testing.T) {
 }
 
 func TestReplace_NamedGroup(t *testing.T) {
-	re := MustCompile(`[^ ]+\s(?<time>)`, 0)
+	re := MustCompile(`[^ ]+\s(?<time>)`)
 	str, err := re.Replace("08/10/99 16:00", "${time}", -1, -1)
 	if err != nil {
 		t.Fatalf("Unexpected err: %v", err)

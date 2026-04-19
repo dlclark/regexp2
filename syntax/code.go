@@ -114,6 +114,20 @@ type Code struct {
 	RightToLeft bool        // true if right to left
 }
 
+// PrepareCharSetASCIIBitmaps builds bounded ASCII lookup tables for compiled
+// character classes before the regexp is shared across goroutines.
+func (c *Code) PrepareCharSetASCIIBitmaps() {
+	if c == nil {
+		return
+	}
+	for _, set := range c.Sets {
+		set.prepareASCIIBitmap()
+	}
+	if c.FcPrefix != nil {
+		c.FcPrefix.PrefixSet.prepareASCIIBitmap()
+	}
+}
+
 func opcodeBacktracks(op InstOp) bool {
 	op &= Mask
 

@@ -20,13 +20,14 @@ Version 2 includes changes that may affect compatibility with existing v1 users:
 * Changes to support https://github.com/dlclark/regexp2cg are merged in to support generated regex engines.
 * `Regexp.Split` is now available for splitting strings with regexp matches.
 * The parser, optimizer, and runner internals have changed significantly to support generated regexes and additional matching optimizations.
+* `Compile` and `MustCompile` now use variadic compile options for regex behavior and memory/performance tuning.
 * Some types and constants in the `syntax` package have been exported or changed to support code generation.
 
 ## Usage
 Usage is similar to the Go `regexp` package.  Just like in `regexp`, you start by converting a regex into a state machine via the `Compile` or `MustCompile` methods.  They ultimately do the same thing, but `MustCompile` will panic if the regex is invalid.  You can then use the provided `Regexp` struct to find matches repeatedly.  A `Regexp` struct is safe to use across goroutines.
 
 ```go
-re := regexp2.MustCompile(`Your pattern`, 0)
+re := regexp2.MustCompile(`Your pattern`)
 if isMatch, _ := re.MatchString(`Something to match`); isMatch {
     //do something
 }
@@ -69,6 +70,39 @@ func regexp2FindAllString(re *regexp2.Regexp, s string) []string {
 `FindNextMatch` is optmized so that it re-uses the underlying string/rune slice.
 
 The internals of `regexp2` always operate on `[]rune` so `Index` and `Length` data in a `Match` always reference a position in `rune`s rather than `byte`s (even if the input was given as a string). This is a dramatic difference between `regexp` and `regexp2`.  It's advisable to use the provided `String()` methods to avoid having to work with indices.
+
+## Optimization options
+
+`Compile` and `MustCompile` take variadic compile options. Most users can omit them and get default regex behavior plus bounded caches for pooled rune buffers, replacement output buffers, parsed replacement patterns, and ASCII character class bitmaps.
+
+Regex option constants can be passed directly, individually or as a bitmask:
+
+```go
+re := regexp2.MustCompile(`Your pattern`, regexp2.IgnoreCase, regexp2.Singleline)
+re = regexp2.MustCompile(`Your pattern`, regexp2.IgnoreCase|regexp2.Singleline)
+```
+
+Performance tuning options override the default cache settings:
+
+```go
+re := regexp2.MustCompile(`Your pattern`,
+	regexp2.IgnoreCase,
+	regexp2.OptionMaxCachedRuneBufferBytes(64<<10),
+	regexp2.OptionMaxCachedReplacerDataEntries(8),
+)
+```
+
+The defaults are intentionally bounded:
+
+| Option | Default | Used by | Working-set growth | Tradeoffs |
+| --- | ---: | --- | --- | --- |
+| `OptionMaxCachedRuneBufferBytes(n)` | 256 KB | String APIs that run through pooled runners, such as `MatchString` and replacement-pattern `Replace`, when converting input strings to the engine's internal `[]rune` representation. | Per compiled regexp, each concurrent or pooled runner can retain one rune buffer after these string APIs run. The practical upper bound follows runner concurrency and `sync.Pool` retention, not the number of input strings seen. | Raising this can reduce allocations for repeated matches against large strings. It can also retain larger backing arrays in pooled runners. Lowering it reduces retained memory after large inputs, but large inputs will allocate again on the next call. |
+| `OptionMaxCachedReplaceBufferBytes(n)` | 256 KB | Replacement-pattern `Replace` calls that build output through a pooled runner buffer. | Per compiled regexp, each concurrent or pooled runner can retain one replacement output buffer after replacement-pattern `Replace` runs. It does not grow from evaluator-based `ReplaceFunc` output. | Raising this can reduce allocations when repeatedly producing large replacement results. It can also retain larger byte buffers in pooled runners. Lowering it releases large replacement buffers sooner, but repeated large replacements will allocate more often. |
+| `OptionMaxCachedReplacerDataEntries(n)` | `16` | `Replace` with replacement pattern strings, after the replacement pattern is parsed into reusable replacement data. | Per compiled regexp. The cache grows as distinct cacheable replacement strings are used with `Replace`, up to this entry count. | Raising this helps when a single compiled regexp is used with many recurring replacement patterns. It increases per-regexp cache memory and lock-protected cache bookkeeping. Setting it to `0` disables this cache. |
+| `OptionMaxCachedReplacerDataBytes(n)` | 4 KB | The parsed replacement-pattern cache. Replacement strings longer than this are parsed for the call but not retained. | Per compiled regexp, combined with `OptionMaxCachedReplacerDataEntries`. Only replacement strings whose source text is at or below this size can add parsed data to the cache. | Raising this helps if large replacement patterns are reused. It can retain more memory per cached replacement. Lowering it avoids keeping unusual large replacement patterns around. |
+| `OptionDisableCharClassASCIIBitmap()` | false | Compile-time preparation of character classes and first-character prefix sets. By default, character classes with ASCII membership get a small bitmap used by `CharIn`. | Per compiled regexp, during `Compile` or `MustCompile`. Each eligible character class can hold one small bitmap; this does not scale with match concurrency or input size. | Leaving this false speeds up ASCII-heavy character class checks at the cost of a small amount of per-char-class memory and compile-time work. Setting to true can reduce memory for large numbers of compiled char classes in regexps, but ASCII character class matching may be slower. |
+
+For byte-size cache options, set `n` to `0` to disable persistent retention, or `-1` to explicitly allow unbounded retention. For entry-count cache options, set `n` to `0` to disable the cache.
 
 ## Compare `regexp` and `regexp2`
 | Category | regexp | regexp2 |

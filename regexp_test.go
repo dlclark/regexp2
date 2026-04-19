@@ -12,7 +12,7 @@ import (
 )
 
 func TestBacktrack_CatastrophicTimeout(t *testing.T) {
-	r, err := Compile("(.+)*\\?", 0)
+	r, err := Compile("(.+)*\\?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestBacktrack_CatastrophicTimeout(t *testing.T) {
 }
 
 func TestSetPrefix(t *testing.T) {
-	r := MustCompile(`^\s*-TEST`, 0)
+	r := MustCompile(`^\s*-TEST`)
 	if r.code.FcPrefix == nil {
 		t.Fatalf("Expected prefix set [-\\s] but was nil")
 	}
@@ -64,7 +64,7 @@ func TestSetPrefix(t *testing.T) {
 }
 
 func TestSetInCode(t *testing.T) {
-	r := MustCompile(`(?<body>\s*(?<name>.+))`, 0)
+	r := MustCompile(`(?<body>\s*(?<name>.+))`)
 	t.Logf("code dump: %v", r.code.Dump())
 	if want, got := 1, len(r.code.Sets); want != got {
 		t.Fatalf("r.code.Sets wanted %v, got %v", want, got)
@@ -75,7 +75,7 @@ func TestSetInCode(t *testing.T) {
 }
 
 func TestRegexp_Basic(t *testing.T) {
-	r, err := Compile("test(?<named>ing)?", 0)
+	r, err := Compile("test(?<named>ing)?")
 	//t.Logf("code dump: %v", r.code.Dump())
 
 	if err != nil {
@@ -94,7 +94,7 @@ func TestRegexp_Basic(t *testing.T) {
 
 // check all our functions and properties around basic capture groups and referential for Group 0
 func TestCapture_Basic(t *testing.T) {
-	r := MustCompile(`.*\B(SUCCESS)\B.*`, 0)
+	r := MustCompile(`.*\B(SUCCESS)\B.*`)
 	m, err := r.FindStringMatch("adfadsfSUCCESSadsfadsf")
 	if err != nil {
 		t.Fatalf("Unexpected match error: %v", err)
@@ -278,7 +278,7 @@ func TestGroups_Basic(t *testing.T) {
 
 	for _, v := range data {
 		// compile the regex
-		re := MustCompile(v.p, 0)
+		re := MustCompile(v.p)
 
 		// validate our group name/num info before execute
 		validateGroupNamesNumbers(re, v)
@@ -317,36 +317,36 @@ func TestGroups_Basic(t *testing.T) {
 
 func TestErr_GroupName(t *testing.T) {
 	// group 0 is off limits
-	if _, err := Compile("foo(?<0>bar)", 0); err == nil {
+	if _, err := Compile("foo(?<0>bar)"); err == nil {
 		t.Fatalf("zero group, expected error during compile")
 	} else if want, got := "error parsing regexp: capture number cannot be zero in `foo(?<0>bar)`", err.Error(); want != got {
 		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
 	}
-	if _, err := Compile("foo(?'0'bar)", 0); err == nil {
+	if _, err := Compile("foo(?'0'bar)"); err == nil {
 		t.Fatalf("zero group, expected error during compile")
 	} else if want, got := "error parsing regexp: capture number cannot be zero in `foo(?'0'bar)`", err.Error(); want != got {
 		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
 	}
 
 	// group tag can't start with a num
-	if _, err := Compile("foo(?<1bar>)", 0); err == nil {
+	if _, err := Compile("foo(?<1bar>)"); err == nil {
 		t.Fatalf("invalid group name, expected error during compile")
 	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character and have a matching terminator in `foo(?<1bar>)`", err.Error(); want != got {
 		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
 	}
-	if _, err := Compile("foo(?'1bar')", 0); err == nil {
+	if _, err := Compile("foo(?'1bar')"); err == nil {
 		t.Fatalf("invalid group name, expected error during compile")
 	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character and have a matching terminator in `foo(?'1bar')`", err.Error(); want != got {
 		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
 	}
 
 	// missing closing group tag
-	if _, err := Compile("foo(?<bar)", 0); err == nil {
+	if _, err := Compile("foo(?<bar)"); err == nil {
 		t.Fatalf("invalid group name, expected error during compile")
 	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character and have a matching terminator in `foo(?<bar)`", err.Error(); want != got {
 		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
 	}
-	if _, err := Compile("foo(?'bar)", 0); err == nil {
+	if _, err := Compile("foo(?'bar)"); err == nil {
 		t.Fatalf("invalid group name, expected error during compile")
 	} else if want, got := "error parsing regexp: invalid group name: group names must begin with a word character and have a matching terminator in `foo(?'bar)`", err.Error(); want != got {
 		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
@@ -357,7 +357,7 @@ func TestErr_GroupName(t *testing.T) {
 func TestConstantUneffected(t *testing.T) {
 	// had a bug where "constant" sets would get modified with alternations and be broken in memory until restart
 	// this meant that if you used a known-set (like \s) in a larger set it would "poison" \s for the process
-	re := MustCompile(`(\s|\*)test\s`, 0)
+	re := MustCompile(`(\s|\*)test\s`)
 	if want, got := 2, len(re.code.Sets); want != got {
 		t.Fatalf("wanted %v sets, got %v", want, got)
 	}
@@ -370,7 +370,7 @@ func TestConstantUneffected(t *testing.T) {
 }
 
 func TestAlternationConstAndEscape(t *testing.T) {
-	re := MustCompile(`\:|\s`, 0)
+	re := MustCompile(`\:|\s`)
 	if want, got := 1, len(re.code.Sets); want != got {
 		t.Fatalf("wanted %v sets, got %v", want, got)
 	}
@@ -391,14 +391,14 @@ func TestStartingCharsOptionalNegate(t *testing.T) {
 	// to negate the individual categories rather than the CharSet itself
 	// this would deviate from corefx
 
-	re := MustCompile(`(^(\S{2} )?\S{2}(\d+|/) *\S{3}\S{3} ?\d{2,4}[A-Z] ?\d{2}[A-Z]{3}|(\S{2} )?\d{2,4})`, 0)
+	re := MustCompile(`(^(\S{2} )?\S{2}(\d+|/) *\S{3}\S{3} ?\d{2,4}[A-Z] ?\d{2}[A-Z]{3}|(\S{2} )?\d{2,4})`)
 	if re.code.FcPrefix != nil {
 		t.Fatalf("FcPrefix wanted nil, got %v", re.code.FcPrefix)
 	}
 }
 
 func TestParseNegativeDigit(t *testing.T) {
-	re := MustCompile(`\D`, 0)
+	re := MustCompile(`\D`)
 	if want, got := 1, len(re.code.Sets); want != got {
 		t.Fatalf("wanted %v sets, got %v", want, got)
 	}
@@ -409,7 +409,7 @@ func TestParseNegativeDigit(t *testing.T) {
 }
 
 func TestRunNegativeDigit(t *testing.T) {
-	re := MustCompile(`\D`, 0)
+	re := MustCompile(`\D`)
 	m, err := re.MatchString("this is a test")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -421,7 +421,7 @@ func TestRunNegativeDigit(t *testing.T) {
 
 func TestCancellingClasses(t *testing.T) {
 	// [\w\W\s] should become "." because it means "anything"
-	re := MustCompile(`[\w\W\s]`, 0)
+	re := MustCompile(`[\w\W\s]`)
 	if want, got := 1, len(re.code.Sets); want != got {
 		t.Fatalf("wanted %v sets, got %v", want, got)
 	}
@@ -437,7 +437,7 @@ func TestConcatLoopCaptureSet(t *testing.T) {
 	// but that was mutating the tree node's original set [AB] because even though we copied the slice header,
 	// the two header's pointed to the same underlying byte array...which was mutated.
 
-	re := MustCompile(`(A|B)*CD`, 0)
+	re := MustCompile(`(A|B)*CD`)
 	if want, got := 1, len(re.code.Sets); want != got {
 		t.Fatalf("wanted %v sets, got %v", want, got)
 	}
@@ -450,7 +450,7 @@ func TestFirstcharsIgnoreCase(t *testing.T) {
 	//((?i)AB(?-i)C|D)E different Firstchars (had [da] should be [ad])
 	// we were not canonicalizing when converting the prefix set to lower case
 	// so our set's were potentially not searching properly
-	re := MustCompile(`((?i)AB(?-i)C|D)E`, 0)
+	re := MustCompile(`((?i)AB(?-i)C|D)E`)
 
 	if re.code.FcPrefix == nil {
 		t.Fatalf("wanted prefix, got nil")
@@ -462,7 +462,7 @@ func TestFirstcharsIgnoreCase(t *testing.T) {
 }
 
 func TestRepeatingGroup(t *testing.T) {
-	re := MustCompile(`(data?)+`, 0)
+	re := MustCompile(`(data?)+`)
 
 	m, err := re.FindStringMatch("datadat")
 	if err != nil {
@@ -496,7 +496,7 @@ func TestRepeatingGroup(t *testing.T) {
 }
 
 func TestFindNextMatch_Basic(t *testing.T) {
-	re := MustCompile(`(T|E)(?=h|E|S|$)`, 0)
+	re := MustCompile(`(T|E)(?=h|E|S|$)`)
 	m, err := re.FindStringMatch(`This is a TEST`)
 	if err != nil {
 		t.Fatalf("Unexpected err 0: %v", err)
@@ -544,7 +544,7 @@ func TestFindNextMatch_Basic(t *testing.T) {
 
 func TestUnicodeSupplementaryCharSetMatch(t *testing.T) {
 	//0x2070E 0x20731 𠜱 0x20779 𠝹
-	re := MustCompile("[𠜎-𠝹]", 0)
+	re := MustCompile("[𠜎-𠝹]")
 
 	if m, err := re.MatchString("\u2070"); err != nil {
 		t.Fatalf("Unexpected err: %v", err)
@@ -561,7 +561,7 @@ func TestUnicodeSupplementaryCharSetMatch(t *testing.T) {
 
 func TestUnicodeSupplementaryCharInRange(t *testing.T) {
 	//0x2070E 0x20731 𠜱 0x20779 𠝹
-	re := MustCompile(".", 0)
+	re := MustCompile(".")
 
 	if m, err := re.MatchString("\u2070"); err != nil {
 		t.Fatalf("Unexpected err: %v", err)
@@ -577,7 +577,7 @@ func TestUnicodeSupplementaryCharInRange(t *testing.T) {
 }
 
 func TestUnicodeScriptSets(t *testing.T) {
-	re := MustCompile(`\p{Katakana}+`, 0)
+	re := MustCompile(`\p{Katakana}+`)
 	if m, err := re.MatchString("\u30A0\u30FF"); err != nil {
 		t.Fatalf("Unexpected err: %v", err)
 	} else if !m {
@@ -586,100 +586,100 @@ func TestUnicodeScriptSets(t *testing.T) {
 }
 
 func TestHexadecimalCurlyBraces(t *testing.T) {
-	re := MustCompile(`\x20`, 0)
+	re := MustCompile(`\x20`)
 	if m, err := re.MatchString(" "); err != nil {
 		t.Fatalf("Unexpected err: %v", err)
 	} else if !m {
 		t.Fatalf("Expected match")
 	}
 
-	re = MustCompile(`\x{C4}`, 0)
+	re = MustCompile(`\x{C4}`)
 	if m, err := re.MatchString("Ä"); err != nil {
 		t.Fatalf("Unexpected err: %v", err)
 	} else if !m {
 		t.Fatalf("Expected match")
 	}
 
-	re = MustCompile(`\x{0C5}`, 0)
+	re = MustCompile(`\x{0C5}`)
 	if m, err := re.MatchString("Å"); err != nil {
 		t.Fatalf("Unexpected err: %v", err)
 	} else if !m {
 		t.Fatalf("Expected match")
 	}
 
-	re = MustCompile(`\x{00C6}`, 0)
+	re = MustCompile(`\x{00C6}`)
 	if m, err := re.MatchString("Æ"); err != nil {
 		t.Fatalf("Unexpected err: %v", err)
 	} else if !m {
 		t.Fatalf("Expected match")
 	}
 
-	re = MustCompile(`\x{1FF}`, 0)
+	re = MustCompile(`\x{1FF}`)
 	if m, err := re.MatchString("ǿ"); err != nil {
 		t.Fatalf("Unexpected err: %v", err)
 	} else if !m {
 		t.Fatalf("Expected match")
 	}
 
-	re = MustCompile(`\x{02FF}`, 0)
+	re = MustCompile(`\x{02FF}`)
 	if m, err := re.MatchString("˿"); err != nil {
 		t.Fatalf("Unexpected err: %v", err)
 	} else if !m {
 		t.Fatalf("Expected match")
 	}
 
-	re = MustCompile(`\x{1392}`, 0)
+	re = MustCompile(`\x{1392}`)
 	if m, err := re.MatchString("᎒"); err != nil {
 		t.Fatalf("Unexpected err: %v", err)
 	} else if !m {
 		t.Fatalf("Expected match")
 	}
 
-	re = MustCompile(`\x{0010ffff}`, 0)
+	re = MustCompile(`\x{0010ffff}`)
 	if m, err := re.MatchString(string(rune(0x10ffff))); err != nil {
 		t.Fatalf("Unexpected err: %v", err)
 	} else if !m {
 		t.Fatalf("Expected match")
 	}
 
-	if _, err := Compile(`\x2R`, 0); err == nil {
+	if _, err := Compile(`\x2R`); err == nil {
 		t.Fatal("Expected error")
 	}
-	if _, err := Compile(`\x0`, 0); err == nil {
+	if _, err := Compile(`\x0`); err == nil {
 		t.Fatal("Expected error")
 	}
-	if _, err := Compile(`\x`, 0); err == nil {
+	if _, err := Compile(`\x`); err == nil {
 		t.Fatal("Expected error")
 	}
-	if _, err := Compile(`\x{`, 0); err == nil {
+	if _, err := Compile(`\x{`); err == nil {
 		t.Fatal("Expected error")
 	}
-	if _, err := Compile(`\x{2`, 0); err == nil {
+	if _, err := Compile(`\x{2`); err == nil {
 		t.Fatal("Expected error")
 	}
-	if _, err := Compile(`\x{2R`, 0); err == nil {
+	if _, err := Compile(`\x{2R`); err == nil {
 		t.Fatal("Expected error")
 	}
-	if _, err := Compile(`\x{2R}`, 0); err == nil {
+	if _, err := Compile(`\x{2R}`); err == nil {
 		t.Fatal("Expected error")
 	}
-	if _, err := Compile(`\x{}`, 0); err == nil {
+	if _, err := Compile(`\x{}`); err == nil {
 		t.Fatalf("Expected error")
 	}
-	if _, err := Compile(`\x{10000`, 0); err == nil {
+	if _, err := Compile(`\x{10000`); err == nil {
 		t.Fatal("Expected error")
 	}
-	if _, err := Compile(`\x{1234`, 0); err == nil {
+	if _, err := Compile(`\x{1234`); err == nil {
 		t.Fatal("Expected error")
 	}
-	if _, err := Compile(`\x{123456789}`, 0); err == nil {
+	if _, err := Compile(`\x{123456789}`); err == nil {
 		t.Fatal("Expected error")
 	}
 
 }
 
 func TestEmptyCharClass(t *testing.T) {
-	if _, err := Compile("[]", 0); err == nil {
+	if _, err := Compile("[]"); err == nil {
 		t.Fatal("Empty char class isn't valid outside of ECMAScript mode")
 	}
 }
@@ -694,7 +694,7 @@ func TestECMAEmptyCharClass(t *testing.T) {
 }
 
 func TestDot(t *testing.T) {
-	re := MustCompile(".", 0)
+	re := MustCompile(".")
 	if m, err := re.MatchString("\r"); err != nil {
 		t.Fatal(err)
 	} else if !m {
@@ -712,7 +712,7 @@ func TestECMADot(t *testing.T) {
 }
 
 func TestDecimalLookahead(t *testing.T) {
-	re := MustCompile(`\1(A)`, 0)
+	re := MustCompile(`\1(A)`)
 	m, err := re.FindStringMatch("AA")
 	if err != nil {
 		t.Fatal(err)
@@ -835,12 +835,12 @@ func TestECMANamedGroup(t *testing.T) {
 
 	MustCompile(`\k<(<name>)>`, ECMAScript)
 
-	_, err = Compile(`\k<(<name>)>`, 0)
+	_, err = Compile(`\k<(<name>)>`)
 	if err == nil {
 		t.Fatal("Expected error")
 	}
 
-	re = MustCompile(`\'|\<?`, 0)
+	re = MustCompile(`\'|\<?`)
 	if m, err := re.MatchString("'"); err != nil {
 		t.Fatal(err)
 	} else if !m {
@@ -904,7 +904,7 @@ func TestEcmaScriptUnicodeRange(t *testing.T) {
 }
 
 func TestNegateRange(t *testing.T) {
-	re := MustCompile(`[\D]`, 0)
+	re := MustCompile(`[\D]`)
 	if m, err := re.MatchString("A"); err != nil {
 		t.Fatal(err)
 	} else if !m {
@@ -924,7 +924,7 @@ func TestECMANegateRange(t *testing.T) {
 func TestDollar(t *testing.T) {
 	// PCRE/C# allow \n to match to $ at end-of-string in singleline mode...
 	// a weird edge-case kept for compatibility, ECMAScript/RE2 mode don't allow it
-	re := MustCompile(`ac$`, 0)
+	re := MustCompile(`ac$`)
 	if m, err := re.MatchString("ac\n"); err != nil {
 		t.Fatal(err)
 	} else if !m {
@@ -943,7 +943,7 @@ func TestECMADollar(t *testing.T) {
 func TestThreeByteUnicode_InputOnly(t *testing.T) {
 	// confirm the bmprefix properly ignores 3-byte unicode in the input value
 	// this used to panic
-	re := MustCompile("高", 0)
+	re := MustCompile("高")
 	if m, err := re.MatchString("📍Test高"); err != nil {
 		t.Fatal(err)
 	} else if !m {
@@ -952,7 +952,7 @@ func TestThreeByteUnicode_InputOnly(t *testing.T) {
 }
 
 func TestMultibyteUnicode_MatchPartialPattern(t *testing.T) {
-	re := MustCompile("猟な", 0)
+	re := MustCompile("猟な")
 	if m, err := re.MatchString("なあ🍺な"); err != nil {
 		t.Fatal(err)
 	} else if m {
@@ -961,7 +961,7 @@ func TestMultibyteUnicode_MatchPartialPattern(t *testing.T) {
 }
 
 func TestMultibyteUnicode_Match(t *testing.T) {
-	re := MustCompile("猟な", 0)
+	re := MustCompile("猟な")
 	if m, err := re.MatchString("なあ🍺猟な"); err != nil {
 		t.Fatal(err)
 	} else if !m {
@@ -976,7 +976,7 @@ func TestAlternationNamedOptions_Errors(t *testing.T) {
 		"(?(?i))", "(?(?I))", "(?(?m))", "(?(?M))", "(?(?s))", "(?(?S))", "(?(?x))", "(?(?X))", "(?(?n))", "(?(?N))", " (?(?n))",
 	}
 	for _, p := range data {
-		re, err := Compile(p, 0)
+		re, err := Compile(p)
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -1008,7 +1008,7 @@ func TestAlternationNamedOptions_Success(t *testing.T) {
 		{"(?(a:))", "a", true, ""},
 	}
 	for _, p := range data {
-		re := MustCompile(p.pattern, 0)
+		re := MustCompile(p.pattern)
 		m, err := re.FindStringMatch(p.input)
 
 		if err != nil {
@@ -1026,7 +1026,7 @@ func TestAlternationNamedOptions_Success(t *testing.T) {
 }
 
 func TestAlternationConstruct_Matches(t *testing.T) {
-	re := MustCompile("(?(A)A123|C789)", 0)
+	re := MustCompile("(?(A)A123|C789)")
 	m, err := re.FindStringMatch("A123 B456 C789")
 	if err != nil {
 		t.Fatalf("Unexpected err: %v", err)
@@ -1060,7 +1060,7 @@ func TestAlternationConstruct_Matches(t *testing.T) {
 }
 
 func TestStartAtEnd(t *testing.T) {
-	re := MustCompile("(?:)", 0)
+	re := MustCompile("(?:)")
 	m, err := re.FindStringMatchStartingAt("t", 1)
 	if err != nil {
 		t.Fatal(err)
@@ -1077,7 +1077,7 @@ func TestParserFuzzCrashes(t *testing.T) {
 
 	for _, c := range crashes {
 		t.Log(c)
-		Compile(c, 0)
+		Compile(c)
 	}
 }
 
@@ -1088,12 +1088,12 @@ func TestParserFuzzHangs(t *testing.T) {
 
 	for _, c := range hangs {
 		t.Log(c)
-		Compile(c, 0)
+		Compile(c)
 	}
 }
 
 func BenchmarkParserPrefixLongLen(b *testing.B) {
-	re := MustCompile("\r{100001}T+", 0)
+	re := MustCompile("\r{100001}T+")
 	inp := strings.Repeat("testing", 10000) + strings.Repeat("\r", 100000) + "TTTT"
 
 	b.ResetTimer()
@@ -1129,7 +1129,7 @@ func TestPcreStuff(t *testing.T) {
 //(.*)(\d+) different FirstChars ([\x00-\t\v-\x08] OR [\x00-\t\v-\uffff\p{Nd}]
 
 func TestControlBracketFail(t *testing.T) {
-	re := MustCompile(`(cat)(\c[*)(dog)`, 0)
+	re := MustCompile(`(cat)(\c[*)(dog)`)
 	inp := "asdlkcat\u00FFdogiwod"
 
 	if m, _ := re.MatchString(inp); m {
@@ -1138,7 +1138,7 @@ func TestControlBracketFail(t *testing.T) {
 }
 
 func TestControlBracketGroups(t *testing.T) {
-	re := MustCompile(`(cat)(\c[*)(dog)`, 0)
+	re := MustCompile(`(cat)(\c[*)(dog)`)
 	inp := "asdlkcat\u001bdogiwod"
 
 	if want, got := 4, re.capsize; want != got {
@@ -1163,7 +1163,7 @@ func TestBadGroupConstruct(t *testing.T) {
 	bad := []string{"(?>-", "(?<", "(?<=", "(?<!", "(?>", "(?)", "(?<)", "(?')", "(?<-"}
 
 	for _, b := range bad {
-		_, err := Compile(b, 0)
+		_, err := Compile(b)
 		if err == nil {
 			t.Fatalf("Wanted error, but got no error for pattern: %v", b)
 		}
@@ -1178,7 +1178,7 @@ func TestEmptyCaptureLargeRepeat(t *testing.T) {
 	// and the "grow stack/track" logic only triggered on jumps that moved
 	// backwards
 
-	r := MustCompile(`(?:){40}`, 0)
+	r := MustCompile(`(?:){40}`)
 	m, err := r.FindStringMatch("1")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -1255,7 +1255,7 @@ func TestFuzzBytes_Match(t *testing.T) {
 	for _, c := range testCases {
 		r := string(c.r)
 		t.Run(r, func(t *testing.T) {
-			re, err := Compile(r, 0)
+			re, err := Compile(r)
 
 			if err != nil {
 				t.Fatal("should compile, but didn't")
@@ -1302,7 +1302,7 @@ func TestConcatAccidentalPatternCharge(t *testing.T) {
 	// together but the raw rune slice would blow over the original pattern
 	// so the final bit of pattern parsing would be wrong
 	// fixed in #49
-	r, err := Compile(`(?<=1234\.\*56).*(?=890)`, 0)
+	r, err := Compile(`(?<=1234\.\*56).*(?=890)`)
 
 	if err != nil {
 		panic(err)
@@ -1329,7 +1329,7 @@ func TestGoodReverseOrderMessage(t *testing.T) {
 }
 
 func TestParseShortSlashP(t *testing.T) {
-	re := MustCompile(`[!\pL\pN]{1,}`, 0)
+	re := MustCompile(`[!\pL\pN]{1,}`)
 	m, err := re.FindStringMatch("this23! is a! test 1a 2b")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -1340,7 +1340,7 @@ func TestParseShortSlashP(t *testing.T) {
 }
 
 func TestParseShortSlashNegateP(t *testing.T) {
-	re := MustCompile(`\PNa`, 0)
+	re := MustCompile(`\PNa`)
 	m, err := re.FindStringMatch("this is a test 1a 2b")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -1351,7 +1351,7 @@ func TestParseShortSlashNegateP(t *testing.T) {
 }
 
 func TestParseShortSlashPEnd(t *testing.T) {
-	re := MustCompile(`\pN`, 0)
+	re := MustCompile(`\pN`)
 	m, err := re.FindStringMatch("this is a test 1a 2b")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -1362,7 +1362,7 @@ func TestParseShortSlashPEnd(t *testing.T) {
 }
 
 func TestMarshal(t *testing.T) {
-	re := MustCompile(`.*`, 0)
+	re := MustCompile(`.*`)
 	m, err := json.Marshal(re)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -1408,7 +1408,7 @@ func TestRegexpECMAScriptWithSingleline(t *testing.T) {
 }
 
 func TestIssue34LazyEmptyLoopFindNextMatchTerminates(t *testing.T) {
-	re := MustCompile(`((?:0*)+?(?:.*)+?)?`, 0)
+	re := MustCompile(`((?:0*)+?(?:.*)+?)?`)
 	input := "0\xfd"
 
 	type matchRange struct {
@@ -1448,7 +1448,7 @@ func TestIssue34LazyEmptyLoopFindNextMatchTerminates(t *testing.T) {
 }
 
 func TestAnythingSet(t *testing.T) {
-	re := MustCompile(`(?ism)<(.+?)`, 0)
+	re := MustCompile(`(?ism)<(.+?)`)
 	if m, _ := re.MatchString("<a"); !m {
 		t.Fail()
 	}

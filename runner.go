@@ -14,8 +14,9 @@ import (
 )
 
 type Runner struct {
-	re   *Regexp
-	code *syntax.Code
+	re    *Regexp
+	code  *syntax.Code
+	debug bool
 
 	Runtextstart int // starting point for search
 
@@ -57,6 +58,9 @@ type Runner struct {
 	runtrackcount int // count of states that may do backtracking
 
 	runmatch *Match // result object
+
+	runeBuf    []rune
+	replaceBuf bytes.Buffer
 
 	ignoreTimeout bool
 	timeout       time.Duration // timeout in milliseconds (needed for actual)
@@ -103,6 +107,7 @@ func (re *Regexp) run(quick bool, textstart int, input []rune) (*Match, error) {
 func (r *Runner) scan(rt []rune, textstart int, quick bool, timeout time.Duration) (*Match, error) {
 	r.timeout = timeout
 	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
+	r.debug = r.re.Debug()
 	r.Runtextstart = textstart
 	r.Runtext = rt
 	r.Runtextend = len(rt)
@@ -132,18 +137,20 @@ func (r *Runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 
 	r.startTimeoutWatch()
 	for {
-		if r.re.Debug() {
+		if r.debug {
 			//fmt.Printf("\nSearch content: %v\n", string(r.runtext))
 			fmt.Printf("\nSearch range: from 0 to %v\n", r.Runtextend)
 			fmt.Printf("Firstchar search starting at %v stopping at %v\n", r.Runtextpos, stoppos)
 		}
 
 		if findFirstChar(r) {
-			if err := r.CheckTimeout(); err != nil {
-				return nil, err
+			if !r.ignoreTimeout {
+				if err := r.CheckTimeout(); err != nil {
+					return nil, err
+				}
 			}
 
-			if r.re.Debug() {
+			if r.debug {
 				fmt.Printf("Executing engine starting at %v\n\n", r.Runtextpos)
 			}
 
@@ -184,12 +191,14 @@ func executeDefault(r *Runner) error {
 
 	for {
 
-		if r.re.Debug() {
+		if r.debug {
 			r.dumpState()
 		}
 
-		if err := r.CheckTimeout(); err != nil {
-			return err
+		if !r.ignoreTimeout {
+			if err := r.CheckTimeout(); err != nil {
+				return err
+			}
 		}
 
 		switch r.operator {
@@ -1057,7 +1066,7 @@ func (r *Runner) backtrack() {
 	newpos := r.runtrack[r.Runtrackpos]
 	r.Runtrackpos++
 
-	if r.re.Debug() {
+	if r.debug {
 		if newpos < 0 {
 			fmt.Printf("       Backtracking (back2) to code position %v\n", -newpos)
 		} else {
@@ -1399,11 +1408,11 @@ func (r *Runner) initMatch() {
 	tracksize := r.runtrackcount * 8
 	stacksize := r.runtrackcount * 8
 
-	if tracksize < 32 {
-		tracksize = 32
+	if tracksize < 64 {
+		tracksize = 64
 	}
-	if stacksize < 16 {
-		stacksize = 16
+	if stacksize < 32 {
+		stacksize = 32
 	}
 
 	r.runtrack = make([]int, tracksize)
@@ -1427,7 +1436,17 @@ func (r *Runner) tidyMatch(quick bool) *Match {
 	} else {
 		// send back our match -- it's not leaving the package, so it's safe to not clean it up
 		// this reduces allocs for frequent calls to the "IsMatch" bool-only functions
-		return r.runmatch
+		m := r.runmatch
+		if m == nil {
+			return nil
+		}
+		m.textpos = r.Runtextpos
+		if m.matchcount[0] > 0 {
+			interval := m.matches[0]
+			m.Index = interval[0]
+			m.Length = interval[1]
+		}
+		return m
 	}
 }
 
@@ -1588,7 +1607,7 @@ func (r *Runner) CheckTimeout() error {
 		return nil
 	}
 
-	if r.re.Debug() {
+	if r.debug {
 		//Debug.WriteLine("")
 		//Debug.WriteLine("RegEx match timeout occurred!")
 		//Debug.WriteLine("Specified timeout:       " + TimeSpan.FromMilliseconds(_timeout).ToString())
@@ -1607,37 +1626,82 @@ func (r *Runner) initTrackCount() {
 	}
 }
 
-// getRunner returns a run to use for matching re.
-// It uses the re's runner cache if possible, to avoid
-// unnecessary allocation.
-func (re *Regexp) getRunner() *Runner {
-	re.muRun.Lock()
-	if n := len(re.runner); n > 0 {
-		z := re.runner[n-1]
-		re.runner = re.runner[:n-1]
-		re.muRun.Unlock()
-		return z
+// decodeString converts s to []rune using the runner's reusable buffer when
+// allowed by the regexp optimization settings. The returned slice is valid only
+// until the next decode on this runner.
+func (r *Runner) decodeString(s string) []rune {
+	if !r.re.optimizations.keepRuneBuffer(len(s)) {
+		return []rune(s)
 	}
-	re.muRun.Unlock()
-	z := &Runner{
-		re:   re,
-		code: re.code,
+	if cap(r.runeBuf) < len(s) {
+		r.runeBuf = make([]rune, len(s))
 	}
-	return z
+	n := 0
+	for _, ch := range s {
+		r.runeBuf[n] = ch
+		n++
+	}
+	return r.runeBuf[:n]
 }
 
-// putRunner returns a runner to the re's cache.
-// There is no attempt to limit the size of the cache, so it will
-// grow to the maximum number of simultaneous matches
-// run using re.  (The cache empties when re gets garbage collected.)
+func (r *Runner) decodeStringWithStart(s string, startAt int) (runes []rune, runeStart int) {
+	if !r.re.optimizations.keepRuneBuffer(len(s)) {
+		ret := make([]rune, len(s))
+		n := 0
+		runeStart = -1
+		for strIdx, ch := range s {
+			if startAt >= 0 && strIdx == startAt {
+				runeStart = n
+			}
+			ret[n] = ch
+			n++
+		}
+		if startAt >= 0 && startAt == len(s) {
+			runeStart = n
+		}
+		return ret[:n], runeStart
+	}
+	if cap(r.runeBuf) < len(s) {
+		r.runeBuf = make([]rune, len(s))
+	}
+	n := 0
+	runeStart = -1
+	for strIdx, ch := range s {
+		if startAt >= 0 && strIdx == startAt {
+			runeStart = n
+		}
+		r.runeBuf[n] = ch
+		n++
+	}
+	if startAt >= 0 && startAt == len(s) {
+		runeStart = n
+	}
+	return r.runeBuf[:n], runeStart
+}
+
+// getRunner returns a runner to use for matching re.
+func (re *Regexp) getRunner() *Runner {
+	if re.runnerPool == nil {
+		re.initCaches()
+	}
+	return re.runnerPool.Get().(*Runner)
+}
+
+// putRunner returns a runner to the re's pool cache.
 func (re *Regexp) putRunner(r *Runner) {
-	re.muRun.Lock()
 	r.Runtext = nil
 	if r.runmatch != nil {
 		r.runmatch.text = nil
 	}
-	re.runner = append(re.runner, r)
-	re.muRun.Unlock()
+	if !re.optimizations.keepRuneBuffer(cap(r.runeBuf)) {
+		r.runeBuf = nil
+	}
+	if !re.optimizations.keepReplaceBuffer(r.replaceBuf.Cap()) {
+		r.replaceBuf = bytes.Buffer{}
+	} else {
+		r.replaceBuf.Reset()
+	}
+	re.runnerPool.Put(r)
 }
 
 func (r *Runner) LastIndexOf(startIndex int, find []rune) int {

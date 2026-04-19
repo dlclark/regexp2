@@ -17,7 +17,7 @@ func TestIgnoreCase_Simple(t *testing.T) {
 }
 
 func TestIgnoreCase_Inline(t *testing.T) {
-	r := MustCompile("aaa(?i:match this)bbb", 0)
+	r := MustCompile("aaa(?i:match this)bbb")
 	m, err := r.FindStringMatch("aaaMaTcH ThIsbbb")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

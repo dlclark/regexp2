@@ -24,8 +24,8 @@ func RegisterEngine(pattern string, opt RegexOptions, engine RuntimeEngine) {
 	enginesMu.Unlock()
 }
 
-func newEngineRegexp(pattern string, opt RegexOptions, engine RuntimeEngine) *Regexp {
-	return &Regexp{
+func newEngineRegexp(pattern string, opt RegexOptions, optimizations OptimizationOptions, engine RuntimeEngine) *Regexp {
+	re := &Regexp{
 		pattern:       pattern,
 		options:       opt,
 		caps:          engine.Caps(),
@@ -33,20 +33,22 @@ func newEngineRegexp(pattern string, opt RegexOptions, engine RuntimeEngine) *Re
 		capslist:      engine.CapsList(),
 		capsize:       engine.CapSize(),
 		MatchTimeout:  DefaultMatchTimeout,
-		muRun:         &sync.Mutex{},
+		optimizations: optimizations,
 		findFirstChar: engine.FindFirstChar,
 		execute:       engine.Execute,
 	}
+	re.initCaches()
+	return re
 }
 
-func getEngineRegexp(pattern string, opt RegexOptions) *Regexp {
+func getEngineRegexp(pattern string, opt RegexOptions, optimizations OptimizationOptions) *Regexp {
 	enginesMu.RLock()
 	engine, ok := engines[cacheKey{pattern, opt}]
 	enginesMu.RUnlock()
 	if !ok {
 		return nil
 	}
-	return newEngineRegexp(pattern, opt, engine)
+	return newEngineRegexp(pattern, opt, optimizations, engine)
 }
 
 var (

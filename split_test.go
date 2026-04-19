@@ -7,7 +7,7 @@ import (
 )
 
 func TestBasicSplit(t *testing.T) {
-	re := MustCompile("a(.)c(.)e", 0)
+	re := MustCompile("a(.)c(.)e")
 	vals, err := re.Split("123abcde456aBCDe789", -1)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
@@ -29,7 +29,7 @@ func TestBasicSplit_IgnoreCase(t *testing.T) {
 }
 
 func TestSplit_ZeroWidth(t *testing.T) {
-	re := MustCompile(`(?<=\G..)(?=..)`, 0)
+	re := MustCompile(`(?<=\G..)(?=..)`)
 	vals, err := re.Split("aabbccdd", -1)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)

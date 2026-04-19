@@ -66,7 +66,7 @@ func TestRegisterEngine_CacheMiss(t *testing.T) {
 	})
 
 	// only difference in our cache is our options
-	re := MustCompile("This is a regexp", 0)
+	re := MustCompile("This is a regexp")
 	val, err := re.MatchString("This is a regexp")
 
 	if didFindFirst {

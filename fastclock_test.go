@@ -41,7 +41,7 @@ func TestDeadline(t *testing.T) {
 func TestStopTimeoutClock(t *testing.T) {
 	// run a quick regex with a long timeout
 	// make sure the stop clock returns quickly
-	r := MustCompile(".", 0)
+	r := MustCompile(".")
 	r.MatchTimeout = time.Second * 10
 
 	r.MatchString("a")

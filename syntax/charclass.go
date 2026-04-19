@@ -17,6 +17,12 @@ type CharSet struct {
 	sub        *CharSet //optional subtractor
 	negate     bool
 	anything   bool
+
+	ascii *asciiBitmap
+}
+
+type asciiBitmap struct {
+	bits [2]uint64
 }
 
 type Category struct {
@@ -281,17 +287,42 @@ func NewCharSetRuntime(buf string) CharSet {
 // CharIn returns true if the rune is in our character set (either ranges or categories).
 // It handles negations and subtracted sub-charsets.
 func (c CharSet) CharIn(ch rune) bool {
+	if ch >= 0 && ch < 128 && c.ascii != nil {
+		return (c.ascii.bits[ch/64] & (1 << (uint(ch) % 64))) != 0
+	}
+	return c.charInSlow(ch)
+}
+
+func (c CharSet) charInSlow(ch rune) bool {
 	val := false
 	// in s && !s.subtracted
 
-	//check ranges
-	for _, r := range c.ranges {
-		if ch < r.First {
-			continue
-		}
-		if ch <= r.Last {
-			val = true
-			break
+	//check ranges -- binary search for sets with many ranges, linear for small sets
+	n := len(c.ranges)
+	if n > 0 {
+		if n <= 4 {
+			for _, r := range c.ranges {
+				if ch < r.First {
+					break
+				}
+				if ch <= r.Last {
+					val = true
+					break
+				}
+			}
+		} else {
+			lo, hi := 0, n
+			for lo < hi {
+				mid := int(uint(lo+hi) >> 1)
+				if c.ranges[mid].First <= ch {
+					lo = mid + 1
+				} else {
+					hi = mid
+				}
+			}
+			if lo > 0 && ch <= c.ranges[lo-1].Last {
+				val = true
+			}
 		}
 	}
 
@@ -312,6 +343,22 @@ func (c CharSet) CharIn(ch rune) bool {
 
 	//log.Printf("Char '%v' in %v == %v", string(ch), c.String(), val)
 	return val
+}
+
+func (c *CharSet) prepareASCIIBitmap() {
+	if c == nil || c.ascii != nil {
+		return
+	}
+	if c.sub != nil {
+		c.sub.prepareASCIIBitmap()
+	}
+	bm := &asciiBitmap{}
+	for i := range rune(128) {
+		if c.charInSlow(i) {
+			bm.bits[i/64] |= 1 << (uint(i) % 64)
+		}
+	}
+	c.ascii = bm
 }
 
 func (c *CharSet) charInCategories(ch rune) bool {
