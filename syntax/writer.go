@@ -138,16 +138,17 @@ func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 	}
 
 	return &Code{
-		Codes:       w.emitted,
-		Strings:     w.stringtable,
-		Sets:        w.settable,
-		TrackCount:  w.trackcount,
-		Caps:        w.caps,
-		Capsize:     capsize,
-		FcPrefix:    fcPrefix,
-		BmPrefix:    bmPrefix,
-		Anchors:     getAnchors(tree),
-		RightToLeft: rtl,
+		Codes:             w.emitted,
+		Strings:           w.stringtable,
+		Sets:              w.settable,
+		TrackCount:        w.trackcount,
+		Caps:              w.caps,
+		Capsize:           capsize,
+		FcPrefix:          fcPrefix,
+		BmPrefix:          bmPrefix,
+		Anchors:           getAnchors(tree),
+		RightToLeft:       rtl,
+		FindOptimizations: tree.FindOptimizations,
 	}, nil
 }
 

@@ -1,6 +1,10 @@
 package regexp2
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/dlclark/regexp2/v2/syntax"
+)
 
 func TestReplacerDataCacheBounded(t *testing.T) {
 	re := MustCompile(`a`, OptionMaxCachedReplacerDataEntries(2), OptionMaxCachedReplacerDataBytes(-1))
@@ -35,5 +39,43 @@ func TestReplacerDataCacheMaxBytes(t *testing.T) {
 	}
 	if got := len(re.replaceCache.cache); got != 0 {
 		t.Fatalf("cache size = %d, want 0", got)
+	}
+}
+
+func TestFindOptimizationsCarriedToCode(t *testing.T) {
+	re := MustCompile(`..abc`)
+	if re.code.FindOptimizations == nil {
+		t.Fatal("FindOptimizations was not retained on compiled code")
+	}
+	if got, want := re.code.FindOptimizations.FindMode, syntax.FixedDistanceString_LeftToRight; got != want {
+		t.Fatalf("FindMode = %v, want %v", got, want)
+	}
+}
+
+func TestFixedDistanceStringFindFirstChar(t *testing.T) {
+	re := MustCompile(`..abc`)
+	m, err := re.FindStringMatch("zzxxabc")
+	if err != nil {
+		t.Fatalf("FindStringMatch failed: %v", err)
+	}
+	if m == nil {
+		t.Fatal("expected match")
+	}
+	if got, want := m.Index, 2; got != want {
+		t.Fatalf("match index = %d, want %d", got, want)
+	}
+}
+
+func TestMinRequiredLengthShortCircuits(t *testing.T) {
+	re := MustCompile(`abc`)
+	if got, want := re.code.FindOptimizations.MinRequiredLength, 3; got != want {
+		t.Fatalf("MinRequiredLength = %d, want %d", got, want)
+	}
+	m, err := re.FindStringMatch("ab")
+	if err != nil {
+		t.Fatalf("FindStringMatch failed: %v", err)
+	}
+	if m != nil {
+		t.Fatalf("unexpected match %q", m.String())
 	}
 }

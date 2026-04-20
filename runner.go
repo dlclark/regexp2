@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/dlclark/regexp2/v2/helpers"
 	"github.com/dlclark/regexp2/v2/syntax"
 )
 
@@ -130,10 +131,27 @@ func (r *Runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 		execute = executeDefault
 	}
 
+	minRequiredLength := 0
+	if r.code != nil && r.code.FindOptimizations != nil {
+		minRequiredLength = r.code.FindOptimizations.MinRequiredLength
+	}
+
 	r.initMatch()
 
 	r.startTimeoutWatch()
 	for {
+		if minRequiredLength > 0 {
+			if r.code.RightToLeft {
+				if r.Runtextpos < minRequiredLength {
+					r.tidyMatch(true)
+					return nil, nil
+				}
+			} else if r.Runtextend-r.Runtextpos < minRequiredLength {
+				r.tidyMatch(true)
+				return nil, nil
+			}
+		}
+
 		if r.debug {
 			//fmt.Printf("\nSearch content: %v\n", string(r.runtext))
 			fmt.Printf("\nSearch range: from 0 to %v\n", r.Runtextend)
@@ -1301,7 +1319,6 @@ func (r *Runner) charAt(j int) rune {
 }
 
 func findFirstCharDefault(r *Runner) bool {
-
 	if 0 != (r.code.Anchors & (syntax.AnchorBeginning | syntax.AnchorStart | syntax.AnchorEndZ | syntax.AnchorEnd)) {
 		if !r.code.RightToLeft {
 			if (0 != (r.code.Anchors&syntax.AnchorBeginning) && r.Runtextpos > 0) ||
@@ -1345,7 +1362,15 @@ func findFirstCharDefault(r *Runner) bool {
 		}
 
 		return true
-	} else if r.code.FcPrefix == nil {
+	}
+
+	if shouldUseFindFirstCharOptimized(r) {
+		if handled, found := findFirstCharOptimized(r); handled {
+			return found
+		}
+	}
+
+	if r.code.FcPrefix == nil {
 		return true
 	}
 
@@ -1373,6 +1398,341 @@ func findFirstCharDefault(r *Runner) bool {
 	}
 
 	return false
+}
+
+func shouldUseFindFirstCharOptimized(r *Runner) bool {
+	if r.code == nil || r.code.FindOptimizations == nil {
+		return false
+	}
+
+	switch r.code.FindOptimizations.FindMode {
+	case syntax.TrailingAnchor_FixedLength_LeftToRight_End,
+		syntax.LeadingString_OrdinalIgnoreCase_LeftToRight,
+		syntax.LeadingStrings_LeftToRight,
+		syntax.LeadingStrings_OrdinalIgnoreCase_LeftToRight,
+		syntax.FixedDistanceChar_LeftToRight,
+		syntax.FixedDistanceString_LeftToRight,
+		syntax.FixedDistanceSets_LeftToRight,
+		syntax.LiteralAfterLoop_LeftToRight:
+		return true
+	default:
+		return false
+	}
+}
+
+func findFirstCharOptimized(r *Runner) (handled bool, found bool) {
+	if r.code == nil || r.code.FindOptimizations == nil {
+		return false, false
+	}
+
+	opts := r.code.FindOptimizations
+	switch opts.FindMode {
+	case syntax.NoSearch:
+		return false, false
+	case syntax.TrailingAnchor_FixedLength_LeftToRight_End:
+		return true, findTrailingFixedLengthEnd(r, opts.MinRequiredLength)
+	case syntax.LeadingString_LeftToRight:
+		return true, findLeadingStringLeftToRight(r, []rune(opts.LeadingPrefix), false)
+	case syntax.LeadingString_OrdinalIgnoreCase_LeftToRight:
+		return true, findLeadingStringLeftToRight(r, []rune(opts.LeadingPrefix), true)
+	case syntax.LeadingStrings_LeftToRight:
+		return true, findLeadingStringsLeftToRight(r, opts.LeadingPrefixes, false)
+	case syntax.LeadingStrings_OrdinalIgnoreCase_LeftToRight:
+		return true, findLeadingStringsLeftToRight(r, opts.LeadingPrefixes, true)
+	case syntax.FixedDistanceSets_LeftToRight:
+		return true, findFixedDistanceSetsLeftToRight(r, opts.FixedDistanceSets)
+	case syntax.FixedDistanceChar_LeftToRight:
+		return true, findFixedDistanceCharLeftToRight(r, opts.FixedDistanceLiteral.C, opts.FixedDistanceLiteral.Distance)
+	case syntax.FixedDistanceString_LeftToRight:
+		return true, findFixedDistanceStringLeftToRight(r, []rune(opts.FixedDistanceLiteral.S), opts.FixedDistanceLiteral.Distance)
+	case syntax.LiteralAfterLoop_LeftToRight:
+		return true, findLiteralAfterLoopLeftToRight(r, opts.LiteralAfterLoop)
+	default:
+		return false, false
+	}
+}
+
+func findTrailingFixedLengthEnd(r *Runner, fixedLength int) bool {
+	start := r.Runtextend - fixedLength
+	if start < r.Runtextpos || start < 0 {
+		r.Runtextpos = r.Runtextend
+		return false
+	}
+	r.Runtextpos = start
+	return true
+}
+
+func findLeadingStringLeftToRight(r *Runner, prefix []rune, ignoreCase bool) bool {
+	if len(prefix) == 0 {
+		return true
+	}
+
+	search := r.Runtext[r.Runtextpos:]
+	var offset int
+	if ignoreCase {
+		offset = helpers.IndexOfIgnoreCase(search, prefix)
+	} else {
+		offset = helpers.IndexOf(search, prefix)
+	}
+	if offset < 0 {
+		r.Runtextpos = r.Runtextend
+		return false
+	}
+
+	start := r.Runtextpos + offset
+	if !hasRequiredLengthAt(r, start) {
+		r.Runtextpos = r.Runtextend
+		return false
+	}
+	r.Runtextpos = start
+	return true
+}
+
+func findLeadingStringsLeftToRight(r *Runner, prefixes []string, ignoreCase bool) bool {
+	if len(prefixes) == 0 {
+		return false
+	}
+
+	for start := r.Runtextpos; start <= latestPossibleStart(r); start++ {
+		for _, prefix := range prefixes {
+			prefixRunes := []rune(prefix)
+			if ignoreCase {
+				if helpers.StartsWithIgnoreCase(r.Runtext[start:], prefixRunes) {
+					r.Runtextpos = start
+					return true
+				}
+			} else if helpers.StartsWith(r.Runtext[start:], prefixRunes) {
+				r.Runtextpos = start
+				return true
+			}
+		}
+	}
+
+	r.Runtextpos = r.Runtextend
+	return false
+}
+
+func findFixedDistanceCharLeftToRight(r *Runner, ch rune, distance int) bool {
+	searchStart := r.Runtextpos + distance
+	for searchStart < r.Runtextend {
+		offset := helpers.IndexOfAny1(r.Runtext[searchStart:], ch)
+		if offset < 0 {
+			r.Runtextpos = r.Runtextend
+			return false
+		}
+		literalIndex := searchStart + offset
+		start := literalIndex - distance
+		if start >= r.Runtextpos && hasRequiredLengthAt(r, start) {
+			r.Runtextpos = start
+			return true
+		}
+		if start > latestPossibleStart(r) {
+			break
+		}
+		searchStart = literalIndex + 1
+	}
+
+	r.Runtextpos = r.Runtextend
+	return false
+}
+
+func findFixedDistanceStringLeftToRight(r *Runner, literal []rune, distance int) bool {
+	if len(literal) == 0 {
+		return true
+	}
+
+	searchStart := r.Runtextpos + distance
+	for searchStart <= r.Runtextend-len(literal) {
+		offset := helpers.IndexOf(r.Runtext[searchStart:], literal)
+		if offset < 0 {
+			r.Runtextpos = r.Runtextend
+			return false
+		}
+		literalIndex := searchStart + offset
+		start := literalIndex - distance
+		if start >= r.Runtextpos && hasRequiredLengthAt(r, start) {
+			r.Runtextpos = start
+			return true
+		}
+		if start > latestPossibleStart(r) {
+			break
+		}
+		searchStart = literalIndex + 1
+	}
+
+	r.Runtextpos = r.Runtextend
+	return false
+}
+
+func findFixedDistanceSetsLeftToRight(r *Runner, sets []syntax.FixedDistanceSet) bool {
+	if len(sets) == 0 || sets[0].Set == nil {
+		return false
+	}
+
+	primary := sets[0]
+	searchStart := r.Runtextpos + primary.Distance
+	for searchStart < r.Runtextend {
+		offset := indexOfSet(r.Runtext[searchStart:], primary)
+		if offset < 0 {
+			r.Runtextpos = r.Runtextend
+			return false
+		}
+
+		charIndex := searchStart + offset
+		start := charIndex - primary.Distance
+		if start > latestPossibleStart(r) {
+			break
+		}
+		if start >= r.Runtextpos && hasRequiredLengthAt(r, start) && fixedDistanceSetsMatchAt(r, sets, start) {
+			r.Runtextpos = start
+			return true
+		}
+		searchStart = charIndex + 1
+	}
+
+	r.Runtextpos = r.Runtextend
+	return false
+}
+
+func findLiteralAfterLoopLeftToRight(r *Runner, literal *syntax.LiteralAfterLoop) bool {
+	if literal == nil || literal.LoopNode == nil || literal.LoopNode.Set == nil {
+		return false
+	}
+
+	searchStart := r.Runtextpos
+	for searchStart < r.Runtextend {
+		literalIndex := indexOfLiteralAfterLoop(r, literal, searchStart)
+		if literalIndex < 0 {
+			r.Runtextpos = r.Runtextend
+			return false
+		}
+
+		start := literalIndex
+		for start > r.Runtextpos && literal.LoopNode.Set.CharIn(r.Runtext[start-1]) {
+			start--
+		}
+		if hasRequiredLengthAt(r, start) {
+			r.Runtextpos = start
+			return true
+		}
+		searchStart = literalIndex + 1
+	}
+
+	r.Runtextpos = r.Runtextend
+	return false
+}
+
+func findLeadingCharRightToLeft(r *Runner, ch rune) bool {
+	for i := r.Runtextpos - 1; i >= 0; i-- {
+		if r.Runtext[i] == ch {
+			r.Runtextpos = i + 1
+			return true
+		}
+	}
+	r.Runtextpos = 0
+	return false
+}
+
+func findLeadingSetRightToLeft(r *Runner, sets []syntax.FixedDistanceSet) bool {
+	if len(sets) == 0 || sets[0].Set == nil {
+		return false
+	}
+	set := sets[0]
+	if set.Distance != 0 {
+		return false
+	}
+	for i := r.Runtextpos - 1; i >= 0; i-- {
+		if charInFixedDistanceSet(set, r.Runtext[i]) {
+			r.Runtextpos = i + 1
+			return true
+		}
+	}
+	r.Runtextpos = 0
+	return false
+}
+
+func indexOfLiteralAfterLoop(r *Runner, literal *syntax.LiteralAfterLoop, searchStart int) int {
+	switch {
+	case literal.String != "":
+		needle := []rune(literal.String)
+		if literal.StringIgnoreCase {
+			if offset := helpers.IndexOfIgnoreCase(r.Runtext[searchStart:], needle); offset >= 0 {
+				return searchStart + offset
+			}
+		} else if offset := helpers.IndexOf(r.Runtext[searchStart:], needle); offset >= 0 {
+			return searchStart + offset
+		}
+	case len(literal.Chars) > 0:
+		if offset := helpers.IndexOfAny(r.Runtext[searchStart:], literal.Chars); offset >= 0 {
+			return searchStart + offset
+		}
+	default:
+		if offset := helpers.IndexOfAny1(r.Runtext[searchStart:], literal.Char); offset >= 0 {
+			return searchStart + offset
+		}
+	}
+	return -1
+}
+
+func indexOfSet(chars []rune, set syntax.FixedDistanceSet) int {
+	if len(set.Chars) > 0 && !set.Negated {
+		return helpers.IndexOfAny(chars, set.Chars)
+	}
+	if len(set.Chars) > 0 && set.Negated {
+		return helpers.IndexOfAnyExcept(chars, set.Chars)
+	}
+	if set.Range != nil {
+		if set.Negated {
+			return helpers.IndexOfAnyExceptInRange(chars, set.Range.First, set.Range.Last)
+		}
+		return helpers.IndexOfAnyInRange(chars, set.Range.First, set.Range.Last)
+	}
+	return helpers.IndexFunc(chars, func(ch rune) bool {
+		return charInFixedDistanceSet(set, ch)
+	})
+}
+
+func fixedDistanceSetsMatchAt(r *Runner, sets []syntax.FixedDistanceSet, start int) bool {
+	for _, set := range sets {
+		index := start + set.Distance
+		if index < 0 || index >= r.Runtextend || !charInFixedDistanceSet(set, r.Runtext[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func charInFixedDistanceSet(set syntax.FixedDistanceSet, ch rune) bool {
+	if len(set.Chars) > 0 {
+		found := slices.Contains(set.Chars, ch)
+		if set.Negated {
+			return !found
+		}
+		return found
+	}
+	if set.Range != nil {
+		found := ch >= set.Range.First && ch <= set.Range.Last
+		if set.Negated {
+			return !found
+		}
+		return found
+	}
+	return set.Set != nil && set.Set.CharIn(ch)
+}
+
+func latestPossibleStart(r *Runner) int {
+	if r.code == nil || r.code.FindOptimizations == nil {
+		return r.Runtextend
+	}
+	minRequiredLength := r.code.FindOptimizations.MinRequiredLength
+	if minRequiredLength <= 0 {
+		return r.Runtextend
+	}
+	return r.Runtextend - minRequiredLength
+}
+
+func hasRequiredLengthAt(r *Runner, start int) bool {
+	return start >= 0 && start <= latestPossibleStart(r)
 }
 
 func (r *Runner) initMatch() {

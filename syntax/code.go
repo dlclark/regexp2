@@ -102,16 +102,17 @@ const (
 )
 
 type Code struct {
-	Codes       []int       // the code
-	Strings     [][]rune    // string table
-	Sets        []*CharSet  //character set table
-	TrackCount  int         // how many instructions use backtracking
-	Caps        map[int]int // mapping of user group numbers -> impl group slots
-	Capsize     int         // number of impl group slots
-	FcPrefix    *Prefix     // the set of candidate first characters (may be null)
-	BmPrefix    *BmPrefix   // the fixed prefix string as a Boyer-Moore machine (may be null)
-	Anchors     AnchorLoc   // the set of zero-length start anchors (RegexFCD.Bol, etc)
-	RightToLeft bool        // true if right to left
+	Codes             []int              // the code
+	Strings           [][]rune           // string table
+	Sets              []*CharSet         //character set table
+	TrackCount        int                // how many instructions use backtracking
+	Caps              map[int]int        // mapping of user group numbers -> impl group slots
+	Capsize           int                // number of impl group slots
+	FcPrefix          *Prefix            // the set of candidate first characters (may be null)
+	BmPrefix          *BmPrefix          // the fixed prefix string as a Boyer-Moore machine (may be null)
+	Anchors           AnchorLoc          // the set of zero-length start anchors (RegexFCD.Bol, etc)
+	RightToLeft       bool               // true if right to left
+	FindOptimizations *FindOptimizations // analyzed candidate search strategy
 }
 
 // PrepareCharSetASCIIBitmaps builds bounded ASCII lookup tables for compiled
@@ -125,6 +126,14 @@ func (c *Code) PrepareCharSetASCIIBitmaps() {
 	}
 	if c.FcPrefix != nil {
 		c.FcPrefix.PrefixSet.prepareASCIIBitmap()
+	}
+	if c.FindOptimizations != nil {
+		for _, set := range c.FindOptimizations.FixedDistanceSets {
+			set.Set.prepareASCIIBitmap()
+		}
+		if c.FindOptimizations.LiteralAfterLoop != nil && c.FindOptimizations.LiteralAfterLoop.LoopNode != nil {
+			c.FindOptimizations.LiteralAfterLoop.LoopNode.Set.prepareASCIIBitmap()
+		}
 	}
 }
 
