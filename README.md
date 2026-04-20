@@ -19,6 +19,7 @@ Version 2 includes changes that may affect compatibility with existing v1 users:
 * The minimum supported Go version is now Go 1.26.
 * Changes to support https://github.com/dlclark/regexp2cg are merged in to support generated regex engines.
 * `Regexp.Split` is now available for splitting strings with regexp matches.
+* The new `compat` sub-package provides an adapter with the same `Find*` and `Match*` method signatures as `regexp.Regexp`, plus a `compat.Matcher` interface that is implemented by both `*regexp.Regexp` and the adapter.
 * The parser, optimizer, and runner internals have changed significantly to support generated regexes and additional matching optimizations.
 * `Compile` and `MustCompile` now use variadic compile options for regex behavior and memory/performance tuning.
 * Some types and constants in the `syntax` package have been exported or changed to support code generation.
@@ -70,6 +71,44 @@ func regexp2FindAllString(re *regexp2.Regexp, s string) []string {
 `FindNextMatch` is optmized so that it re-uses the underlying string/rune slice.
 
 The internals of `regexp2` always operate on `[]rune` so `RuneIndex` and `RuneLength` data in a `Match` always reference a position in `rune`s rather than `byte`s (even if the input was given as a string). `ByteRange()` provides UTF-8 byte offsets, matching the original string input for string APIs. It's advisable to use the provided `String()` methods when you do not need explicit offsets. `ByteRange()` lazily caches byte offsets on the shared match text, so the first call on captures from the same match is not safe to run concurrently with other `ByteRange()` calls on that match.
+
+## `regexp` compatibility adapter
+
+The `github.com/dlclark/regexp2/v2/compat` package provides an adapter for callers that want the same `Find*` and `Match*` method signatures as the standard library's `regexp.Regexp`, while still using the `regexp2` engine.
+
+```go
+import (
+	"github.com/dlclark/regexp2/v2"
+	"github.com/dlclark/regexp2/v2/compat"
+)
+
+re := compat.MustCompile(`Your pattern`, regexp2.RE2)
+if re.MatchString(`Something to match`) {
+	// do something
+}
+
+matches := re.FindAllString(`abc axbc`, -1)
+_ = matches
+```
+
+You can also wrap an existing compiled regexp:
+
+```go
+base := regexp2.MustCompile(`Your pattern`)
+re := compat.Wrap(base)
+```
+
+The adapter includes the standard-library matching surface: `Match`, `MatchString`, `MatchReader`, and all `Find(All)?(String)?(Submatch)?(Index)?` methods. Index-returning methods use UTF-8 byte offsets like `regexp`, not regexp2's rune offsets.
+
+The package also defines `compat.Matcher`, a common interface implemented by both `*regexp.Regexp` and `*compat.Regexp`. Use it when code should accept either the standard library engine or a regexp2-backed adapter:
+
+```go
+func findWords(re compat.Matcher, input string) []string {
+	return re.FindAllString(input, -1)
+}
+```
+
+Because those standard-library method signatures do not return errors, the adapter panics if the wrapped regexp2 matcher returns an error such as a match timeout. Use the main `regexp2` APIs directly when you need to handle timeouts as errors.
 
 ## Optimization options
 
