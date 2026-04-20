@@ -22,6 +22,7 @@ Version 2 includes changes that may affect compatibility with existing v1 users:
 * The new `compat` sub-package provides an adapter with the same `Find*` and `Match*` method signatures as `regexp.Regexp`, plus a `compat.Matcher` interface that is implemented by both `*regexp.Regexp` and the adapter.
 * The parser, optimizer, and runner internals have changed significantly to support generated regexes and additional matching optimizations.
 * `Compile` and `MustCompile` now use variadic compile options for regex behavior and memory/performance tuning.
+* Moved regexp2.Debug and regexp2.Compile to new OptionDebug() and OptionIsCodeGen() compile options
 * Some types and constants in the `syntax` package have been exported or changed to support code generation.
 
 ## Usage
@@ -110,7 +111,7 @@ func findWords(re compat.Matcher, input string) []string {
 
 Because those standard-library method signatures do not return errors, the adapter panics if the wrapped regexp2 matcher returns an error such as a match timeout. Use the main `regexp2` APIs directly when you need to handle timeouts as errors.
 
-## Optimization options
+## Compile options
 
 `Compile` and `MustCompile` take variadic compile options. Most users can omit them and get default regex behavior plus bounded shared pools for rune buffers and replacement output buffers, plus per-regexp caches for parsed replacement patterns and ASCII character class bitmaps.
 
@@ -131,10 +132,19 @@ re := regexp2.MustCompile(`Your pattern`,
 )
 ```
 
+Compile-only options configure behavior that is not settable from the pattern:
+
+```go
+re := regexp2.MustCompile(`(?<first>This) (is)`, regexp2.OptionMaintainCaptureOrder())
+```
+
 The defaults are intentionally bounded:
 
 | Option | Default | Used by | Working-set growth | Tradeoffs |
 | --- | ---: | --- | --- | --- |
+| `OptionMaintainCaptureOrder()` | false | Parser capture-slot assignment for mixed named and unnamed captures. | None at match time. This changes compile-time capture numbering only. | Keeps named and unnamed captures in pattern order instead of appending named captures after unnamed captures. This can change numeric backreference meaning, so it is caller-controlled rather than an inline regex option. |
+| `OptionDebug()` | false | Compile dumps and runner tracing. | Debug output volume only. | Useful for diagnostics, but it can produce noisy output and slower traced matching. |
+| `OptionIsCodeGen()` | false | Compile-time find-optimization analysis for [`regexp2cg`](https://github.com/dlclark/regexp2cg). | Per compiled regexp, during `Compile` or `MustCompile`. | Enables more expensive analysis intended for generated engines. Do not use it for normal interpreter execution; the interpreter defaults intentionally avoid this extra compile-time cost. |
 | `OptionMaxCachedRuneBufferLength(n)` | 256K runes | String APIs that run through pooled runners, such as `MatchString` and replacement-pattern `Replace`, when converting input strings to the engine's internal `[]rune` representation. | Process-wide shared `sync.Pool` retention by size class. This does not grow per compiled regexp or per input string; the practical working set follows recent and concurrent use across all regexps and can be dropped by GC. | Raising this lets calls use larger pooled rune buffers and can reduce allocations for repeated matches against large strings. Lowering it prevents larger buffers from being borrowed or returned, so large inputs allocate directly. |
 | `OptionMaxCachedReplaceBufferLength(n)` | 256 KB | Replacement-pattern `Replace` calls that build output through a shared byte buffer. | Process-wide shared `sync.Pool` retention by size class after replacement-pattern `Replace` runs. It does not grow from evaluator-based `ReplaceFunc` output and is shared across compiled regexps. | Raising this lets larger replacement outputs use pooled buffers and can reduce allocations. Lowering it prevents larger output buffers from being retained, so large replacements allocate directly. |
 | `OptionMaxCachedReplacerDataEntries(n)` | `16` | `Replace` with replacement pattern strings, after the replacement pattern is parsed into reusable replacement data. | Per compiled regexp. The cache grows as distinct cacheable replacement strings are used with `Replace`, up to this entry count. | Raising this helps when a single compiled regexp is used with many recurring replacement patterns. It increases per-regexp cache memory and lock-protected cache bookkeeping. Setting it to `0` disables this cache. |

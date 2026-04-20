@@ -1221,7 +1221,7 @@ func BenchmarkParserPrefixLongLen(b *testing.B) {
 
 /*
 func TestPcreStuff(t *testing.T) {
-	re := MustCompile(`(?(?=(a))a)`, Debug)
+	re := MustCompile(`(?(?=(a))a)`, OptionDebug())
 	inp := unEscapeToMatch(`a`)
 	fmt.Printf("Inp %q\n", inp)
 	m, err := re.FindStringMatch(inp)
@@ -1340,7 +1340,7 @@ func TestFuzzBytes_NoCompile(t *testing.T) {
 	for _, c := range testCases {
 		r := string(c.r)
 		t.Run(r, func(t *testing.T) {
-			_, err := Compile(r, Multiline|ECMAScript|Debug)
+			_, err := Compile(r, Multiline|ECMAScript, OptionDebug())
 			// should fail compiling
 			if err == nil {
 				t.Fatal("should fail compile, but didn't")

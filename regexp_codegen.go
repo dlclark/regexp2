@@ -14,26 +14,29 @@ type RuntimeEngineData struct {
 }
 
 type cacheKey struct {
-	pattern string
-	opt     RegexOptions
+	pattern              string
+	opt                  RegexOptions
+	maintainCaptureOrder bool
 }
 
-func RegisterEngine(pattern string, opt RegexOptions, engine RuntimeEngineData) {
+func RegisterEngine(pattern string, engine RuntimeEngineData, options ...CompileOption) {
+	c := newCompileConfig(options)
 	enginesMu.Lock()
-	engines[cacheKey{pattern, opt}] = engine
+	engines[cacheKeyFromConfig(pattern, c)] = engine
 	enginesMu.Unlock()
 }
 
-func newEngineRegexp(pattern string, opt RegexOptions, optimizations OptimizationOptions, engine RuntimeEngineData) *Regexp {
+func newEngineRegexp(pattern string, c compileConfig, engine RuntimeEngineData) *Regexp {
 	re := &Regexp{
 		pattern:       pattern,
-		options:       opt,
+		options:       c.regexOptions,
+		debug:         c.debug,
 		caps:          engine.Caps,
 		capnames:      engine.CapNames,
 		capslist:      engine.CapsList,
 		capsize:       engine.CapSize,
 		MatchTimeout:  DefaultMatchTimeout,
-		optimizations: optimizations,
+		optimizations: c.optimizations,
 		findFirstChar: engine.FindFirstChar,
 		execute:       engine.Execute,
 	}
@@ -41,14 +44,22 @@ func newEngineRegexp(pattern string, opt RegexOptions, optimizations Optimizatio
 	return re
 }
 
-func getEngineRegexp(pattern string, opt RegexOptions, optimizations OptimizationOptions) *Regexp {
+func getEngineRegexp(pattern string, c compileConfig) *Regexp {
 	enginesMu.RLock()
-	engine, ok := engines[cacheKey{pattern, opt}]
+	engine, ok := engines[cacheKeyFromConfig(pattern, c)]
 	enginesMu.RUnlock()
 	if !ok {
 		return nil
 	}
-	return newEngineRegexp(pattern, opt, optimizations, engine)
+	return newEngineRegexp(pattern, c, engine)
+}
+
+func cacheKeyFromConfig(pattern string, c compileConfig) cacheKey {
+	return cacheKey{
+		pattern:              pattern,
+		opt:                  c.regexOptions,
+		maintainCaptureOrder: c.maintainCaptureOrder,
+	}
 }
 
 var (

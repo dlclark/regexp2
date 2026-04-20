@@ -193,7 +193,7 @@ func compileRawPattern(t *testing.T, pattern string) *Regexp {
 	// check our end for RegexOptions -trim them off
 	index := strings.LastIndexAny(pattern, "/\"")
 	//
-	// Append "= Debug" to compare details between corefx and regexp2 on the PCRE test suite
+	// Add OptionDebug() to compare details between corefx and regexp2 on the PCRE test suite.
 	//
 	var opts RegexOptions
 

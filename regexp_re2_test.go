@@ -213,7 +213,7 @@ func TestEscapeLiteralDefaults(t *testing.T) {
 /*
 func TestRE2EndZ_Singleline(t *testing.T) {
 	// PCRE allows for \n after the $ and RE2 doesn't
-	r := MustCompile(`^ac$\Z`, RE2|Debug)
+	r := MustCompile(`^ac$\Z`, RE2, OptionDebug())
 	if m, _ := r.MatchString("ac"); m {
 		t.Fatal("Expected no match")
 	}

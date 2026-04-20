@@ -38,6 +38,7 @@ type Regexp struct {
 	// read-only after Compile
 	pattern string       // as passed to Compile
 	options RegexOptions // options
+	debug   bool
 
 	caps     map[int]int    // capnum->index
 	capnames map[string]int //capture group name -> index
@@ -62,17 +63,22 @@ type Regexp struct {
 // a Regexp object that can be used to match against text.
 func Compile(expr string, options ...CompileOption) (*Regexp, error) {
 	c := newCompileConfig(options)
-	return compile(expr, c.regexOptions, c.optimizations)
+	return compile(expr, c)
 }
 
-func compile(expr string, opt RegexOptions, optimizations OptimizationOptions) (*Regexp, error) {
+func compile(expr string, c compileConfig) (*Regexp, error) {
 	// parse it
-	tree, err := syntax.Parse(expr, syntax.RegexOptions(opt))
+	parseOptions := syntax.ParseOptions{
+		RegexOptions:         syntax.RegexOptions(c.regexOptions),
+		MaintainCaptureOrder: c.maintainCaptureOrder,
+		CodeGen:              c.codeGen,
+	}
+	tree, err := syntax.Parse(expr, parseOptions)
 	if err != nil {
 		return nil, err
 	}
 
-	if opt&Debug > 0 {
+	if c.debug {
 		log.Print(tree.Dump())
 	}
 
@@ -81,21 +87,25 @@ func compile(expr string, opt RegexOptions, optimizations OptimizationOptions) (
 	if err != nil {
 		return nil, err
 	}
-	if !optimizations.DisableCharClassASCIIBitmap {
+	if c.debug {
+		log.Print(code.Dump())
+	}
+	if !c.optimizations.DisableCharClassASCIIBitmap {
 		code.PrepareCharSetASCIIBitmaps()
 	}
 
 	// return it
 	re := &Regexp{
 		pattern:       expr,
-		options:       opt,
+		options:       c.regexOptions,
+		debug:         c.debug,
 		caps:          code.Caps,
 		capnames:      tree.Capnames,
 		capslist:      tree.Caplist,
 		capsize:       code.Capsize,
 		code:          code,
 		MatchTimeout:  DefaultMatchTimeout,
-		optimizations: optimizations,
+		optimizations: c.optimizations,
 	}
 	re.initCaches()
 	return re, nil
@@ -108,12 +118,12 @@ func MustCompile(str string, options ...CompileOption) *Regexp {
 	c := newCompileConfig(options)
 
 	// lookup if we have a pre-built state machine for this pattern and options
-	regexp := getEngineRegexp(str, c.regexOptions, c.optimizations)
+	regexp := getEngineRegexp(str, c)
 	if regexp != nil {
 		return regexp
 	}
 
-	regexp, err := compile(str, c.regexOptions, c.optimizations)
+	regexp, err := compile(str, c)
 	if err != nil {
 		panic(`regexp2: Compile(` + quote(str) + `): ` + err.Error())
 	}
@@ -160,7 +170,7 @@ func (re *Regexp) RightToLeft() bool {
 }
 
 func (re *Regexp) Debug() bool {
-	return re.options&Debug != 0
+	return re.debug
 }
 
 // Replace searches the input string and replaces each match found with the replacement text.

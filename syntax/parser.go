@@ -14,11 +14,9 @@ const (
 	IgnoreCase              RegexOptions = 0x0001 // "i"
 	Multiline                            = 0x0002 // "m"
 	ExplicitCapture                      = 0x0004 // "n"
-	Compiled                             = 0x0008 // "c"
 	Singleline                           = 0x0010 // "s"
 	IgnorePatternWhitespace              = 0x0020 // "x"
 	RightToLeft                          = 0x0040 // "r"
-	Debug                                = 0x0080 // "d"
 	ECMAScript                           = 0x0100 // "e"
 	RE2                                  = 0x0200 // RE2 compat mode
 	Unicode                              = 0x0400 // "u"
@@ -39,8 +37,6 @@ func optionFromCode(ch rune) RegexOptions {
 		return Singleline
 	case 'x', 'X':
 		return IgnorePatternWhitespace
-	case 'd', 'D':
-		return Debug
 	case 'e', 'E':
 		return ECMAScript
 	case 'u', 'U':
@@ -134,6 +130,8 @@ type parser struct {
 	caps     map[int]int
 	capnames map[string]int
 
+	maintainCaptureOrder bool
+
 	capnumlist  []int
 	capnamelist []string
 
@@ -142,16 +140,23 @@ type parser struct {
 	ignoreNextParen bool
 }
 
+type ParseOptions struct {
+	RegexOptions         RegexOptions
+	MaintainCaptureOrder bool
+	CodeGen              bool
+}
+
 const (
 	maxValueDiv10 int = math.MaxInt32 / 10
 	maxValueMod10     = math.MaxInt32 % 10
 )
 
 // Parse converts a regex string into a parse tree
-func Parse(re string, op RegexOptions) (*RegexTree, error) {
+func Parse(re string, op ParseOptions) (*RegexTree, error) {
 	p := parser{
-		options: op,
-		caps:    make(map[int]int),
+		options:              op.RegexOptions,
+		caps:                 make(map[int]int),
+		maintainCaptureOrder: op.MaintainCaptureOrder,
 	}
 	p.setPattern(re)
 
@@ -159,7 +164,7 @@ func Parse(re string, op RegexOptions) (*RegexTree, error) {
 		return nil, err
 	}
 
-	p.reset(op)
+	p.reset(op.RegexOptions)
 	root, err := p.scanRegex()
 
 	if err != nil {
@@ -172,7 +177,7 @@ func Parse(re string, op RegexOptions) (*RegexTree, error) {
 		Captop:     p.captop,
 		Capnames:   p.capnames,
 		Caplist:    p.capnamelist,
-		Options:    op,
+		Options:    op.RegexOptions,
 	}
 	tree.FindOptimizations = newFindOptimizations(tree, op)
 
@@ -214,12 +219,23 @@ func (p *parser) noteCaptureName(name string, pos int) {
 	}
 
 	if _, ok := p.capnames[name]; !ok {
-		p.capnames[name] = pos
+		if p.maintainCaptureOrder {
+			slot := p.consumeAutocap()
+			p.capnames[name] = slot
+			p.noteCaptureSlot(slot, pos)
+		} else {
+			p.capnames[name] = pos
+		}
 		p.capnamelist = append(p.capnamelist, name)
 	}
 }
 
 func (p *parser) assignNameSlots() {
+	if p.maintainCaptureOrder {
+		p.assignOrderedNameSlots()
+		return
+	}
+
 	if p.capnames != nil {
 		for _, name := range p.capnamelist {
 			for p.isCaptureSlot(p.autocap) {
@@ -289,10 +305,65 @@ func (p *parser) assignNameSlots() {
 	}
 }
 
+func (p *parser) assignOrderedNameSlots() {
+	if p.capnames == nil && p.capcount == p.captop {
+		return
+	}
+
+	if p.capcount < p.captop {
+		p.capnumlist = make([]int, p.capcount)
+		i := 0
+		for k := range p.caps {
+			p.capnumlist[i] = k
+			i++
+		}
+		sort.Ints(p.capnumlist)
+	}
+
+	names := p.capnamelist
+	p.capnamelist = make([]string, p.capcount)
+	if p.capnames == nil {
+		p.capnames = make(map[string]int, p.capcount)
+	}
+
+	for _, name := range names {
+		slot := p.capnames[name]
+		index := slot
+		if p.capnumlist != nil {
+			for i, capnum := range p.capnumlist {
+				if capnum == slot {
+					index = i
+					break
+				}
+			}
+		}
+		p.capnamelist[index] = name
+	}
+
+	for i := 0; i < p.capcount; i++ {
+		slot := i
+		if p.capnumlist != nil {
+			slot = p.capnumlist[i]
+		}
+		if p.capnamelist[i] == "" {
+			p.capnamelist[i] = strconv.Itoa(slot)
+		}
+		if _, ok := p.capnames[p.capnamelist[i]]; !ok {
+			p.capnames[p.capnamelist[i]] = slot
+		}
+	}
+}
+
 func (p *parser) consumeAutocap() int {
 	r := p.autocap
 	p.autocap++
 	return r
+}
+
+func (p *parser) consumeCaptureSlot(capnum int) {
+	if p.maintainCaptureOrder && capnum == p.autocap {
+		p.consumeAutocap()
+	}
 }
 
 // CountCaptures is a prescanner for deducing the slots used for
@@ -349,7 +420,11 @@ func (p *parser) countCaptures() error {
 								if err != nil {
 									return err
 								}
-								p.noteCaptureSlot(dec, pos)
+								if p.maintainCaptureOrder {
+									p.noteCaptureName(strconv.Itoa(dec), pos)
+								} else {
+									p.noteCaptureSlot(dec, pos)
+								}
 							} else {
 								p.noteCaptureName(p.scanCapname(), pos)
 							}
@@ -977,6 +1052,7 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 				// actually make the node
 
 				if (capnum != -1 || uncapnum != -1) && p.charsRight() > 0 && p.moveRightGetChar() == close {
+					p.consumeCaptureSlot(capnum)
 					return newRegexNodeMN(NtCapture, p.options, capnum, uncapnum), nil
 				}
 				goto BreakRecognize
@@ -1066,6 +1142,7 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 					// actually make the node
 
 					if capnum != -1 && p.charsRight() > 0 && p.moveRightGetChar() == '>' {
+						p.consumeCaptureSlot(capnum)
 						return newRegexNodeMN(NtCapture, p.options, capnum, -1), nil
 					}
 					goto BreakRecognize
@@ -1659,7 +1736,7 @@ func isOnlyTopOption(option RegexOptions) bool {
 	return option == RightToLeft || option == ECMAScript || option == RE2
 }
 
-// Scans cimsx-cimsx option string, stops at the first unrecognized char.
+// Scans imnsxu-imnsxu option string, stops at the first unrecognized char.
 func (p *parser) scanOptions() {
 
 	for off := false; p.charsRight() > 0; p.moveRight(1) {

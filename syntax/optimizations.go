@@ -102,9 +102,9 @@ const (
 	LiteralAfterLoop_LeftToRight
 )
 
-func newFindOptimizations(tree *RegexTree, opt RegexOptions) *FindOptimizations {
+func newFindOptimizations(tree *RegexTree, opt ParseOptions) *FindOptimizations {
 	f := &FindOptimizations{
-		rightToLeft:       opt&RightToLeft != 0,
+		rightToLeft:       opt.RegexOptions&RightToLeft != 0,
 		MinRequiredLength: tree.Root.ComputeMinLength(),
 		LeadingAnchor:     findLeadingOrTrailingAnchor(tree.Root, true),
 		MaxPossibleLength: -1,
@@ -152,17 +152,17 @@ func newFindOptimizations(tree *RegexTree, opt RegexOptions) *FindOptimizations 
 	// At this point there are no fast-searchable anchors or case-sensitive prefixes. We can now analyze the
 	// pattern for sets and then use any found sets to determine what kind of search to perform.
 
-	// If we're compiling, then the compilation process already handles sets that reduce to a single literal,
+	// If we're generating code, then the code generation process already handles sets that reduce to a single literal,
 	// so we can simplify and just always go for the sets.
-	dfa := false                            //(opt&NonBacktracking) != 0
-	compiled := (opt&Compiled) != 0 && !dfa // for now, we never generate code for NonBacktracking, so treat it as non-compiled
-	interpreter := !compiled && !dfa
-	//usesRfoTryFind := !compiled
+	dfa := false                   //(opt&NonBacktracking) != 0
+	codeGen := opt.CodeGen && !dfa // for now, we never generate code for NonBacktracking, so treat it as non-codegen
+	interpreter := !codeGen && !dfa
+	//usesRfoTryFind := !codeGen
 
 	// For interpreter, we want to employ optimizations, but we don't want to make construction significantly
-	// more expensive; someone who wants to pay to do more work can specify Compiled.  So for the interpreter
-	// we focus only on creating a set for the first character.  Same for right-to-left, which is used very
-	// rarely and thus we don't need to invest in special-casing it.
+	// more expensive. regexp2cg can opt into more expensive analysis with OptionIsCodeGen. So for the
+	// interpreter we focus only on creating a set for the first character. Same for right-to-left, which
+	// is used very rarely and thus we don't need to invest in special-casing it.
 	if f.rightToLeft {
 		// Determine a set for anything that can possibly start the expression.
 		set := findFirstCharClass(tree.Root)
@@ -173,7 +173,7 @@ func newFindOptimizations(tree *RegexTree, opt RegexOptions) *FindOptimizations 
 				chars = set.GetSetChars(5)
 			}
 
-			if !compiled && len(chars) == 1 {
+			if !codeGen && len(chars) == 1 {
 				// The set contains one and only one character, meaning every match starts
 				// with the same literal value (potentially case-insensitive). Search for that.
 				f.FixedDistanceLiteral.C = chars[0]
@@ -251,10 +251,10 @@ func newFindOptimizations(tree *RegexTree, opt RegexOptions) *FindOptimizations 
 		// If there is no literal after the loop, use whatever set we got.
 		// If there is a literal after the loop, consider it to be better than a negated set and better than a set with many characters.
 		if literalAfterLoop == nil || (len(fixedDistanceSets[0].Chars) > 0 && !fixedDistanceSets[0].Negated) {
-			// Determine whether to do searching based on one or more sets or on a single literal. Compiled engines
+			// Determine whether to do searching based on one or more sets or on a single literal. Code-generated engines
 			// don't need to special-case literals as they already do codegen to create the optimal lookup based on
 			// the set's characteristics.
-			if !compiled && len(fixedDistanceSets) == 1 && len(fixedDistanceSets[0].Chars) == 1 &&
+			if !codeGen && len(fixedDistanceSets) == 1 && len(fixedDistanceSets[0].Chars) == 1 &&
 				!fixedDistanceSets[0].Negated {
 				f.FixedDistanceLiteral = FixedDistanceLiteral{
 					C:        fixedDistanceSets[0].Chars[0],

@@ -365,11 +365,11 @@ func TestIdenticalTreePatterns(t *testing.T) {
 	for _, s := range scenarios {
 		t.Run(s.a, func(t *testing.T) {
 			//parse our two strings into trees, debug dump them, expecting equal
-			treeA, err := Parse(s.a, 0)
+			treeA, err := Parse(s.a, ParseOptions{})
 			if err != nil {
 				t.Fatalf("failed to parse %s: %v", s.a, err)
 			}
-			treeB, err := Parse(s.b, 0)
+			treeB, err := Parse(s.b, ParseOptions{})
 			if err != nil {
 				t.Fatalf("failed to parse %s: %v", s.b, err)
 			}
@@ -510,11 +510,11 @@ func TestNonMatchingTreePatterns(t *testing.T) {
 	for _, s := range scenarios {
 		t.Run(s.a, func(t *testing.T) {
 			//parse our two strings into trees, debug dump them, expecting equal
-			treeA, err := Parse(s.a, 0)
+			treeA, err := Parse(s.a, ParseOptions{})
 			if err != nil {
 				t.Fatalf("failed to parse %s: %v", s.a, err)
 			}
-			treeB, err := Parse(s.b, 0)
+			treeB, err := Parse(s.b, ParseOptions{})
 			if err != nil {
 				t.Fatalf("failed to parse %s: %v", s.b, err)
 			}

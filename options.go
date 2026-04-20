@@ -27,11 +27,9 @@ const (
 	IgnoreCase              RegexOptions = 0x0001 // "i"
 	Multiline               RegexOptions = 0x0002 // "m"
 	ExplicitCapture         RegexOptions = 0x0004 // "n"
-	Compiled                RegexOptions = 0x0008 // "c"
 	Singleline              RegexOptions = 0x0010 // "s"
 	IgnorePatternWhitespace RegexOptions = 0x0020 // "x"
 	RightToLeft             RegexOptions = 0x0040 // "r"
-	Debug                   RegexOptions = 0x0080 // "d"
 	ECMAScript              RegexOptions = 0x0100 // "e"
 	RE2                     RegexOptions = 0x0200 // RE2 (regexp package) compatibility mode
 	Unicode                 RegexOptions = 0x0400 // "u"
@@ -62,8 +60,11 @@ type CompileOption interface {
 }
 
 type compileConfig struct {
-	regexOptions  RegexOptions
-	optimizations OptimizationOptions
+	regexOptions         RegexOptions
+	optimizations        OptimizationOptions
+	codeGen              bool
+	debug                bool
+	maintainCaptureOrder bool
 }
 
 type compileOptionFunc func(*compileConfig)
@@ -130,5 +131,26 @@ func OptionMaxCachedReplacerDataBytes(n int) CompileOption {
 func OptionDisableCharClassASCIIBitmap() CompileOption {
 	return compileOptionFunc(func(c *compileConfig) {
 		c.optimizations.DisableCharClassASCIIBitmap = true
+	})
+}
+
+// OptionIsCodeGen enables more expensive compile-time analysis intended for regexp2cg generated engines.
+func OptionIsCodeGen() CompileOption {
+	return compileOptionFunc(func(c *compileConfig) {
+		c.codeGen = true
+	})
+}
+
+// OptionDebug enables debug output and runner tracing for the compiled regexp.
+func OptionDebug() CompileOption {
+	return compileOptionFunc(func(c *compileConfig) {
+		c.debug = true
+	})
+}
+
+// OptionMaintainCaptureOrder assigns named and unnamed capture slots in pattern order.
+func OptionMaintainCaptureOrder() CompileOption {
+	return compileOptionFunc(func(c *compileConfig) {
+		c.maintainCaptureOrder = true
 	})
 }

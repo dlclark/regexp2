@@ -86,7 +86,7 @@ func TestMinMaxLength(t *testing.T) {
 	for _, s := range scenarios {
 		t.Run(s.p, func(t *testing.T) {
 			//parse our two strings into trees, debug dump them, expecting equal
-			treeA, err := Parse(s.p, RegexOptions(s.opt))
+			treeA, err := Parse(s.p, ParseOptions{RegexOptions: RegexOptions(s.opt)})
 			if err != nil {
 				t.Fatalf("failed to parse %s: %v", s.p, err)
 			}
@@ -97,7 +97,7 @@ func TestMinMaxLength(t *testing.T) {
 			// MaxPossibleLength is currently only computed/stored if there's a trailing End{Z} anchor
 			// as the max length is otherwise unused, so add anchors to get calcs to kick in if needed
 			if !strings.HasSuffix(s.p, "$") && !strings.HasSuffix(s.p, `\Z`) {
-				treeA, _ = Parse(fmt.Sprint("(?:", s.p, ")$"), RegexOptions(s.opt))
+				treeA, _ = Parse(fmt.Sprint("(?:", s.p, ")$"), ParseOptions{RegexOptions: RegexOptions(s.opt)})
 			}
 
 			if want, got := s.max, treeA.FindOptimizations.MaxPossibleLength; want != got {
@@ -160,7 +160,7 @@ func TestPrefixCharSets(t *testing.T) {
 	for _, s := range scenarios {
 		t.Run(s.p, func(t *testing.T) {
 			// parse our two strings into trees, debug dump them, expecting equal
-			tree, err := Parse(s.p, RegexOptions(s.opt))
+			tree, err := Parse(s.p, ParseOptions{RegexOptions: RegexOptions(s.opt)})
 			if err != nil {
 				t.Fatalf("failed to parse %s: %v", s.p, err)
 			}
@@ -240,7 +240,7 @@ func TestFindPrefixes(t *testing.T) {
 	for _, s := range scenarios {
 		t.Run(s.p, func(t *testing.T) {
 			// parse our two strings into trees, debug dump them, expecting equal
-			tree, err := Parse(s.p, 0)
+			tree, err := Parse(s.p, ParseOptions{})
 			if err != nil {
 				t.Fatalf("failed to parse %s: %v", s.p, err)
 			}
