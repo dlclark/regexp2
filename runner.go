@@ -2030,27 +2030,6 @@ func (re *Regexp) putRunner(r *Runner) {
 	re.runnerPool.Put(r)
 }
 
-func (r *Runner) LastIndexOf(startIndex int, find []rune) int {
-	if len(find) == 0 {
-		//special case, return last index
-		return r.Runtextend - 1
-	}
-	skip := len(find)
-	first := find[0]
-	for i := r.Runtextend - 1; i >= startIndex; i-- {
-		if r.Runtext[i] == first {
-			// found our first char while looping backwards
-			// check if the rest are equal
-			if slices.Equal(r.Runtext[i:i+skip], find) {
-				return i
-			}
-		}
-	}
-
-	//not found
-	return -1
-}
-
 func (r *Runner) LastIndexOfRune(startIndex int, endIndex int, find rune) int {
 	for i := endIndex - 1; i >= startIndex; i-- {
 		if r.Runtext[i] == find {
@@ -2099,6 +2078,32 @@ func (r *Runner) StackPush3(val1, val2, val3 int) {
 	r.runstack[r.Runstackpos] = val2
 	r.Runstackpos--
 	r.runstack[r.Runstackpos] = val3
+}
+func (r *Runner) StackPush4(val1, val2, val3, val4 int) {
+	// check if we need to size up stack
+	r.ensureStack(4)
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val1
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val2
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val3
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val4
+}
+func (r *Runner) StackPush5(val1, val2, val3, val4, val5 int) {
+	// check if we need to size up stack
+	r.ensureStack(5)
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val1
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val2
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val3
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val4
+	r.Runstackpos--
+	r.runstack[r.Runstackpos] = val5
 }
 func (r *Runner) StackPushN(vals ...int) {
 	// check if we need to size up stack

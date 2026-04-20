@@ -4,13 +4,13 @@ import (
 	"sync"
 )
 
-type RuntimeEngine interface {
-	Caps() map[int]int        // capnum->index
-	CapNames() map[string]int // cap group name -> index
-	CapsList() []string       //sorted list of capture group names
-	CapSize() int             // size of the capture array
-	FindFirstChar(r *Runner) bool
-	Execute(r *Runner) error
+type RuntimeEngineData struct {
+	Caps          map[int]int        // capnum->index
+	CapNames      map[string]int     // cap group name -> index
+	CapsList      []string           // sorted list of capture group names
+	CapSize       int                // size of the capture array
+	FindFirstChar func(*Runner) bool // generated candidate search
+	Execute       func(*Runner) error
 }
 
 type cacheKey struct {
@@ -18,20 +18,20 @@ type cacheKey struct {
 	opt     RegexOptions
 }
 
-func RegisterEngine(pattern string, opt RegexOptions, engine RuntimeEngine) {
+func RegisterEngine(pattern string, opt RegexOptions, engine RuntimeEngineData) {
 	enginesMu.Lock()
 	engines[cacheKey{pattern, opt}] = engine
 	enginesMu.Unlock()
 }
 
-func newEngineRegexp(pattern string, opt RegexOptions, optimizations OptimizationOptions, engine RuntimeEngine) *Regexp {
+func newEngineRegexp(pattern string, opt RegexOptions, optimizations OptimizationOptions, engine RuntimeEngineData) *Regexp {
 	re := &Regexp{
 		pattern:       pattern,
 		options:       opt,
-		caps:          engine.Caps(),
-		capnames:      engine.CapNames(),
-		capslist:      engine.CapsList(),
-		capsize:       engine.CapSize(),
+		caps:          engine.Caps,
+		capnames:      engine.CapNames,
+		capslist:      engine.CapsList,
+		capsize:       engine.CapSize,
 		MatchTimeout:  DefaultMatchTimeout,
 		optimizations: optimizations,
 		findFirstChar: engine.FindFirstChar,
@@ -53,5 +53,5 @@ func getEngineRegexp(pattern string, opt RegexOptions, optimizations Optimizatio
 
 var (
 	enginesMu sync.RWMutex
-	engines   = map[cacheKey]RuntimeEngine{}
+	engines   = map[cacheKey]RuntimeEngineData{}
 )

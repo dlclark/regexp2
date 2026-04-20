@@ -9,10 +9,6 @@ type emptyEngine struct {
 	execute       func(r *Runner) error
 }
 
-func (t *emptyEngine) Caps() map[int]int        { return nil }
-func (t *emptyEngine) CapNames() map[string]int { return nil }
-func (t *emptyEngine) CapsList() []string       { return nil }
-func (t *emptyEngine) CapSize() int             { return 1 }
 func (t *emptyEngine) FindFirstChar(r *Runner) bool {
 	return t.findFirstChar(r)
 }
@@ -23,7 +19,7 @@ func (t *emptyEngine) Execute(r *Runner) error {
 func TestRegisterEngine_CacheHit(t *testing.T) {
 	didFindFirst := false
 	didExecute := false
-	RegisterEngine("This is a regexp", RE2, &emptyEngine{
+	engine := emptyEngine{
 		findFirstChar: func(r *Runner) bool {
 			didFindFirst = true
 			return true
@@ -32,6 +28,11 @@ func TestRegisterEngine_CacheHit(t *testing.T) {
 			didExecute = true
 			return nil
 		},
+	}
+	RegisterEngine("This is a regexp", RE2, RuntimeEngineData{
+		CapSize:       1,
+		FindFirstChar: engine.FindFirstChar,
+		Execute:       engine.Execute,
 	})
 
 	re := MustCompile("This is a regexp", RE2)
@@ -54,7 +55,7 @@ func TestRegisterEngine_CacheHit(t *testing.T) {
 func TestRegisterEngine_CacheMiss(t *testing.T) {
 	didFindFirst := false
 	didExecute := false
-	RegisterEngine("This is a regexp", Debug, &emptyEngine{
+	engine := emptyEngine{
 		findFirstChar: func(r *Runner) bool {
 			didFindFirst = true
 			return true
@@ -63,6 +64,11 @@ func TestRegisterEngine_CacheMiss(t *testing.T) {
 			didExecute = true
 			return nil
 		},
+	}
+	RegisterEngine("This is a regexp", Debug, RuntimeEngineData{
+		CapSize:       1,
+		FindFirstChar: engine.FindFirstChar,
+		Execute:       engine.Execute,
 	})
 
 	// only difference in our cache is our options
