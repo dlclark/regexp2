@@ -966,6 +966,181 @@ func TestECMANamedGroup(t *testing.T) {
 	}
 }
 
+func TestECMAGroupNameUnicode(t *testing.T) {
+	t.Run("unicode-escape", func(t *testing.T) {
+		const expr = `(?<\u03C0>a)`
+		re := MustCompile(expr, ECMAScript)
+		if want, got := []string{"", "\u03C0"}, re.GetGroupNames(); !stringSlicesEqual(want, got) {
+			t.Fatalf("Group names = %v, want %v", got, want)
+		}
+		if _, err := Compile(expr); err == nil {
+			t.Fatal("Expected error without ECMAScript")
+		}
+	})
+
+	t.Run("extended-unicode-escape", func(t *testing.T) {
+		const expr = `(?<\u{03C0}>a)`
+		re := MustCompile(expr, ECMAScript|Unicode)
+		if want, got := []string{"", "\u03C0"}, re.GetGroupNames(); !stringSlicesEqual(want, got) {
+			t.Fatalf("Group names = %v, want %v", got, want)
+		}
+		m, err := re.FindStringMatch("bab")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m == nil {
+			t.Fatal("Expected match")
+		}
+		if s := m.GroupByName("\u03C0").String(); s != "a" {
+			t.Fatalf("GroupByName(pi) = %q, want %q", s, "a")
+		}
+	})
+
+	t.Run("extended-unicode-escape-requires-unicode-option", func(t *testing.T) {
+		if _, err := Compile(`(?<\u{03C0}>a)`, ECMAScript); err == nil {
+			t.Fatal("Expected error without Unicode option")
+		}
+	})
+
+	t.Run("invalid-escape-x", func(t *testing.T) {
+		if _, err := Compile(`(?<\x68>a)`, ECMAScript); err == nil {
+			t.Fatal("Expected error")
+		}
+	})
+
+	t.Run("invalid-escape-u", func(t *testing.T) {
+		if _, err := Compile(`(?<\ubob>a)`, ECMAScript); err == nil {
+			t.Fatal("Expected error")
+		}
+	})
+
+	t.Run("invalid-start-char", func(t *testing.T) {
+		if _, err := Compile(`(?<\u0030>a)`, ECMAScript); err == nil {
+			t.Fatal("Expected error")
+		}
+	})
+
+	t.Run("invalid-identifier", func(t *testing.T) {
+		if _, err := Compile(`(?<\u{1F98A}>fox)`, ECMAScript|Unicode); err == nil {
+			t.Fatal("Expected error")
+		}
+	})
+}
+
+func TestECMAGroupNameIdentifierChars(t *testing.T) {
+	for _, tc := range []struct {
+		expr string
+		name string
+	}{
+		{`(?<$>a)`, "$"},
+		{`(?<_>a)`, "_"},
+	} {
+		re := MustCompile(tc.expr, ECMAScript)
+		m, err := re.FindStringMatch("bab")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m == nil {
+			t.Fatalf("%s: expected match", tc.expr)
+		}
+		if s := m.GroupByName(tc.name).String(); s != "a" {
+			t.Fatalf("%s: GroupByName(%q) = %q, want %q", tc.expr, tc.name, s, "a")
+		}
+	}
+}
+
+func TestECMADuplicateGroupNames(t *testing.T) {
+	for _, expr := range []string{
+		`(?<a>a)(?<a>a)`,
+		`(?<a>a)|(?<a>a)`,
+	} {
+		if _, err := Compile(expr, ECMAScript); err == nil {
+			t.Fatalf("%s: expected duplicate group name error", expr)
+		}
+		if _, err := Compile(expr); err != nil {
+			t.Fatalf("%s: non-ECMAScript behavior changed: %v", expr, err)
+		}
+	}
+}
+
+func TestECMANamedGroupNumberAssignment(t *testing.T) {
+	re := MustCompile(`(.)(?<x>a)(?<y>\1)(\k<x>)`, ECMAScript)
+	m, err := re.FindStringMatch("baba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m == nil {
+		t.Fatal("Expected match")
+	}
+
+	groups := m.Groups()
+	if len(groups) != 5 {
+		t.Fatalf("len(Groups()) = %d, want 5", len(groups))
+	}
+	for i, want := range []struct {
+		name  string
+		index int
+		text  string
+	}{
+		{"", 0, "baba"},
+		{"", 0, "b"},
+		{"x", 1, "a"},
+		{"y", 2, "b"},
+		{"", 3, "a"},
+	} {
+		if groups[i].Name != want.name || groups[i].RuneIndex != want.index || groups[i].String() != want.text {
+			t.Fatalf("Groups()[%d] = {Name:%q RuneIndex:%d String:%q}, want {Name:%q RuneIndex:%d String:%q}",
+				i, groups[i].Name, groups[i].RuneIndex, groups[i].String(), want.name, want.index, want.text)
+		}
+	}
+
+	if want, got := []string{"", "", "x", "y", ""}, re.GetGroupNames(); !stringSlicesEqual(want, got) {
+		t.Fatalf("Group names = %v, want %v", got, want)
+	}
+	if num := re.GroupNumberFromName("1"); num != -1 {
+		t.Fatalf("GroupNumberFromName(\"1\") = %d, want -1", num)
+	}
+}
+
+func TestNamedGroupNumberAssignmentNonECMAScript(t *testing.T) {
+	re := MustCompile(`(.)(?<x>a)(?<y>\1)(\k<x>)`)
+	m, err := re.FindStringMatch("baba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m == nil {
+		t.Fatal("Expected match")
+	}
+
+	groups := m.Groups()
+	if len(groups) != 5 {
+		t.Fatalf("len(Groups()) = %d, want 5", len(groups))
+	}
+	for i, want := range []struct {
+		name  string
+		index int
+		text  string
+	}{
+		{"0", 0, "baba"},
+		{"1", 0, "b"},
+		{"2", 3, "a"},
+		{"x", 1, "a"},
+		{"y", 2, "b"},
+	} {
+		if groups[i].Name != want.name || groups[i].RuneIndex != want.index || groups[i].String() != want.text {
+			t.Fatalf("Groups()[%d] = {Name:%q RuneIndex:%d String:%q}, want {Name:%q RuneIndex:%d String:%q}",
+				i, groups[i].Name, groups[i].RuneIndex, groups[i].String(), want.name, want.index, want.text)
+		}
+	}
+
+	if want, got := []string{"0", "1", "2", "x", "y"}, re.GetGroupNames(); !stringSlicesEqual(want, got) {
+		t.Fatalf("Group names = %v, want %v", got, want)
+	}
+	if num := re.GroupNumberFromName("1"); num != 1 {
+		t.Fatalf("GroupNumberFromName(\"1\") = %d, want 1", num)
+	}
+}
+
 func TestECMAInvalidEscapeCharClass(t *testing.T) {
 	re := MustCompile(`[\x0]`, ECMAScript)
 	if m, err := re.MatchString("x"); err != nil {

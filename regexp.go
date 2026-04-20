@@ -377,8 +377,9 @@ func (re *Regexp) GetGroupNumbers() []int {
 }
 
 // GroupNameFromNumber retrieves a group name that corresponds to a group number.
-// It will return "" for and unknown group number.  Unnamed groups automatically
-// receive a name that is the decimal string equivalent of its number.
+// It will return "" for an unknown group number. Unnamed groups automatically
+// receive a name that is the decimal string equivalent of its number, except in
+// ECMAScript mode where unnamed groups have no name.
 func (re *Regexp) GroupNameFromNumber(i int) string {
 	if re.capslist == nil {
 		if i >= 0 && i < re.capsize {
@@ -403,8 +404,9 @@ func (re *Regexp) GroupNameFromNumber(i int) string {
 }
 
 // GroupNumberFromName returns a group number that corresponds to a group name.
-// Returns -1 if the name is not a recognized group name.  Numbered groups
-// automatically get a group name that is the decimal string equivalent of its number.
+// Returns -1 if the name is not a recognized group name. Numbered groups
+// automatically get a group name that is the decimal string equivalent of its
+// number, except in ECMAScript mode where unnamed groups have no name.
 func (re *Regexp) GroupNumberFromName(name string) int {
 	// look up name if we have a hashtable of names
 	if re.capnames != nil {

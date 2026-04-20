@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"unicode"
 )
 
@@ -12,14 +13,14 @@ type RegexOptions int32
 
 const (
 	IgnoreCase              RegexOptions = 0x0001 // "i"
-	Multiline                            = 0x0002 // "m"
-	ExplicitCapture                      = 0x0004 // "n"
-	Singleline                           = 0x0010 // "s"
-	IgnorePatternWhitespace              = 0x0020 // "x"
-	RightToLeft                          = 0x0040 // "r"
-	ECMAScript                           = 0x0100 // "e"
-	RE2                                  = 0x0200 // RE2 compat mode
-	Unicode                              = 0x0400 // "u"
+	Multiline               RegexOptions = 0x0002 // "m"
+	ExplicitCapture         RegexOptions = 0x0004 // "n"
+	Singleline              RegexOptions = 0x0010 // "s"
+	IgnorePatternWhitespace RegexOptions = 0x0020 // "x"
+	RightToLeft             RegexOptions = 0x0040 // "r"
+	ECMAScript              RegexOptions = 0x0100 // "e"
+	RE2                     RegexOptions = 0x0200 // RE2 compat mode
+	Unicode                 RegexOptions = 0x0400 // "u"
 )
 
 func optionFromCode(ch rune) RegexOptions {
@@ -82,6 +83,8 @@ const (
 	ErrTooManyAlternates          = "too many | in (?()|)"
 	ErrUnrecognizedGrouping       = "unrecognized grouping construct: (%v"
 	ErrInvalidGroupName           = "invalid group name: group names must begin with a word character and have a matching terminator"
+	ErrInvalidECMAGroupName       = "invalid capture group name"
+	ErrDuplicateGroupName         = "duplicate capture group name"
 	ErrCapNumNotZero              = "capture number cannot be zero"
 	ErrUndefinedBackRef           = "reference to undefined group number %v"
 	ErrUndefinedNameRef           = "reference to undefined group name %v"
@@ -156,7 +159,7 @@ func Parse(re string, op ParseOptions) (*RegexTree, error) {
 	p := parser{
 		options:              op.RegexOptions,
 		caps:                 make(map[int]int),
-		maintainCaptureOrder: op.MaintainCaptureOrder,
+		maintainCaptureOrder: op.MaintainCaptureOrder || (op.RegexOptions&ECMAScript) != 0,
 	}
 	p.setPattern(re)
 
@@ -213,7 +216,7 @@ func (p *parser) noteCaptureSlot(i, pos int) {
 	}
 }
 
-func (p *parser) noteCaptureName(name string, pos int) {
+func (p *parser) noteCaptureName(name string, pos int) error {
 	if p.capnames == nil {
 		p.capnames = make(map[string]int)
 	}
@@ -227,7 +230,10 @@ func (p *parser) noteCaptureName(name string, pos int) {
 			p.capnames[name] = pos
 		}
 		p.capnamelist = append(p.capnamelist, name)
+	} else if p.useOptionE() {
+		return p.getErr(ErrDuplicateGroupName)
 	}
+	return nil
 }
 
 func (p *parser) assignNameSlots() {
@@ -306,7 +312,7 @@ func (p *parser) assignNameSlots() {
 }
 
 func (p *parser) assignOrderedNameSlots() {
-	if p.capnames == nil && p.capcount == p.captop {
+	if !p.useOptionE() && p.capnames == nil && p.capcount == p.captop {
 		return
 	}
 
@@ -344,6 +350,9 @@ func (p *parser) assignOrderedNameSlots() {
 		slot := i
 		if p.capnumlist != nil {
 			slot = p.capnumlist[i]
+		}
+		if p.useOptionE() {
+			continue
 		}
 		if p.capnamelist[i] == "" {
 			p.capnamelist[i] = strconv.Itoa(slot)
@@ -414,19 +423,27 @@ func (p *parser) countCaptures() error {
 						p.moveRight(1)
 						ch = p.rightChar(0)
 
-						if ch != '0' && IsWordChar(ch) {
-							if ch >= '1' && ch <= '9' {
+						if ch != '0' && p.isGroupNameStartChar(ch) {
+							if ch >= '1' && ch <= '9' && !p.useOptionE() {
 								dec, err := p.scanDecimal()
 								if err != nil {
 									return err
 								}
 								if p.maintainCaptureOrder {
-									p.noteCaptureName(strconv.Itoa(dec), pos)
+									if err = p.noteCaptureName(strconv.Itoa(dec), pos); err != nil {
+										return err
+									}
 								} else {
 									p.noteCaptureSlot(dec, pos)
 								}
 							} else {
-								p.noteCaptureName(p.scanCapname(), pos)
+								capname, err := p.scanCapname()
+								if err != nil {
+									return err
+								}
+								if err = p.noteCaptureName(capname, pos); err != nil {
+									return err
+								}
 							}
 						}
 					} else if p.useRE2() && p.charsRight() > 2 && (p.rightChar(0) == 'P' && p.rightChar(1) == '<') {
@@ -434,7 +451,13 @@ func (p *parser) countCaptures() error {
 						p.moveRight(2)
 						ch = p.rightChar(0)
 						if IsWordChar(ch) {
-							p.noteCaptureName(p.scanCapname(), pos)
+							capname, err := p.scanCapname()
+							if err != nil {
+								return err
+							}
+							if err = p.noteCaptureName(capname, pos); err != nil {
+								return err
+							}
 						}
 
 					} else {
@@ -856,8 +879,11 @@ func (p *parser) scanDollar() (*RegexNode, error) {
 				}
 			}
 		}
-	} else if angled && IsWordChar(ch) {
-		capname := p.scanCapname()
+	} else if angled && p.isGroupNameStartChar(ch) {
+		capname, err := p.scanCapname()
+		if err != nil {
+			return nil, err
+		}
 
 		if p.charsRight() > 0 && p.moveRightGetChar() == '}' {
 			if p.isCaptureName(capname) {
@@ -893,6 +919,13 @@ func (p *parser) scanDollar() (*RegexNode, error) {
 
 	p.textto(backpos)
 	return newRegexNodeCh(NtOne, p.options, '$'), nil
+}
+
+func (p *parser) isGroupNameStartChar(ch rune) bool {
+	if p.useOptionE() {
+		return IsECMAIdentifierStartChar(ch) || ch == '\\'
+	}
+	return IsWordChar(ch)
 }
 
 // scanGroupOpen scans chars following a '(' (not counting the '('), and returns
@@ -973,7 +1006,7 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 
 				// grab part before -
 
-				if ch >= '0' && ch <= '9' {
+				if ch >= '0' && ch <= '9' && !p.useOptionE() {
 					if capnum, err = p.scanDecimal(); err != nil {
 						return nil, err
 					}
@@ -989,8 +1022,11 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 					if capnum == 0 {
 						return nil, p.getErr(ErrCapNumNotZero)
 					}
-				} else if IsWordChar(ch) {
-					capname := p.scanCapname()
+				} else if p.isGroupNameStartChar(ch) {
+					capname, err := p.scanCapname()
+					if err != nil {
+						return nil, err
+					}
 
 					if p.isCaptureName(capname) {
 						capnum = p.captureSlotFromName(capname)
@@ -998,18 +1034,24 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 
 					// check if we have bogus character after the name
 					if p.charsRight() > 0 && !(p.rightChar(0) == close || p.rightChar(0) == '-') {
+						if p.useOptionE() {
+							return nil, p.getErr(ErrInvalidECMAGroupName)
+						}
 						return nil, p.getErr(ErrInvalidGroupName)
 					}
 				} else if ch == '-' {
 					proceed = true
 				} else {
 					// bad group name - starts with something other than a word character and isn't a number
+					if p.useOptionE() {
+						return nil, p.getErr(ErrInvalidECMAGroupName)
+					}
 					return nil, p.getErr(ErrInvalidGroupName)
 				}
 
 				// grab part after - if any
 
-				if (capnum != -1 || proceed == true) && p.charsRight() > 0 && p.rightChar(0) == '-' {
+				if !p.useOptionE() && (capnum != -1 || proceed == true) && p.charsRight() > 0 && p.rightChar(0) == '-' {
 					p.moveRight(1)
 
 					//no more chars left, no closing char, etc
@@ -1032,7 +1074,10 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 							return nil, p.getErr(ErrInvalidGroupName)
 						}
 					} else if IsWordChar(ch) {
-						uncapname := p.scanCapname()
+						uncapname, err := p.scanCapname()
+						if err != nil {
+							return nil, err
+						}
 
 						if !p.isCaptureName(uncapname) {
 							return nil, p.getErr(ErrUndefinedNameRef, uncapname)
@@ -1081,7 +1126,10 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 					return nil, p.getErr(ErrMalformedReference, capnum)
 
 				} else if IsWordChar(ch) {
-					capname := p.scanCapname()
+					capname, err := p.scanCapname()
+					if err != nil {
+						return nil, err
+					}
 
 					if p.isCaptureName(capname) && p.charsRight() > 0 && p.moveRightGetChar() == ')' {
 						return newRegexNodeM(NtBackRefCond, p.options, p.captureSlotFromName(capname)), nil
@@ -1128,7 +1176,10 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 
 				if IsWordChar(ch) {
 					capnum := -1
-					capname := p.scanCapname()
+					capname, err := p.scanCapname()
+					if err != nil {
+						return nil, err
+					}
 
 					if p.isCaptureName(capname) {
 						capnum = p.captureSlotFromName(capname)
@@ -1283,7 +1334,7 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*RegexNode, error) {
 	// there is at least one group name in the regexp.
 	// See https://www.ecma-international.org/ecma-262/#sec-isvalidregularexpressionliteral, step 7.
 	// Note, during the first (scanOnly) run we may not have all group names scanned, but that's ok.
-	if ch == 'k' && (!p.useOptionE() || len(p.capnames) > 0) {
+	if ch == 'k' && (!p.useOptionE() || p.useOptionU() || len(p.capnames) > 0) {
 		if p.charsRight() >= 2 {
 			p.moveRight(1)
 			ch = p.moveRightGetChar()
@@ -1349,7 +1400,10 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*RegexNode, error) {
 		}
 
 	} else if angled {
-		capname := p.scanCapname()
+		capname, err := p.scanCapname()
+		if err != nil {
+			return nil, err
+		}
 
 		if capname != "" && p.charsRight() > 0 && p.moveRightGetChar() == close {
 
@@ -1503,7 +1557,66 @@ func (p *parser) scanBlank() error {
 	return nil
 }
 
-func (p *parser) scanCapname() string {
+func (p *parser) scanECMACapname() (string, error) {
+	startpos := p.textpos()
+	var sb strings.Builder
+	hasEscape := false
+	index := 0
+
+	for p.charsRight() > 0 {
+		savedpos := p.textpos()
+		ch := p.moveRightGetChar()
+		var err error
+		escaped := false
+
+		if ch == '\\' {
+			if p.charsRight() == 0 || p.rightChar(0) != 'u' {
+				return "", p.getErr(ErrInvalidECMAGroupName)
+			}
+			escaped = true
+			p.moveRight(1)
+			if p.charsRight() > 0 && p.rightChar(0) == '{' {
+				if !p.useOptionU() {
+					return "", p.getErr(ErrInvalidECMAGroupName)
+				}
+				p.moveRight(1)
+				ch, err = p.scanHexUntilBrace()
+			} else {
+				ch, err = p.scanHex(4)
+			}
+			if err != nil {
+				return "", err
+			}
+			if !hasEscape {
+				sb.WriteString(string(p.pattern[startpos:savedpos]))
+				hasEscape = true
+			}
+		}
+
+		valid := IsECMAIdentifierChar(ch)
+		if index == 0 {
+			valid = IsECMAIdentifierStartChar(ch)
+		}
+		if !valid {
+			if escaped {
+				return "", p.getErr(ErrInvalidECMAGroupName)
+			}
+			p.textto(savedpos)
+			break
+		}
+		if hasEscape {
+			sb.WriteRune(ch)
+		}
+		index++
+	}
+
+	if hasEscape {
+		return sb.String(), nil
+	}
+	return string(p.pattern[startpos:p.textpos()]), nil
+}
+
+func (p *parser) scanWord() string {
 	startpos := p.textpos()
 
 	for p.charsRight() > 0 {
@@ -1514,6 +1627,14 @@ func (p *parser) scanCapname() string {
 	}
 
 	return string(p.pattern[startpos:p.textpos()])
+}
+
+func (p *parser) scanCapname() (string, error) {
+	if p.useOptionE() {
+		return p.scanECMACapname()
+	}
+
+	return p.scanWord(), nil
 }
 
 // Scans contents of [] (not including []'s), and converts to a set.
@@ -1625,7 +1746,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					p.moveRight(1)
 				}
 
-				nm := p.scanCapname() // snag the name
+				nm := p.scanWord() // snag the name
 				if !scanOnly && p.useRE2() {
 					// look up the name since these are valid for RE2
 					// add the group based on the name

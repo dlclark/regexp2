@@ -249,9 +249,11 @@ func init() {
 ```
 
 ## ECMAScript compatibility mode
-In this mode the engine provides compatibility with the [regex engine](https://tc39.es/ecma262/multipage/text-processing.html#sec-regexp-regular-expression-objects) described in the ECMAScript specification.
+In this mode the engine attempts to match the [regex engine](https://tc39.es/ecma262/multipage/text-processing.html#sec-regexp-regular-expression-objects) described in the ECMAScript specification as closely as reasonably possible within regexp2's API and implementation.
 
-Additionally a Unicode mode is provided which allows parsing of `\u{CodePoint}` syntax that is only when both are provided.
+This flag should not be treated as compatibility with C#'s `RegexOptions.ECMAScript`. regexp2's ECMAScript behavior prioritizes ECMAScript specification behavior over matching the C# regex engine's interpretation of that option.
+
+Additionally a Unicode mode is provided which allows parsing of `\u{CodePoint}` syntax only when both `ECMAScript` and `Unicode` are provided.
 
 ## Library features that I'm still working on
 - Regex split (this is coded and has basic smoke testing)

@@ -169,7 +169,9 @@ func newMatch(regex *Regexp, capcount int, text *matchText, startpos int) *Match
 		textstart:  startpos,
 		balancing:  false,
 	}
-	m.Name = "0"
+	if (regex.options & ECMAScript) == 0 {
+		m.Name = "0"
+	}
 	m.text = text
 	m.matches[0] = make([]int, 2)
 	return &m

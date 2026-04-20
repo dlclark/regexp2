@@ -30,9 +30,10 @@ const (
 	Singleline              RegexOptions = 0x0010 // "s"
 	IgnorePatternWhitespace RegexOptions = 0x0020 // "x"
 	RightToLeft             RegexOptions = 0x0040 // "r"
-	ECMAScript              RegexOptions = 0x0100 // "e"
-	RE2                     RegexOptions = 0x0200 // RE2 (regexp package) compatibility mode
-	Unicode                 RegexOptions = 0x0400 // "u"
+	// ECMAScript attempts to follow ECMAScript regex behavior rather than C# RegexOptions.ECMAScript compatibility.
+	ECMAScript RegexOptions = 0x0100 // "e"
+	RE2        RegexOptions = 0x0200 // RE2 (regexp package) compatibility mode
+	Unicode    RegexOptions = 0x0400 // "u"
 )
 
 // OptimizationOptions controls optional runtime caches and compile-time fast paths.
