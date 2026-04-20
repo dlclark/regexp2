@@ -1677,7 +1677,12 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 			case 'D', 'd':
 				if !scanOnly {
 					if inRange {
-						return nil, p.getErr(ErrBadClassInCharRange, ch)
+						if !p.useOptionE() {
+							return nil, p.getErr(ErrBadClassInCharRange, ch)
+						}
+						cc.addChar(chPrev)
+						cc.addChar('-')
+						inRange = false
 					}
 					cc.addDigit(p.useOptionE() || p.useRE2(), ch == 'D')
 				}
@@ -1686,7 +1691,12 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 			case 'S', 's':
 				if !scanOnly {
 					if inRange {
-						return nil, p.getErr(ErrBadClassInCharRange, ch)
+						if !p.useOptionE() {
+							return nil, p.getErr(ErrBadClassInCharRange, ch)
+						}
+						cc.addChar(chPrev)
+						cc.addChar('-')
+						inRange = false
 					}
 					cc.addSpace(p.useOptionE(), p.useRE2(), ch == 'S')
 				}
@@ -1695,7 +1705,12 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 			case 'W', 'w':
 				if !scanOnly {
 					if inRange {
-						return nil, p.getErr(ErrBadClassInCharRange, ch)
+						if !p.useOptionE() {
+							return nil, p.getErr(ErrBadClassInCharRange, ch)
+						}
+						cc.addChar(chPrev)
+						cc.addChar('-')
+						inRange = false
 					}
 
 					cc.addWord(p.useOptionE() || p.useRE2(), ch == 'W')

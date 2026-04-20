@@ -1209,6 +1209,29 @@ func TestECMANegateRange(t *testing.T) {
 	}
 }
 
+func TestECMACharClassEscapeAfterDash(t *testing.T) {
+	re := MustCompile(`[a-\s]`, ECMAScript)
+	for _, input := range []string{"a", "-", " ", "\t"} {
+		if m, err := re.MatchString(input); err != nil {
+			t.Fatal(err)
+		} else if !m {
+			t.Fatalf("Expected match for %q", input)
+		}
+	}
+
+	for _, input := range []string{"b", "_"} {
+		if m, err := re.MatchString(input); err != nil {
+			t.Fatal(err)
+		} else if m {
+			t.Fatalf("Expected no match for %q", input)
+		}
+	}
+
+	if _, err := Compile(`[a-\s]`); err == nil {
+		t.Fatal("Expected error without ECMAScript")
+	}
+}
+
 func TestDollar(t *testing.T) {
 	// PCRE/C# allow \n to match to $ at end-of-string in singleline mode...
 	// a weird edge-case kept for compatibility, ECMAScript/RE2 mode don't allow it
