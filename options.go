@@ -5,8 +5,8 @@ var (
 	DefaultUnmarshalOptions = None
 	// DefaultOptimizationOptions controls the default memory/performance trade-offs used by Compile.
 	DefaultOptimizationOptions = OptimizationOptions{
-		MaxCachedRuneBufferBytes:     256 << 10,
-		MaxCachedReplaceBufferBytes:  256 << 10,
+		MaxCachedRuneBufferLength:    256 << 10,
+		MaxCachedReplaceBufferLength: 256 << 10,
 		MaxCachedReplacerDataEntries: 16,
 		MaxCachedReplacerDataBytes:   4 << 10,
 		DisableCharClassASCIIBitmap:  false,
@@ -39,13 +39,15 @@ const (
 
 // OptimizationOptions controls optional runtime caches and compile-time fast paths.
 //
-// For cache size fields, 0 disables persistent retention and -1 means unbounded.
+// For replacement data cache size fields, 0 disables persistent retention and
+// -1 means unbounded. For pooled buffer cache size fields, 0 disables pooling
+// and -1 allows all built-in size classes.
 // Defaults are intentionally bounded so Compile is safe for mixed-cardinality inputs.
 type OptimizationOptions struct {
-	// MaxCachedRuneBufferBytes limits retained string-to-rune buffers per pooled runner.
-	MaxCachedRuneBufferBytes int
-	// MaxCachedReplaceBufferBytes limits retained replacement output buffers per pooled runner.
-	MaxCachedReplaceBufferBytes int
+	// MaxCachedRuneBufferLength limits retained string-to-rune buffers in the shared size-classed pool.
+	MaxCachedRuneBufferLength int
+	// MaxCachedReplaceBufferLength limits retained replacement output buffers in the shared size-classed pool.
+	MaxCachedReplaceBufferLength int
 	// MaxCachedReplacerDataEntries limits the number of parsed replacement patterns cached per Regexp.
 	MaxCachedReplacerDataEntries int
 	// MaxCachedReplacerDataBytes skips caching replacement patterns longer than this many bytes.
@@ -68,14 +70,6 @@ type compileOptionFunc func(*compileConfig)
 
 func (f compileOptionFunc) applyCompileOption(c *compileConfig) {
 	f(c)
-}
-
-func (o OptimizationOptions) keepRuneBuffer(runeCap int) bool {
-	return keepCacheBytes(o.MaxCachedRuneBufferBytes, runeCap*4)
-}
-
-func (o OptimizationOptions) keepReplaceBuffer(byteCap int) bool {
-	return keepCacheBytes(o.MaxCachedReplaceBufferBytes, byteCap)
 }
 
 func (o OptimizationOptions) cacheReplacerData(replacement string) bool {
@@ -104,17 +98,17 @@ func newCompileConfig(options []CompileOption) compileConfig {
 	return c
 }
 
-// OptionMaxCachedRuneBufferBytes limits retained string-to-rune buffers per pooled runner.
-func OptionMaxCachedRuneBufferBytes(n int) CompileOption {
+// OptionMaxCachedRuneBufferLength limits retained string-to-rune buffers in the shared size-classed pool.
+func OptionMaxCachedRuneBufferLength(n int) CompileOption {
 	return compileOptionFunc(func(c *compileConfig) {
-		c.optimizations.MaxCachedRuneBufferBytes = n
+		c.optimizations.MaxCachedRuneBufferLength = n
 	})
 }
 
-// OptionMaxCachedReplaceBufferBytes limits retained replacement output buffers per pooled runner.
-func OptionMaxCachedReplaceBufferBytes(n int) CompileOption {
+// OptionMaxCachedReplaceBufferLength limits retained replacement output buffers in the shared size-classed pool.
+func OptionMaxCachedReplaceBufferLength(n int) CompileOption {
 	return compileOptionFunc(func(c *compileConfig) {
-		c.optimizations.MaxCachedReplaceBufferBytes = n
+		c.optimizations.MaxCachedReplaceBufferLength = n
 	})
 }
 

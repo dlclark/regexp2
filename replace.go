@@ -150,9 +150,13 @@ func replaceRunnerLTR(regex *Regexp, data *syntax.ReplacerData, input string, st
 	}
 
 	runner := regex.getRunner()
-	defer regex.putRunner(runner)
-
-	text, runeStart := runner.decodeStringWithStart(input, startAt)
+	text, runeStart, pooledText := runner.decodeStringWithStart(input, startAt)
+	defer func() {
+		regex.putRunner(runner)
+		if pooledText != nil {
+			pooledRuneBuffers.put(pooledText)
+		}
+	}()
 	if startAt >= 0 && runeStart < 0 {
 		return "", errors.New("startAt must align to the start of a valid rune in the input string")
 	}
@@ -168,9 +172,10 @@ func replaceRunnerLTR(regex *Regexp, data *syntax.ReplacerData, input string, st
 		return input, nil
 	}
 
-	buf := &runner.replaceBuf
-	buf.Reset()
-	buf.Grow(len(input))
+	buf, pooledBuf := getPooledReplaceBuffer(len(input), regex.optimizations.MaxCachedReplaceBufferLength)
+	if pooledBuf != nil {
+		defer putPooledReplaceBuffer(buf, pooledBuf)
+	}
 
 	prevat := 0
 	for m != nil {
@@ -215,9 +220,13 @@ func replaceRunnerRTL(regex *Regexp, data *syntax.ReplacerData, input string, st
 	}
 
 	runner := regex.getRunner()
-	defer regex.putRunner(runner)
-
-	text, runeStart := runner.decodeStringWithStart(input, startAt)
+	text, runeStart, pooledText := runner.decodeStringWithStart(input, startAt)
+	defer func() {
+		regex.putRunner(runner)
+		if pooledText != nil {
+			pooledRuneBuffers.put(pooledText)
+		}
+	}()
 	if startAt >= 0 && runeStart < 0 {
 		return "", errors.New("startAt must align to the start of a valid rune in the input string")
 	}
@@ -233,9 +242,10 @@ func replaceRunnerRTL(regex *Regexp, data *syntax.ReplacerData, input string, st
 		return input, nil
 	}
 
-	buf := &runner.replaceBuf
-	buf.Reset()
-	buf.Grow(len(input))
+	buf, pooledBuf := getPooledReplaceBuffer(len(input), regex.optimizations.MaxCachedReplaceBufferLength)
+	if pooledBuf != nil {
+		defer putPooledReplaceBuffer(buf, pooledBuf)
+	}
 
 	prevat := len(text)
 	var al []string

@@ -268,9 +268,15 @@ func (re *Regexp) FindNextMatch(m *Match) (*Match, error) {
 // error will be set if a timeout occurs
 func (re *Regexp) MatchString(s string) (bool, error) {
 	runner := re.getRunner()
-	defer re.putRunner(runner)
+	input, pooledInput := runner.decodeString(s)
+	defer func() {
+		re.putRunner(runner)
+		if pooledInput != nil {
+			*pooledInput = input
+			pooledRuneBuffers.put(pooledInput)
+		}
+	}()
 
-	input := runner.decodeString(s)
 	textstart := 0
 	if re.RightToLeft() {
 		textstart = len(input)

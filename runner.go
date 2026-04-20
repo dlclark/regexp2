@@ -59,9 +59,6 @@ type Runner struct {
 
 	runmatch *Match // result object
 
-	runeBuf    []rune
-	replaceBuf bytes.Buffer
-
 	ignoreTimeout bool
 	timeout       time.Duration // timeout in milliseconds (needed for actual)
 	deadline      fasttime
@@ -1626,57 +1623,34 @@ func (r *Runner) initTrackCount() {
 	}
 }
 
-// decodeString converts s to []rune using the runner's reusable buffer when
-// allowed by the regexp optimization settings. The returned slice is valid only
-// until the next decode on this runner.
-func (r *Runner) decodeString(s string) []rune {
-	if !r.re.optimizations.keepRuneBuffer(len(s)) {
-		return []rune(s)
-	}
-	if cap(r.runeBuf) < len(s) {
-		r.runeBuf = make([]rune, len(s))
-	}
+// decodeString converts s to []rune using a shared size-classed buffer pool when
+// allowed by the regexp optimization settings. Pooled slices must be returned
+// after the runner is done with them.
+func (r *Runner) decodeString(s string) ([]rune, *[]rune) {
+	buf, pooled := pooledRuneBuffers.get(len(s), r.re.optimizations.MaxCachedRuneBufferLength)
 	n := 0
 	for _, ch := range s {
-		r.runeBuf[n] = ch
+		buf[n] = ch
 		n++
 	}
-	return r.runeBuf[:n]
+	return buf[:n], pooled
 }
 
-func (r *Runner) decodeStringWithStart(s string, startAt int) (runes []rune, runeStart int) {
-	if !r.re.optimizations.keepRuneBuffer(len(s)) {
-		ret := make([]rune, len(s))
-		n := 0
-		runeStart = -1
-		for strIdx, ch := range s {
-			if startAt >= 0 && strIdx == startAt {
-				runeStart = n
-			}
-			ret[n] = ch
-			n++
-		}
-		if startAt >= 0 && startAt == len(s) {
-			runeStart = n
-		}
-		return ret[:n], runeStart
-	}
-	if cap(r.runeBuf) < len(s) {
-		r.runeBuf = make([]rune, len(s))
-	}
+func (r *Runner) decodeStringWithStart(s string, startAt int) (runes []rune, runeStart int, pooled *[]rune) {
+	buf, pooled := pooledRuneBuffers.get(len(s), r.re.optimizations.MaxCachedRuneBufferLength)
 	n := 0
 	runeStart = -1
 	for strIdx, ch := range s {
 		if startAt >= 0 && strIdx == startAt {
 			runeStart = n
 		}
-		r.runeBuf[n] = ch
+		buf[n] = ch
 		n++
 	}
 	if startAt >= 0 && startAt == len(s) {
 		runeStart = n
 	}
-	return r.runeBuf[:n], runeStart
+	return buf[:n], runeStart, pooled
 }
 
 // getRunner returns a runner to use for matching re.
@@ -1692,14 +1666,6 @@ func (re *Regexp) putRunner(r *Runner) {
 	r.Runtext = nil
 	if r.runmatch != nil {
 		r.runmatch.text = nil
-	}
-	if !re.optimizations.keepRuneBuffer(cap(r.runeBuf)) {
-		r.runeBuf = nil
-	}
-	if !re.optimizations.keepReplaceBuffer(r.replaceBuf.Cap()) {
-		r.replaceBuf = bytes.Buffer{}
-	} else {
-		r.replaceBuf.Reset()
 	}
 	re.runnerPool.Put(r)
 }

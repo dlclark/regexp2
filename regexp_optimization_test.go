@@ -37,22 +37,3 @@ func TestReplacerDataCacheMaxBytes(t *testing.T) {
 		t.Fatalf("cache size = %d, want 0", got)
 	}
 }
-
-func TestRunnerBuffersRespectCacheLimits(t *testing.T) {
-	re := MustCompile(`a+`,
-		OptionMaxCachedRuneBufferBytes(8),
-		OptionMaxCachedReplaceBufferBytes(8),
-		OptionMaxCachedReplacerDataEntries(0))
-	r := re.getRunner()
-	_ = r.decodeString("abcdef")
-	r.replaceBuf.Grow(100)
-
-	re.putRunner(r)
-
-	if cap(r.runeBuf) != 0 {
-		t.Fatalf("rune buffer cap = %d, want 0 after exceeding cache limit", cap(r.runeBuf))
-	}
-	if r.replaceBuf.Cap() != 0 {
-		t.Fatalf("replace buffer cap = %d, want 0 after exceeding cache limit", r.replaceBuf.Cap())
-	}
-}
