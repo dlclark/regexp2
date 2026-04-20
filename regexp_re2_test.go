@@ -18,6 +18,21 @@ func TestRE2CompatCapture(t *testing.T) {
 	}
 }
 
+func TestRE2CompatPythonNamedBackreference(t *testing.T) {
+	r := MustCompile(`(?P<word>\w+)-(?P=word)`, RE2)
+	if m, err := r.MatchString("abc-abc"); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	} else if !m {
+		t.Fatal("Expected match")
+	}
+
+	if m, err := r.MatchString("abc-def"); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	} else if m {
+		t.Fatal("Expected no match")
+	}
+}
+
 func TestRE2CompatCapture_Invalid(t *testing.T) {
 	bogus := []string{
 		`(?P<name>a`,
@@ -36,6 +51,36 @@ func TestRE2CompatCapture_Invalid(t *testing.T) {
 				t.Fatal("expected regexp to be nil")
 			}
 		})
+	}
+}
+
+func TestRE2CompatPythonNamedBackreference_Invalid(t *testing.T) {
+	bogus := []string{
+		`(?P=name)`,
+		`(?P=)`,
+		`(?P<name>a)(?P=name`,
+		`(?P<name>a)(?P=x y)`,
+	}
+	for _, inp := range bogus {
+		t.Run(inp, func(t *testing.T) {
+			r, err := Compile(inp, RE2)
+			if err == nil {
+				t.Fatal("Expected failure to parse")
+			}
+			if r != nil {
+				t.Fatal("expected regexp to be nil")
+			}
+		})
+	}
+}
+
+func TestPythonNamedBackreferenceRequiresRE2(t *testing.T) {
+	r, err := Compile(`(?P<word>\w+)-(?P=word)`)
+	if err == nil {
+		t.Fatal("Expected failure to parse")
+	}
+	if r != nil {
+		t.Fatal("expected regexp to be nil")
 	}
 }
 

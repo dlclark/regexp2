@@ -591,6 +591,15 @@ func (p *parser) scanRegex() (*RegexNode, error) {
 			p.addUnitSet(cc)
 
 		case '(':
+			if p.useRE2() && p.charsRight() >= 3 && p.rightChar(0) == '?' && p.rightChar(1) == 'P' && p.rightChar(2) == '=' {
+				n, err := p.scanPythonNamedBackref()
+				if err != nil {
+					return nil, err
+				}
+				p.addUnitNode(n)
+				break
+			}
+
 			p.pushOptions()
 
 			if grouper, err := p.scanGroupOpen(); err != nil {
@@ -926,6 +935,33 @@ func (p *parser) isGroupNameStartChar(ch rune) bool {
 		return IsECMAIdentifierStartChar(ch) || ch == '\\'
 	}
 	return IsWordChar(ch)
+}
+
+func (p *parser) scanPythonNamedBackref() (*RegexNode, error) {
+	p.moveRight(3)
+	if p.charsRight() == 0 {
+		return nil, p.getErr(ErrMalformedNameRef)
+	}
+
+	ch := p.rightChar(0)
+	if !p.isGroupNameStartChar(ch) {
+		return nil, p.getErr(ErrInvalidGroupName)
+	}
+
+	capname, err := p.scanCapname()
+	if err != nil {
+		return nil, err
+	}
+
+	if capname == "" || p.charsRight() == 0 || p.moveRightGetChar() != ')' {
+		return nil, p.getErr(ErrMalformedNameRef)
+	}
+
+	if !p.isCaptureName(capname) {
+		return nil, p.getErr(ErrUndefinedNameRef, capname)
+	}
+
+	return newRegexNodeM(NtRef, p.options, p.captureSlotFromName(capname)), nil
 }
 
 // scanGroupOpen scans chars following a '(' (not counting the '('), and returns
