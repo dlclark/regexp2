@@ -70,12 +70,12 @@ type Runner struct {
 	caseInsensitive bool
 }
 
-// run searches for matches and can continue from the previous match
+// run searches for matches and can continue from the previous match.
 //
-// quick is usually false, but can be true to not return matches, just put it in caches
-// textstart is -1 to start at the "beginning" (depending on Right-To-Left), otherwise an index in input
-// input is the string to search for our regex pattern
-func (re *Regexp) run(quick bool, textstart int, input []rune) (*Match, error) {
+// quick is usually false, but can be true to not return matches, just put it in caches.
+// textstart is -1 to start at the "beginning" (depending on Right-To-Left), otherwise an index in input.
+// textInfo is nil for quick scans that do not need returned capture text metadata.
+func (re *Regexp) run(quick bool, textstart int, input []rune, textInfo *matchText) (*Match, error) {
 
 	// get a cached runner
 	runner := re.getRunner()
@@ -89,7 +89,7 @@ func (re *Regexp) run(quick bool, textstart int, input []rune) (*Match, error) {
 		}
 	}
 
-	return runner.scan(input, textstart, quick, re.MatchTimeout)
+	return runner.scan(input, textInfo, textstart, quick, re.MatchTimeout)
 }
 
 // Scans the string to find the first match. Uses the Match object
@@ -102,7 +102,13 @@ func (re *Regexp) run(quick bool, textstart int, input []rune) (*Match, error) {
 // The optimizer can compute a set of candidate starting characters,
 // and we could use a separate method Skip() that will quickly scan past
 // any characters that we know can't match.
-func (r *Runner) scan(rt []rune, textstart int, quick bool, timeout time.Duration) (*Match, error) {
+//
+// The input slice is passed separately from matchText so quick scans can avoid
+// allocating match metadata. When textInfo is nil, successful matches are only
+// used as a boolean result and capture text is intentionally unavailable. If
+// we collapsed down to just textInfo it would "escape" and hit the GC for fast
+// scans without captures.
+func (r *Runner) scan(rt []rune, textInfo *matchText, textstart int, quick bool, timeout time.Duration) (*Match, error) {
 	r.timeout = timeout
 	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
 	r.debug = r.re.Debug()
@@ -136,7 +142,7 @@ func (r *Runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 		minRequiredLength = r.code.FindOptimizations.MinRequiredLength
 	}
 
-	r.initMatch()
+	r.initMatch(textInfo)
 
 	r.startTimeoutWatch()
 	for {
@@ -1735,17 +1741,17 @@ func hasRequiredLengthAt(r *Runner, start int) bool {
 	return start >= 0 && start <= latestPossibleStart(r)
 }
 
-func (r *Runner) initMatch() {
+func (r *Runner) initMatch(textInfo *matchText) {
 	// Use a hashtable'ed Match object if the capture numbers are sparse
 
 	if r.runmatch == nil {
 		if r.re.caps != nil {
-			r.runmatch = newMatchSparse(r.re, r.re.caps, r.re.capsize, r.Runtext, r.Runtextstart)
+			r.runmatch = newMatchSparse(r.re, r.re.caps, r.re.capsize, textInfo, r.Runtextstart)
 		} else {
-			r.runmatch = newMatch(r.re, r.re.capsize, r.Runtext, r.Runtextstart)
+			r.runmatch = newMatch(r.re, r.re.capsize, textInfo, r.Runtextstart)
 		}
 	} else {
-		r.runmatch.reset(r.Runtext, r.Runtextstart)
+		r.runmatch.reset(textInfo, r.Runtextstart)
 	}
 
 	// note we test runcrawl, because it is the last one to be allocated
@@ -1800,8 +1806,9 @@ func (r *Runner) tidyMatch(quick bool) *Match {
 		m.textpos = r.Runtextpos
 		if m.matchcount[0] > 0 {
 			interval := m.matches[0]
-			m.Index = interval[0]
-			m.Length = interval[1]
+			// bytes indices aren't used so just use fast path
+			m.RuneIndex = interval[0]
+			m.RuneLength = interval[1]
 		}
 		return m
 	}

@@ -1072,7 +1072,7 @@ func runRegexTrial(t *testing.T, pattern string, options RegexOptions, input, ex
 
 			result += fmt.Sprintf(" Group[%v]=", gid)
 			for _, cp := range group.Captures {
-				result += fmt.Sprintf("(%v,%v)", cp.Index, cp.Length)
+				result += fmt.Sprintf("(%v,%v)", cp.RuneIndex, cp.RuneLength)
 			}
 		}
 	} else {

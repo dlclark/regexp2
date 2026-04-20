@@ -106,10 +106,10 @@ func TestCapture_Basic(t *testing.T) {
 	if want, got := "adfadsfSUCCESSadsfadsf", m.String(); want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
-	if want, got := 0, m.Index; want != got {
+	if want, got := 0, m.RuneIndex; want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
-	if want, got := 22, m.Length; want != got {
+	if want, got := 22, m.RuneLength; want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 	if want, got := 1, len(m.Captures); want != got {
@@ -119,10 +119,10 @@ func TestCapture_Basic(t *testing.T) {
 	if want, got := m.String(), m.Captures[0].String(); want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
-	if want, got := 0, m.Captures[0].Index; want != got {
+	if want, got := 0, m.Captures[0].RuneIndex; want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
-	if want, got := 22, m.Captures[0].Length; want != got {
+	if want, got := 22, m.Captures[0].RuneLength; want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 
@@ -143,14 +143,127 @@ func TestCapture_Basic(t *testing.T) {
 	}
 
 	// group 1 is our first explicit group (unnamed)
-	if want, got := 7, g[1].Index; want != got {
+	if want, got := 7, g[1].RuneIndex; want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
-	if want, got := 7, g[1].Length; want != got {
+	if want, got := 7, g[1].RuneLength; want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 	if want, got := "SUCCESS", g[1].String(); want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
+	}
+}
+
+func TestCapture_ByteOffsets(t *testing.T) {
+	re := MustCompile(`(猫)(b🙂)`)
+	m, err := re.FindStringMatch("πa猫b🙂c")
+	if err != nil {
+		t.Fatalf("Unexpected match error: %v", err)
+	}
+	if m == nil {
+		t.Fatal("Should have matched")
+	}
+
+	if want, got := 2, m.RuneIndex; want != got {
+		t.Fatalf("Match RuneIndex wanted %v got %v", want, got)
+	}
+	if want, got := 3, m.RuneLength; want != got {
+		t.Fatalf("Match RuneLength wanted %v got %v", want, got)
+	}
+	assertByteRange(t, "Match", m, 3, 8)
+	assertByteRange(t, "Root capture", &m.Captures[0], 3, 8)
+
+	groups := m.Groups()
+	if want, got := 3, len(groups); want != got {
+		t.Fatalf("Group count wanted %v got %v", want, got)
+	}
+	assertByteRange(t, "Group 1", &groups[1], 3, 3)
+	assertByteRange(t, "Group 2", &groups[2], 6, 5)
+	assertByteRange(t, "Group 2 capture", &groups[2].Captures[0], 6, 5)
+}
+
+func TestCapture_ByteOffsetsFindNextMatch(t *testing.T) {
+	re := MustCompile(`é.`)
+	m, err := re.FindStringMatch("éxéy")
+	if err != nil {
+		t.Fatalf("Unexpected match error: %v", err)
+	}
+	if m == nil {
+		t.Fatal("Expected first match")
+	}
+	assertByteRange(t, "First match", m, 0, 3)
+
+	m, err = re.FindNextMatch(m)
+	if err != nil {
+		t.Fatalf("Unexpected next match error: %v", err)
+	}
+	if m == nil {
+		t.Fatal("Expected second match")
+	}
+	if want, got := 2, m.RuneIndex; want != got {
+		t.Fatalf("Second match RuneIndex wanted %v got %v", want, got)
+	}
+	assertByteRange(t, "Second match", m, 3, 3)
+}
+
+func TestCapture_ByteOffsetsStartingAt(t *testing.T) {
+	re := MustCompile(`漢`)
+	m, err := re.FindStringMatchStartingAt("aé漢b", 1)
+	if err != nil {
+		t.Fatalf("Unexpected match error: %v", err)
+	}
+	if m == nil {
+		t.Fatal("Should have matched")
+	}
+	if want, got := 2, m.RuneIndex; want != got {
+		t.Fatalf("RuneIndex wanted %v got %v", want, got)
+	}
+	assertByteRange(t, "Match", m, 3, 3)
+
+	if _, err := re.FindStringMatchStartingAt("aé漢b", 2); err == nil {
+		t.Fatal("Expected startAt in the middle of a rune to fail")
+	}
+}
+
+func TestCapture_ByteOffsetsRightToLeft(t *testing.T) {
+	re := MustCompile(`.`, RightToLeft)
+	m, err := re.FindStringMatch("aéb")
+	if err != nil {
+		t.Fatalf("Unexpected match error: %v", err)
+	}
+	if m == nil {
+		t.Fatal("Should have matched")
+	}
+	if want, got := 2, m.RuneIndex; want != got {
+		t.Fatalf("RuneIndex wanted %v got %v", want, got)
+	}
+	assertByteRange(t, "Match", m, 3, 1)
+}
+
+func TestCapture_ByteOffsetsRunesInput(t *testing.T) {
+	re := MustCompile(`é漢`)
+	m, err := re.FindRunesMatch([]rune("aé漢"))
+	if err != nil {
+		t.Fatalf("Unexpected match error: %v", err)
+	}
+	if m == nil {
+		t.Fatal("Should have matched")
+	}
+	if want, got := 1, m.RuneIndex; want != got {
+		t.Fatalf("RuneIndex wanted %v got %v", want, got)
+	}
+	assertByteRange(t, "Match", m, 1, 5)
+}
+
+type byteRanger interface {
+	ByteRange() (int, int)
+}
+
+func assertByteRange(t *testing.T, name string, c byteRanger, wantIndex, wantLength int) {
+	t.Helper()
+	gotIndex, gotLength := c.ByteRange()
+	if gotIndex != wantIndex || gotLength != wantLength {
+		t.Fatalf("%s ByteRange wanted (%v, %v) got (%v, %v)", name, wantIndex, wantLength, gotIndex, gotLength)
 	}
 }
 
@@ -504,7 +617,7 @@ func TestFindNextMatch_Basic(t *testing.T) {
 	if m == nil {
 		t.Fatalf("Expected match 0")
 	}
-	if want, got := 0, m.Index; want != got {
+	if want, got := 0, m.RuneIndex; want != got {
 		t.Fatalf("expected match 0 to start at %v, got %v", want, got)
 	}
 
@@ -515,7 +628,7 @@ func TestFindNextMatch_Basic(t *testing.T) {
 	if m == nil {
 		t.Fatalf("Expected match 1")
 	}
-	if want, got := 10, m.Index; want != got {
+	if want, got := 10, m.RuneIndex; want != got {
 		t.Fatalf("expected match 1 to start at %v, got %v", want, got)
 	}
 
@@ -526,7 +639,7 @@ func TestFindNextMatch_Basic(t *testing.T) {
 	if m == nil {
 		t.Fatalf("Expected match 2")
 	}
-	if want, got := 11, m.Index; want != got {
+	if want, got := 11, m.RuneIndex; want != got {
 		t.Fatalf("expected match 2 to start at %v, got %v", want, got)
 	}
 
@@ -537,7 +650,7 @@ func TestFindNextMatch_Basic(t *testing.T) {
 	if m == nil {
 		t.Fatalf("Expected match 3")
 	}
-	if want, got := 13, m.Index; want != got {
+	if want, got := 13, m.RuneIndex; want != got {
 		t.Fatalf("expected match 3 to start at %v, got %v", want, got)
 	}
 }
@@ -1183,18 +1296,18 @@ func TestEmptyCaptureLargeRepeat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	if want, got := 0, m.Index; want != got {
+	if want, got := 0, m.RuneIndex; want != got {
 		t.Errorf("First Match Index wanted %v got %v", want, got)
 	}
-	if want, got := 0, m.Length; want != got {
+	if want, got := 0, m.RuneLength; want != got {
 		t.Errorf("First Match Length wanted %v got %v", want, got)
 	}
 
 	m, _ = r.FindNextMatch(m)
-	if want, got := 1, m.Index; want != got {
+	if want, got := 1, m.RuneIndex; want != got {
 		t.Errorf("Second Match Index wanted %v got %v", want, got)
 	}
-	if want, got := 0, m.Length; want != got {
+	if want, got := 0, m.RuneLength; want != got {
 		t.Errorf("Second Match Length wanted %v got %v", want, got)
 	}
 
@@ -1422,7 +1535,7 @@ func TestIssue34LazyEmptyLoopFindNextMatchTerminates(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected match error: %v", err)
 		}
-		got = append(got, matchRange{index: m.Index, length: m.Length})
+		got = append(got, matchRange{index: m.RuneIndex, length: m.RuneLength})
 		if i > len([]rune(input))+1 {
 			t.Fatalf("FindNextMatch did not terminate; matches so far: %#v", got)
 		}

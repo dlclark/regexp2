@@ -38,16 +38,16 @@ func (re *Regexp) Split(input string, count int) ([]string, error) {
 	m, err := re.FindStringMatch(input)
 
 	for ; m != nil && count > 0; m, err = re.FindNextMatch(m) {
-		txt = m.text
+		txt = m.text.runes
 		// if we have an m, we don't have an err
 		// append our match
-		retVal = append(retVal, string(txt[priorIndex:m.Index]))
+		retVal = append(retVal, string(txt[priorIndex:m.RuneIndex]))
 		// append any capture groups, skipping group 0
 		gs := m.Groups()
 		for i := 1; i < len(gs); i++ {
 			retVal = append(retVal, gs[i].String())
 		}
-		priorIndex = m.Index + m.Length
+		priorIndex = m.RuneIndex + m.RuneLength
 		count--
 	}
 

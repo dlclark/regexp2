@@ -135,7 +135,7 @@ func TestReplaceFunc_Groups(t *testing.T) {
 	count := 0
 	str, err := re.ReplaceFunc("This testing is another test testingly junk", func(m Match) string {
 		count++
-		if m.GroupByName("sub").Length > 0 {
+		if m.GroupByName("sub").RuneLength > 0 {
 			// we have an "ing", make it negative
 			return strconv.Itoa(count * -1)
 		}

@@ -61,7 +61,7 @@ func TestFixedDistanceStringFindFirstChar(t *testing.T) {
 	if m == nil {
 		t.Fatal("expected match")
 	}
-	if got, want := m.Index, 2; got != want {
+	if got, want := m.RuneIndex, 2; got != want {
 		t.Fatalf("match index = %d, want %d", got, want)
 	}
 }

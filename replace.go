@@ -87,15 +87,15 @@ func replace(regex *Regexp, data *syntax.ReplacerData, evaluator MatchEvaluator,
 	}
 
 	buf := &bytes.Buffer{}
-	text := m.text
+	text := m.text.runes
 
 	if !regex.RightToLeft() {
 		prevat := 0
 		for m != nil {
-			if m.Index != prevat {
-				buf.WriteString(string(text[prevat:m.Index]))
+			if m.RuneIndex != prevat {
+				buf.WriteString(string(text[prevat:m.RuneIndex]))
 			}
-			prevat = m.Index + m.Length
+			prevat = m.RuneIndex + m.RuneLength
 			buf.WriteString(evaluator(*m))
 
 			count--
@@ -116,10 +116,10 @@ func replace(regex *Regexp, data *syntax.ReplacerData, evaluator MatchEvaluator,
 		var al []string
 
 		for m != nil {
-			if m.Index+m.Length != prevat {
-				al = append(al, string(text[m.Index+m.Length:prevat]))
+			if m.RuneIndex+m.RuneLength != prevat {
+				al = append(al, string(text[m.RuneIndex+m.RuneLength:prevat]))
 			}
-			prevat = m.Index
+			prevat = m.RuneIndex
 			al = append(al, evaluator(*m))
 
 			count--
@@ -151,6 +151,7 @@ func replaceRunnerLTR(regex *Regexp, data *syntax.ReplacerData, input string, st
 
 	runner := regex.getRunner()
 	text, runeStart, pooledText := runner.decodeStringWithStart(input, startAt)
+	textInfo := newStringMatchText(input, text)
 	defer func() {
 		regex.putRunner(runner)
 		if pooledText != nil {
@@ -164,7 +165,7 @@ func replaceRunnerLTR(regex *Regexp, data *syntax.ReplacerData, input string, st
 		runeStart = 0
 	}
 
-	m, err := runner.scan(text, runeStart, true, regex.MatchTimeout)
+	m, err := runner.scan(text, textInfo, runeStart, true, regex.MatchTimeout)
 	if err != nil {
 		return "", err
 	}
@@ -183,10 +184,10 @@ func replaceRunnerLTR(regex *Regexp, data *syntax.ReplacerData, input string, st
 			compactBalancedMatches(m)
 		}
 
-		if m.Index != prevat {
-			writeRunes(buf, text, prevat, m.Index)
+		if m.RuneIndex != prevat {
+			writeRunes(buf, text, prevat, m.RuneIndex)
 		}
-		prevat = m.Index + m.Length
+		prevat = m.RuneIndex + m.RuneLength
 		replacementImpl(data, buf, m)
 
 		count--
@@ -195,14 +196,14 @@ func replaceRunnerLTR(regex *Regexp, data *syntax.ReplacerData, input string, st
 		}
 
 		scanStart := m.textpos
-		if m.Length == 0 {
+		if m.RuneLength == 0 {
 			if scanStart >= len(text) {
 				break
 			}
 			scanStart++
 		}
 
-		m, err = runner.scan(text, scanStart, true, regex.MatchTimeout)
+		m, err = runner.scan(text, textInfo, scanStart, true, regex.MatchTimeout)
 		if err != nil {
 			return "", err
 		}
@@ -221,6 +222,7 @@ func replaceRunnerRTL(regex *Regexp, data *syntax.ReplacerData, input string, st
 
 	runner := regex.getRunner()
 	text, runeStart, pooledText := runner.decodeStringWithStart(input, startAt)
+	textInfo := newStringMatchText(input, text)
 	defer func() {
 		regex.putRunner(runner)
 		if pooledText != nil {
@@ -234,7 +236,7 @@ func replaceRunnerRTL(regex *Regexp, data *syntax.ReplacerData, input string, st
 		runeStart = len(text)
 	}
 
-	m, err := runner.scan(text, runeStart, true, regex.MatchTimeout)
+	m, err := runner.scan(text, textInfo, runeStart, true, regex.MatchTimeout)
 	if err != nil {
 		return "", err
 	}
@@ -255,10 +257,10 @@ func replaceRunnerRTL(regex *Regexp, data *syntax.ReplacerData, input string, st
 			compactBalancedMatches(m)
 		}
 
-		if m.Index+m.Length != prevat {
-			al = append(al, string(text[m.Index+m.Length:prevat]))
+		if m.RuneIndex+m.RuneLength != prevat {
+			al = append(al, string(text[m.RuneIndex+m.RuneLength:prevat]))
 		}
-		prevat = m.Index
+		prevat = m.RuneIndex
 		replacementImplRTL(data, &al, m)
 
 		count--
@@ -267,14 +269,14 @@ func replaceRunnerRTL(regex *Regexp, data *syntax.ReplacerData, input string, st
 		}
 
 		scanStart := m.textpos
-		if m.Length == 0 {
+		if m.RuneLength == 0 {
 			if scanStart <= 0 {
 				break
 			}
 			scanStart--
 		}
 
-		m, err = runner.scan(text, scanStart, true, regex.MatchTimeout)
+		m, err = runner.scan(text, textInfo, scanStart, true, regex.MatchTimeout)
 		if err != nil {
 			return "", err
 		}
@@ -301,18 +303,18 @@ func replacementImpl(data *syntax.ReplacerData, buf *bytes.Buffer, m *Match) {
 		} else {
 			switch -replaceSpecials - 1 - r { // special insertion patterns
 			case replaceLeftPortion:
-				for i := 0; i < m.Index; i++ {
-					buf.WriteRune(m.text[i])
+				for i := 0; i < m.RuneIndex; i++ {
+					buf.WriteRune(m.text.runes[i])
 				}
 			case replaceRightPortion:
-				for i := m.Index + m.Length; i < len(m.text); i++ {
-					buf.WriteRune(m.text[i])
+				for i := m.RuneIndex + m.RuneLength; i < len(m.text.runes); i++ {
+					buf.WriteRune(m.text.runes[i])
 				}
 			case replaceLastGroup:
 				m.groupValueAppendToBuf(m.GroupCount()-1, buf)
 			case replaceWholeString:
-				for i := 0; i < len(m.text); i++ {
-					buf.WriteRune(m.text[i])
+				for i := 0; i < len(m.text.runes); i++ {
+					buf.WriteRune(m.text.runes[i])
 				}
 			}
 		}
@@ -333,18 +335,18 @@ func replacementImplRTL(data *syntax.ReplacerData, al *[]string, m *Match) {
 		} else {
 			switch -replaceSpecials - 1 - r { // special insertion patterns
 			case replaceLeftPortion:
-				for i := 0; i < m.Index; i++ {
-					buf.WriteRune(m.text[i])
+				for i := 0; i < m.RuneIndex; i++ {
+					buf.WriteRune(m.text.runes[i])
 				}
 			case replaceRightPortion:
-				for i := m.Index + m.Length; i < len(m.text); i++ {
-					buf.WriteRune(m.text[i])
+				for i := m.RuneIndex + m.RuneLength; i < len(m.text.runes); i++ {
+					buf.WriteRune(m.text.runes[i])
 				}
 			case replaceLastGroup:
 				m.groupValueAppendToBuf(m.GroupCount()-1, buf)
 			case replaceWholeString:
-				for i := 0; i < len(m.text); i++ {
-					buf.WriteRune(m.text[i])
+				for i := 0; i < len(m.text.runes); i++ {
+					buf.WriteRune(m.text.runes[i])
 				}
 			}
 			l = append(l, buf.String())
