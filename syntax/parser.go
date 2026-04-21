@@ -103,6 +103,7 @@ const (
 	ErrInvalidHex                 = "hex values may not be larger than 0x10FFFF"
 	ErrMalformedNameRef           = "malformed \\k<...> named back reference"
 	ErrBadClassInCharRange        = "cannot include class \\%v in character range"
+	ErrShorthandClassInCharRange  = "cannot create range with shorthand escape sequence \\%v"
 	ErrUnterminatedBracket        = "unterminated [] set"
 	ErrSubtractionMustBeLast      = "a subtraction must be the last element in a character class"
 	ErrReversedCharRange          = "[%c-%c] range in reverse order"
@@ -1481,7 +1482,7 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*RegexNode, error) {
 func (p *parser) parseProperty() (string, error) {
 	// RE2 and PCRE supports \pX syntax (no {} and only 1 letter unicode cats supported)
 	// since this is purely additive syntax it's not behind a flag
-	if p.charsRight() >= 1 && p.rightChar(0) != '{' {
+	if p.charsRight() >= 1 && p.rightChar(0) != '{' && !(p.useOptionE() && p.useOptionU()) {
 		ch := string(p.moveRightGetChar())
 		// check if it's a valid cat
 		if !isValidUnicodeCat(ch) {
@@ -1754,17 +1755,44 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 				continue
 
 			case 'p', 'P':
-				if !scanOnly {
-					if inRange {
-						return nil, p.getErr(ErrBadClassInCharRange, ch)
+				if p.useOptionE() && !p.useOptionU() && ch == 'P' && inRange {
+					return nil, p.getErr(ErrShorthandClassInCharRange, string(ch))
+				}
+				if p.useOptionE() && !p.useOptionU() && ch == 'p' {
+					if !scanOnly {
+						if inRange {
+							if chPrev > ch {
+								return nil, p.getErr(ErrReversedCharRange, chPrev, ch)
+							}
+							cc.addRange(chPrev, ch)
+							inRange = false
+						} else if p.charsRight() >= 2 && p.rightChar(0) == '-' && p.rightChar(1) != ']' {
+							cc.addChar('-')
+							p.moveRight(1)
+							chLast := p.moveRightGetChar()
+							if ch > chLast {
+								return nil, p.getErr(ErrReversedCharRange, ch, chLast)
+							}
+							cc.addRange(ch, chLast)
+						} else {
+							cc.addChar(ch)
+						}
 					}
+					continue
+				}
+				if !scanOnly {
 					prop, err := p.parseProperty()
 					if err != nil {
 						return nil, err
 					}
+					if inRange {
+						return nil, p.getErr(ErrShorthandClassInCharRange, string(ch))
+					}
 					cc.addCategory(prop, (ch != 'p'), caseInsensitive)
 				} else {
-					p.parseProperty()
+					if _, err := p.parseProperty(); err != nil {
+						return nil, err
+					}
 				}
 
 				continue
