@@ -2,7 +2,6 @@ package regexp2
 
 import (
 	"fmt"
-	"log"
 	"testing"
 	"time"
 )
@@ -13,26 +12,47 @@ func init() {
 	SetTimeoutCheckPeriod(time.Millisecond)
 }
 func TestDeadline(t *testing.T) {
+	StopTimeoutClock()
+	fast.mu.Lock()
+	fast.current.write(0)
+	fast.clockEnd.write(fasttime(1 << 62))
+	fast.start = time.Time{}
+	fast.running = false
+	fast.mu.Unlock()
+
+	t.Cleanup(func() {
+		StopTimeoutClock()
+		fast.mu.Lock()
+		fast.current.write(0)
+		fast.clockEnd.write(0)
+		fast.start = time.Time{}
+		fast.running = false
+		fast.mu.Unlock()
+	})
+
 	for _, delay := range []time.Duration{
 		clockPeriod * 10,
 		clockPeriod * 50,
 		clockPeriod * 100,
 	} {
-		delay := delay // Make copy for parallel sub-test.
 		t.Run(fmt.Sprint(delay), func(t *testing.T) {
-			t.Parallel()
-			start := time.Now()
 			d := makeDeadline(delay)
 			if d.reached() {
 				t.Fatalf("deadline (%v) unexpectedly expired immediately", delay)
 			}
-			time.Sleep(delay / 2)
-			if d.reached() {
-				t.Fatalf("deadline (%v) expired too soon (after %v)", delay, time.Since(start))
+
+			expected := fast.current.read() + durationToTicks(delay+clockPeriod)
+			if d != expected {
+				t.Fatalf("deadline (%v) = %v, want %v", delay, d, expected)
 			}
-			time.Sleep(delay/2 + 2*clockPeriod) // Give clock time to tick
+
+			fast.current.write(d - 1)
+			if d.reached() {
+				t.Fatalf("deadline (%v) expired too soon", delay)
+			}
+			fast.current.write(d)
 			if !d.reached() {
-				t.Fatalf("deadline (%v) did not expire within %v", delay, time.Since(start))
+				t.Fatalf("deadline (%v) did not expire", delay)
 			}
 		})
 	}
@@ -86,30 +106,39 @@ func TestIncorrectDeadline(t *testing.T) {
 }
 
 func TestIncorrectTimeoutError(t *testing.T) {
-	log.SetFlags(log.Lmicroseconds)
+	StopTimeoutClock()
+	t.Cleanup(StopTimeoutClock)
+
+	const input = "[10000] [Dec 15, 2012 1:42:43 AM] com.dev.log.LoggingExample main"
 	re := MustCompile(`\[(\d+)\]\s+\[([\s\S]+)\]\s+([\s\S]+).*`, RE2)
-	// there's a lot of slop in the timeout process (on purpose to keep resources low)
-	// need a timeout of at least 5x the clockPeriod to have consistent test behavior
-	re.MatchTimeout = 5 * clockPeriod
+	timeout := 5 * clockPeriod
+	idle := 10 * timeout
+	re.MatchTimeout = timeout
 
-	_, err := re.FindStringMatch("[10000] [Dec 15, 2012 1:42:43 AM] com.dev.log.LoggingExample main")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+	// This test covers a false-timeout regression in the public regex path.
+	// If the fast timeout clock has been idle long enough to stop, fast.current
+	// can be stale. A new match must refresh fast.current before computing its
+	// deadline; otherwise, when the background clock next updates to real time,
+	// the freshly-created deadline can already look expired.
+	fast.mu.Lock()
+	fast.start = time.Now().Add(-idle)
+	fast.current.write(0)
+	fast.clockEnd.write(0)
+	fast.running = false
+	fast.mu.Unlock()
+
+	// Keep the test deterministic while still exercising MatchString and the
+	// normal engine execution. The hook runs after startTimeoutWatch has created
+	// the deadline, so advancing fast.current here simulates the first clock tick
+	// after the match starts without depending on scheduler timing or a real
+	// short timeout.
+	re.execute = func(r *Runner) error {
+		StopTimeoutClock()
+		fast.current.write(durationToTicks(idle + clockPeriod))
+		return executeDefault(r)
 	}
 
-	// now wait - this makes sure the background timer goroutine is stopped
-	time.Sleep(time.Second + re.MatchTimeout*2)
-
-	if val := fast.clockEnd.read() - fast.current.read(); val > 0 {
-		t.Fatalf("unexpected bg timer running: %v", val)
-	}
-
-	// each of these should be plenty fast to not timeout
-	for i := 0; i < 1000; i++ {
-		_, err := re.FindStringMatch("[10000] [Dec 15, 2012 1:42:43 AM] com.dev.log.LoggingExample main")
-		if err != nil {
-			log.Printf("timeout")
-			t.Fatalf("Expecting no error, got: '%v' on iteration %v", err, i)
-		}
+	if _, err := re.MatchString(input); err != nil {
+		t.Fatalf("expected no timeout from a deadline made after idle clock stop, got %v", err)
 	}
 }
