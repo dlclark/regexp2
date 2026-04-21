@@ -10,7 +10,7 @@ For extra performance use `regexp2` with [`regexp2cg`](https://github.com/dlclar
 ## Installing
 This is a go-gettable library, so install is easy:
 
-    go get github.com/dlclark/regexp2/v2
+    go get github.com/dlclark/regexp2/v2@latest
 
 ## Changes in v2
 Version 2 includes changes that may affect compatibility with existing v1 users:
@@ -19,11 +19,14 @@ Version 2 includes changes that may affect compatibility with existing v1 users:
 * The minimum supported Go version is now Go 1.26.
 * Changes to support https://github.com/dlclark/regexp2cg are merged in to support generated regex engines.
 * `Regexp.Split` is now available for splitting strings with regexp matches.
-* The new `compat` sub-package provides an adapter with the same `Find*` and `Match*` method signatures as `regexp.Regexp`, plus a `compat.Matcher` interface that is implemented by both `*regexp.Regexp` and the adapter.
+* The new `compat` sub-package provides a [`regexp` compatibility adapter](#regexp-compatibility-adapter) with the same `Find*` and `Match*` method signatures as `regexp.Regexp`, plus a `compat.Matcher` interface that is implemented by both `*regexp.Regexp` and the adapter.
 * The parser, optimizer, and runner internals have changed significantly to support generated regexes and additional matching optimizations.
-* `Compile` and `MustCompile` now use variadic compile options for regex behavior and memory/performance tuning.
-* Moved regexp2.Debug and regexp2.Compile to new OptionDebug() and OptionIsCodeGen() compile options
+* `Compile` and `MustCompile` now use variadic compile options for regex behavior and memory/performance tuning. See [Compile options](#compile-options) for more details.
+* Moved `regexp2.Debug` and `regexp2.Compile` to new `regexp2.OptionDebug()` and `regexp2.OptionIsCodeGen()` compile options.
 * Some types and constants in the `syntax` package have been exported or changed to support code generation.
+* Conceptually changed the goal of the `regexp2.ECMAScript` option to be closer to the ECMAScript standard rather than C#'s ECMAScript behavior.
+* Renamed the fields `Capture.Index` and `Capture.Length` to `Capture.RuneIndex` and `Capture.RuneLength` to be more clear that we're dealing with rune offsets.
+* Added `Capture.ByteRange()` to return the byte offset index and length of the captured text. This requires some additional processing to be done behind the scenes the first time it's called for a given capture to convert the native rune offsets to byte offsets.
 
 ## Usage
 Usage is similar to the Go `regexp` package.  Just like in `regexp`, you start by converting a regex into a state machine via the `Compile` or `MustCompile` methods.  They ultimately do the same thing, but `MustCompile` will panic if the regex is invalid.  You can then use the provided `Regexp` struct to find matches repeatedly.  A `Regexp` struct is safe to use across goroutines.
@@ -256,9 +259,6 @@ In this mode the engine attempts to match the [regex engine](https://tc39.es/ecm
 This flag should not be treated as compatibility with C#'s `RegexOptions.ECMAScript`. regexp2's ECMAScript behavior prioritizes ECMAScript specification behavior over matching the C# regex engine's interpretation of that option.
 
 Additionally a Unicode mode is provided which allows parsing of `\u{CodePoint}` syntax only when both `ECMAScript` and `Unicode` are provided.
-
-## Library features that I'm still working on
-- Regex split (this is coded and has basic smoke testing)
 
 ## Potential bugs
 I've run a battery of tests against regexp2 from various sources and found the debug output matches the .NET engine, but .NET and Go handle strings very differently.  I've attempted to handle these differences, but most of my testing deals with basic ASCII with a little bit of multi-byte Unicode.  There's a chance that there are bugs in the string handling related to character sets with supplementary Unicode chars.  Right-to-Left support is coded, but not well tested either.
