@@ -126,7 +126,6 @@ func IndexFunc(in []rune, f func(ch rune) bool) int {
 func IndexOfAnyExceptInSet(in []rune, set syntax.CharSet) int {
 	//TODO: this
 	panic("not implemented")
-	return -1
 }
 
 func LastIndexOf(in []rune, find []rune) int {
@@ -214,7 +213,6 @@ func IndexOfIgnoreCaseAscii(in []rune, find []rune) int {
 	// search the in slice for the "find" slice, ignoring case in the comparisons
 	// we can assume the find chars are ascii and do simple masks on them
 	panic("not implemented")
-	return -1
 }
 
 func IndexOf(in []rune, find []rune) int {

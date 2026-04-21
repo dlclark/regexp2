@@ -84,7 +84,7 @@ func (re *Regexp) FindIndex(b []byte) []int {
 	if m == nil {
 		return nil
 	}
-	return captureIndex(&m.Group.Capture)
+	return captureIndex(&m.Capture)
 }
 
 // FindString returns a string holding the text of the leftmost match in s.
@@ -103,7 +103,7 @@ func (re *Regexp) FindStringIndex(s string) []int {
 	if m == nil {
 		return nil
 	}
-	return captureIndex(&m.Group.Capture)
+	return captureIndex(&m.Capture)
 }
 
 // FindReaderIndex returns a two-element slice defining the byte location of the
@@ -115,7 +115,7 @@ func (re *Regexp) FindReaderIndex(r io.RuneReader) []int {
 	if m == nil {
 		return nil
 	}
-	return runeCaptureIndex(&m.Group.Capture, offsets)
+	return runeCaptureIndex(&m.Capture, offsets)
 }
 
 // FindSubmatch returns a slice of byte slices holding the text of the leftmost
@@ -210,7 +210,7 @@ func (re *Regexp) FindAllStringIndex(s string, n int) [][]int {
 	}
 	var out [][]int
 	re.forEachStringMatch(s, n, func(m *regexp2.Match) {
-		out = append(out, captureIndex(&m.Group.Capture))
+		out = append(out, captureIndex(&m.Capture))
 	})
 	return out
 }
@@ -282,7 +282,7 @@ func (re *Regexp) forEachStringMatch(s string, n int, f func(*regexp2.Match)) {
 	m := re.findStringMatch(s)
 	prevEnd := -1
 	for m != nil && n != 0 {
-		if !(m.RuneLength == 0 && m.RuneIndex == prevEnd) {
+		if m.RuneLength != 0 || m.RuneIndex != prevEnd {
 			f(m)
 			prevEnd = m.RuneIndex + m.RuneLength
 			if n > 0 {

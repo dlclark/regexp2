@@ -58,7 +58,7 @@ func TestRegexpMethodsReturnNilWhenNoMatch(t *testing.T) {
 	assertEqual(t, "FindStringSubmatch", re.FindStringSubmatch(input), std.FindStringSubmatch(input))
 	assertEqual(t, "FindStringSubmatchIndex", re.FindStringSubmatchIndex(input), std.FindStringSubmatchIndex(input))
 	assertEqual(t, "FindAllString", re.FindAllString(input, -1), std.FindAllString(input, -1))
-	assertEqual(t, "FindAllString n=0", re.FindAllString("xxx", 0), std.FindAllString("xxx", 0))
+	assertEqual(t, "FindAllString n=0", re.FindAllString("xxx", 0), std.FindAllString("xxx", 0)) //nolint:staticcheck
 }
 
 func TestRegexpMethodsUseByteIndexes(t *testing.T) {
