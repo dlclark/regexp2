@@ -168,13 +168,15 @@ For pooled buffer cache options, set `n` to `0` to disable pooling, or `-1` to a
 | negative lookbehind `(?<!re)` | no | yes |
 | back reference `\1` | no | yes |
 | named back reference `\k'name'` | no | yes |
+| Python-style named back reference `(?P=name)` | no | no (yes in RE2 compat mode) |
 | named ascii character class `[[:foo:]]`| yes | no (yes in RE2 compat mode) |
 | conditionals `(?(expr)yes\|no)` | no | yes |
 
 ## RE2 compatibility mode
 The default behavior of `regexp2` is to match the .NET regexp engine, however the `RE2` option is provided to change the parsing to increase compatibility with RE2.  Using the `RE2` option when compiling a regexp will not take away any features, but will change the following behaviors:
 * add support for named ascii character classes (e.g. `[[:foo:]]`)
-* add support for python-style capture groups (e.g. `(P<name>re)`)
+* add support for python-style capture groups (e.g. `(?P<name>re)`)
+* add support for python-style named backreferences (e.g. `(?P=name)`)
 * change singleline behavior for `$` to only match end of string (like RE2) (see [#24](https://github.com/dlclark/regexp2/issues/24))
 * change the character classes `\d` `\s` and `\w` to match the same characters as RE2. NOTE: if you also use the `ECMAScript` option then this will change the `\s` character class to match ECMAScript instead of RE2.  ECMAScript allows more whitespace characters in `\s` than RE2 (but still fewer than the the default behavior).
 * allow character escape sequences to have defaults. For example, by default `\_` isn't a known character escape and will fail to compile, but in RE2 mode it will match the literal character `_`
