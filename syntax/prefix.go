@@ -169,17 +169,14 @@ func (s *regexFcd) calculateFC(nt NodeType, node *RegexNode, CurIndex int) {
 
 	switch nt {
 	case NtConcatenate | BeforeChild, NtAlternate | BeforeChild, NtBackRefCond | BeforeChild, NtLoop | BeforeChild, NtLazyloop | BeforeChild:
-		break
 
 	case NtExprCond | BeforeChild:
 		if CurIndex == 0 {
 			s.skipChild()
 		}
-		break
 
 	case NtEmpty:
 		s.pushFC(regexFc{nullable: true})
-		break
 
 	case NtConcatenate | AfterChild:
 		if CurIndex != 0 {
@@ -193,7 +190,6 @@ func (s *regexFcd) calculateFC(nt NodeType, node *RegexNode, CurIndex int) {
 		if !fc.nullable {
 			s.skipAllChildren = true
 		}
-		break
 
 	case NtExprCond | AfterChild:
 		if CurIndex > 1 {
@@ -202,7 +198,6 @@ func (s *regexFcd) calculateFC(nt NodeType, node *RegexNode, CurIndex int) {
 
 			s.failed = !cumul.addFC(*child, false)
 		}
-		break
 
 	case NtAlternate | AfterChild, NtBackRefCond | AfterChild:
 		if CurIndex != 0 {
@@ -211,37 +206,29 @@ func (s *regexFcd) calculateFC(nt NodeType, node *RegexNode, CurIndex int) {
 
 			s.failed = !cumul.addFC(*child, false)
 		}
-		break
 
 	case NtLoop | AfterChild, NtLazyloop | AfterChild:
 		if node.M == 0 {
 			fc := s.topFC()
 			fc.nullable = true
 		}
-		break
 
 	case NtGroup | BeforeChild, NtGroup | AfterChild, NtCapture | BeforeChild, NtCapture | AfterChild, NtAtomic | BeforeChild, NtAtomic | AfterChild:
-		break
 
 	case NtPosLook | BeforeChild, NtNegLook | BeforeChild:
 		s.skipChild()
 		s.pushFC(regexFc{nullable: true})
-		break
 
 	case NtPosLook | AfterChild, NtNegLook | AfterChild:
-		break
 
 	case NtOne, NtNotone:
 		s.pushFC(newRegexFc(node.Ch, nt == NtNotone, false, ci))
-		break
 
 	case NtOneloop, NtOnelazy, NtOneloopatomic:
 		s.pushFC(newRegexFc(node.Ch, false, node.M == 0, ci))
-		break
 
 	case NtNotoneloop, NtNotonelazy, NtNotoneloopatomic:
 		s.pushFC(newRegexFc(node.Ch, true, node.M == 0, ci))
-		break
 
 	case NtMulti:
 		if len(node.Str) == 0 {
@@ -251,23 +238,18 @@ func (s *regexFcd) calculateFC(nt NodeType, node *RegexNode, CurIndex int) {
 		} else {
 			s.pushFC(newRegexFc(node.Str[len(node.Str)-1], false, false, ci))
 		}
-		break
 
 	case NtSet:
 		s.pushFC(regexFc{cc: node.Set.Copy(), nullable: false, caseInsensitive: ci})
-		break
 
 	case NtSetloop, NtSetlazy, NtSetloopatomic:
 		s.pushFC(regexFc{cc: node.Set.Copy(), nullable: node.M == 0, caseInsensitive: ci})
-		break
 
 	case NtRef:
 		s.pushFC(regexFc{cc: *AnyClass(), nullable: true, caseInsensitive: false})
-		break
 
 	case NtNothing, NtBol, NtEol, NtBoundary, NtNonboundary, NtECMABoundary, NtNonECMABoundary, NtBeginning, NtStart, NtEndZ, NtEnd, NtUpdateBumpalong:
 		s.pushFC(regexFc{nullable: true})
-		break
 
 	default:
 		panic(fmt.Sprintf("unexpected op code: %v", nt))
@@ -788,13 +770,13 @@ type AnchorLoc int16
 // where the regex can be pegged
 const (
 	AnchorBeginning    AnchorLoc = 0x0001
-	AnchorBol                    = 0x0002
-	AnchorStart                  = 0x0004
-	AnchorEol                    = 0x0008
-	AnchorEndZ                   = 0x0010
-	AnchorEnd                    = 0x0020
-	AnchorBoundary               = 0x0040
-	AnchorECMABoundary           = 0x0080
+	AnchorBol          AnchorLoc = 0x0002
+	AnchorStart        AnchorLoc = 0x0004
+	AnchorEol          AnchorLoc = 0x0008
+	AnchorEndZ         AnchorLoc = 0x0010
+	AnchorEnd          AnchorLoc = 0x0020
+	AnchorBoundary     AnchorLoc = 0x0040
+	AnchorECMABoundary AnchorLoc = 0x0080
 )
 
 func getAnchors(tree *RegexTree) AnchorLoc {
@@ -863,28 +845,28 @@ func anchorFromType(t NodeType) AnchorLoc {
 func (anchors AnchorLoc) String() string {
 	buf := &bytes.Buffer{}
 
-	if 0 != (anchors & AnchorBeginning) {
+	if (anchors & AnchorBeginning) != 0 {
 		buf.WriteString(", Beginning")
 	}
-	if 0 != (anchors & AnchorStart) {
+	if (anchors & AnchorStart) != 0 {
 		buf.WriteString(", Start")
 	}
-	if 0 != (anchors & AnchorBol) {
+	if (anchors & AnchorBol) != 0 {
 		buf.WriteString(", Bol")
 	}
-	if 0 != (anchors & AnchorBoundary) {
+	if (anchors & AnchorBoundary) != 0 {
 		buf.WriteString(", Boundary")
 	}
-	if 0 != (anchors & AnchorECMABoundary) {
+	if (anchors & AnchorECMABoundary) != 0 {
 		buf.WriteString(", ECMABoundary")
 	}
-	if 0 != (anchors & AnchorEol) {
+	if (anchors & AnchorEol) != 0 {
 		buf.WriteString(", Eol")
 	}
-	if 0 != (anchors & AnchorEnd) {
+	if (anchors & AnchorEnd) != 0 {
 		buf.WriteString(", End")
 	}
-	if 0 != (anchors & AnchorEndZ) {
+	if (anchors & AnchorEndZ) != 0 {
 		buf.WriteString(", EndZ")
 	}
 

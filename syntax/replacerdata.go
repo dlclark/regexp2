@@ -20,7 +20,7 @@ const (
 )
 
 // ErrReplacementError is a general error during parsing the replacement text
-var ErrReplacementError = errors.New("Replacement pattern error.")
+var ErrReplacementError = errors.New("replacement pattern error")
 
 // NewReplacerData will populate a reusable replacer data struct based on the given replacement string
 // and the capture group data from a regexp

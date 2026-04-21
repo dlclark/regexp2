@@ -21,7 +21,6 @@ type Match struct {
 	textstart int
 
 	capcount   int
-	caps       []int
 	sparseCaps map[int]int
 
 	// output from the match
@@ -195,11 +194,11 @@ func (m *Match) reset(text *matchText, textstart int) {
 func (m *Match) tidy(textpos int) {
 
 	interval := m.matches[0]
-	setCaptureFields(&m.Group.Capture, interval[0], interval[1])
+	setCaptureFields(&m.Capture, interval[0], interval[1])
 	m.textpos = textpos
 	m.capcount = m.matchcount[0]
 	//copy our root capture to the list
-	m.Group.Captures = []Capture{m.Group.Capture}
+	m.Captures = []Capture{m.Capture}
 
 	if m.balancing {
 		// The idea here is that we want to compact all of our unbalanced captures.  To do that we

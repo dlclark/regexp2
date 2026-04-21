@@ -222,8 +222,8 @@ func b2i(b bool) byte {
 func (c CharSet) mapHashFill(buf *bytes.Buffer) {
 	buf.WriteByte(b2i(c.negate) + b2i(c.anything)*2)
 
-	binary.Write(buf, binary.LittleEndian, int32(len(c.ranges)))
-	binary.Write(buf, binary.LittleEndian, int32(len(c.categories)))
+	_ = binary.Write(buf, binary.LittleEndian, int32(len(c.ranges)))
+	_ = binary.Write(buf, binary.LittleEndian, int32(len(c.categories)))
 	for _, r := range c.ranges {
 		buf.WriteRune(r.First)
 		buf.WriteRune(r.Last)
@@ -231,9 +231,9 @@ func (c CharSet) mapHashFill(buf *bytes.Buffer) {
 	for _, ct := range c.categories {
 		// write the length of the cat and indicate if it's negated
 		if ct.Negate {
-			binary.Write(buf, binary.LittleEndian, int8(-1*len(ct.Cat)))
+			_ = binary.Write(buf, binary.LittleEndian, int8(-1*len(ct.Cat)))
 		} else {
-			binary.Write(buf, binary.LittleEndian, int8(len(ct.Cat)))
+			_ = binary.Write(buf, binary.LittleEndian, int8(len(ct.Cat)))
 		}
 		buf.WriteString(ct.Cat)
 	}
@@ -251,8 +251,8 @@ func NewCharSetRuntime(buf string) CharSet {
 	retVal.negate = (val&0x1 == 0x1)
 	retVal.anything = (val&0x2 == 0x2)
 	var lenRanges, lenCats int32
-	binary.Read(b, binary.LittleEndian, &lenRanges)
-	binary.Read(b, binary.LittleEndian, &lenCats)
+	_ = binary.Read(b, binary.LittleEndian, &lenRanges)
+	_ = binary.Read(b, binary.LittleEndian, &lenCats)
 
 	retVal.ranges = make([]SingleRange, lenRanges)
 	for i := 0; i < int(lenRanges); i++ {
@@ -266,7 +266,7 @@ func NewCharSetRuntime(buf string) CharSet {
 	for i := 0; i < int(lenCats); i++ {
 		var lenCat int8
 		c := Category{}
-		binary.Read(b, binary.LittleEndian, &lenCat)
+		_ = binary.Read(b, binary.LittleEndian, &lenCat)
 		if lenCat < 0 {
 			c.Negate = true
 			lenCat *= -1
@@ -827,13 +827,14 @@ func (c *CharSet) canonicalize() {
 				c.negate = true
 			}
 		} else if len(c.ranges) == 1 {
-			if c.ranges[0].First == 0 {
+			switch c.ranges[0].First {
+			case 0:
 				// There's only one range in the list.  Does it include everything but the last char?
 				if c.ranges[0].Last == unicode.MaxRune-1 {
 					c.ranges[0] = SingleRange{unicode.MaxRune, unicode.MaxRune}
 					c.negate = true
 				}
-			} else if c.ranges[0].First == 1 {
+			case 1:
 				// Or everything but the first char?
 				if c.ranges[0].Last >= unicode.MaxRune {
 					c.ranges[0] = SingleRange{'\x00', '\x00'}
@@ -1321,15 +1322,6 @@ func anyParticipatesInCaseConversion(str string) bool {
 		}
 	}
 	return false
-}
-
-func isAscii(str string) bool {
-	for i := 0; i < len(str); i++ {
-		if str[i] > unicode.MaxASCII {
-			return false
-		}
-	}
-	return true
 }
 
 func isAsciiRunes(in []rune) bool {

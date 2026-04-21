@@ -202,9 +202,10 @@ func nodeWithCaseConversion(n *RegexNode) *RegexNode {
 			set.addCaseEquivalences()
 			t := NtSet
 
-			if n.T == NtOneloop || n.T == NtNotoneloop {
+			switch n.T {
+			case NtOneloop, NtNotoneloop:
 				t = NtSetloop
-			} else if n.T == NtOnelazy || n.T == NtNotonelazy {
+			case NtOnelazy, NtNotonelazy:
 				t = NtSetlazy
 			}
 			set.negate = n.IsNotoneFamily()

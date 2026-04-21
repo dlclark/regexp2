@@ -123,8 +123,7 @@ type parser struct {
 	patternRaw string
 	pattern    []rune
 
-	currentPos  int
-	specialCase *unicode.SpecialCase
+	currentPos int
 
 	autocap  int
 	capcount int
@@ -391,17 +390,17 @@ func (p *parser) countCaptures() error {
 		switch ch {
 		case '\\':
 			if p.charsRight() > 0 {
-				p.scanBackslash(true)
+				_, _ = p.scanBackslash(true)
 			}
 
 		case '#':
 			if p.useOptionX() {
 				p.moveLeft()
-				p.scanBlank()
+				_ = p.scanBlank()
 			}
 
 		case '[':
-			p.scanCharSet(false, true)
+			_, _ = p.scanCharSet(false, true)
 
 		case ')':
 			if !p.emptyOptionsStack() {
@@ -411,7 +410,7 @@ func (p *parser) countCaptures() error {
 		case '(':
 			if p.charsRight() >= 2 && p.rightChar(1) == '#' && p.rightChar(0) == '?' {
 				p.moveLeft()
-				p.scanBlank()
+				_ = p.scanBlank()
 			} else {
 				p.pushOptions()
 				if p.charsRight() > 0 && p.rightChar(0) == '?' {
@@ -512,7 +511,7 @@ func (p *parser) reset(topopts RegexOptions) {
 }
 
 func (p *parser) scanRegex() (*RegexNode, error) {
-	ch := '@' // nonspecial ch, means at beginning
+	var ch rune // nonspecial ch, means at beginning
 	isQuant := false
 
 	p.startGroup(newRegexNodeMN(NtCapture, p.options, 0, -1))
@@ -532,8 +531,7 @@ func (p *parser) scanRegex() (*RegexNode, error) {
 		if p.useOptionX() {
 			for p.charsRight() > 0 {
 				ch = p.rightChar(0)
-				//UGLY: clean up, this is ugly
-				if !(!isStopperX(ch) || (ch == '{' && !p.isTrueQuantifier())) {
+				if isStopperX(ch) && (ch != '{' || p.isTrueQuantifier()) {
 					break
 				}
 				p.moveRight(1)
@@ -541,7 +539,7 @@ func (p *parser) scanRegex() (*RegexNode, error) {
 		} else {
 			for p.charsRight() > 0 {
 				ch = p.rightChar(0)
-				if !(!isSpecial(ch) || ch == '{' && !p.isTrueQuantifier()) {
+				if isSpecial(ch) && (ch != '{' || p.isTrueQuantifier()) {
 					break
 				}
 				p.moveRight(1)
@@ -550,7 +548,9 @@ func (p *parser) scanRegex() (*RegexNode, error) {
 
 		endpos := p.textpos()
 
-		p.scanBlank()
+		if err := p.scanBlank(); err != nil {
+			return nil, err
+		}
 
 		if p.charsRight() == 0 {
 			ch = '!' // nonspecial, means at end
@@ -989,11 +989,7 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 
 	p.moveRight(1)
 
-	for {
-		if p.charsRight() == 0 {
-			break
-		}
-
+	for p.charsRight() > 0 {
 		switch ch = p.moveRightGetChar(); ch {
 		case ':':
 			nt = NtGroup
@@ -1053,7 +1049,7 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 					}
 
 					// check if we have bogus characters after the number
-					if p.charsRight() > 0 && !(p.rightChar(0) == close || p.rightChar(0) == '-') {
+					if p.charsRight() > 0 && p.rightChar(0) != close && p.rightChar(0) != '-' {
 						return nil, p.getErr(ErrInvalidGroupName)
 					}
 					if capnum == 0 {
@@ -1070,7 +1066,7 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 					}
 
 					// check if we have bogus character after the name
-					if p.charsRight() > 0 && !(p.rightChar(0) == close || p.rightChar(0) == '-') {
+					if p.charsRight() > 0 && p.rightChar(0) != close && p.rightChar(0) != '-' {
 						if p.useOptionE() {
 							return nil, p.getErr(ErrInvalidECMAGroupName)
 						}
@@ -1088,7 +1084,7 @@ func (p *parser) scanGroupOpen() (*RegexNode, error) {
 
 				// grab part after - if any
 
-				if !p.useOptionE() && (capnum != -1 || proceed == true) && p.charsRight() > 0 && p.rightChar(0) == '-' {
+				if !p.useOptionE() && (capnum != -1 || proceed) && p.charsRight() > 0 && p.rightChar(0) == '-' {
 					p.moveRight(1)
 
 					//no more chars left, no closing char, etc
@@ -1482,7 +1478,7 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*RegexNode, error) {
 func (p *parser) parseProperty() (string, error) {
 	// RE2 and PCRE supports \pX syntax (no {} and only 1 letter unicode cats supported)
 	// since this is purely additive syntax it's not behind a flag
-	if p.charsRight() >= 1 && p.rightChar(0) != '{' && !(p.useOptionE() && p.useOptionU()) {
+	if p.charsRight() >= 1 && p.rightChar(0) != '{' && (!p.useOptionE() || !p.useOptionU()) {
 		ch := string(p.moveRightGetChar())
 		// check if it's a valid cat
 		if !isValidUnicodeCat(ch) {
@@ -1502,7 +1498,7 @@ func (p *parser) parseProperty() (string, error) {
 	startpos := p.textpos()
 	for p.charsRight() > 0 {
 		ch = p.moveRightGetChar()
-		if !(IsWordChar(ch) || ch == '-') {
+		if !IsWordChar(ch) && ch != '-' {
 			p.moveLeft()
 			break
 		}
@@ -1676,7 +1672,7 @@ func (p *parser) scanCapname() (string, error) {
 
 // Scans contents of [] (not including []'s), and converts to a set.
 func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
-	ch := '\x00'
+	var ch rune
 	chPrev := '\x00'
 	inRange := false
 	firstChar := true
@@ -1888,7 +1884,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 				}
 			} else {
 				p.moveRight(1)
-				p.scanCharSet(caseInsensitive, true)
+				_, _ = p.scanCharSet(caseInsensitive, true)
 			}
 		} else {
 			if !scanOnly {
@@ -1942,11 +1938,12 @@ func (p *parser) scanOptions() {
 	for off := false; p.charsRight() > 0; p.moveRight(1) {
 		ch := p.rightChar(0)
 
-		if ch == '-' {
+		switch ch {
+		case '-':
 			off = true
-		} else if ch == '+' {
+		case '+':
 			off = false
-		} else {
+		default:
 			option := optionFromCode(ch)
 			if option == 0 || isOnlyTopOption(option) {
 				return
@@ -2438,10 +2435,10 @@ func (p *parser) addAlternate() {
 
 const (
 	Q byte = 5 // quantifier
-	S      = 4 // ordinary stopper
-	Z      = 3 // ScanBlank stopper
-	X      = 2 // whitespace
-	E      = 1 // should be escaped
+	S byte = 4 // ordinary stopper
+	Z byte = 3 // ScanBlank stopper
+	X byte = 2 // whitespace
+	E byte = 1 // should be escaped
 )
 
 var _category = []byte{

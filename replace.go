@@ -64,7 +64,7 @@ func compactBalancedMatches(m *Match) {
 // doesn't handle right-to-left string building directly very well.
 func replace(regex *Regexp, data *syntax.ReplacerData, evaluator MatchEvaluator, input string, startAt, count int) (string, error) {
 	if count < -1 {
-		return "", errors.New("Count too small")
+		return "", errors.New("count too small")
 	}
 	if count == 0 {
 		return "", nil

@@ -44,7 +44,7 @@ func TestStopTimeoutClock(t *testing.T) {
 	r := MustCompile(".")
 	r.MatchTimeout = time.Second * 10
 
-	r.MatchString("a")
+	_, _ = r.MatchString("a")
 	start := time.Now()
 	StopTimeoutClock()
 	stop := time.Now()
@@ -64,7 +64,9 @@ func TestIncorrectDeadline(t *testing.T) {
 	for fast.running {
 		time.Sleep(clockPeriod)
 	}
-	t.Logf("current fast: %+v", fast)
+	fast.mu.Lock()
+	t.Logf("current fast: start=%v running=%v current=%v clockEnd=%v", fast.start, fast.running, fast.current.read(), fast.clockEnd.read())
+	fast.mu.Unlock()
 	timeout := 5 * clockPeriod
 	// make the error time much bigger
 	time.Sleep(10 * clockPeriod)

@@ -163,9 +163,10 @@ func tryFindFirstCharClass(node *RegexNode, ccIn **CharSet) int {
 		anyChildWasNull := false
 		for i := 0; i < len(node.Children); i++ {
 			childResult := tryFindFirstCharClass(node.Children[i], ccIn)
-			if childResult == -1 {
+			switch childResult {
+			case -1:
 				anyChildWasNull = true
-			} else if childResult == 0 {
+			case 0:
 				return 0
 			}
 		}

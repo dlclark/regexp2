@@ -87,8 +87,6 @@ func TestRegexp_Basic(t *testing.T) {
 	}
 	if m == nil {
 		t.Error("Nil match, expected success")
-	} else {
-		//t.Logf("Match: %v", m.dump())
 	}
 }
 
@@ -296,70 +294,70 @@ func TestGroups_Basic(t *testing.T) {
 		strs []string
 	}
 	data := []d{
-		d{"(?<first_name>\\S+)\\s(?<last_name>\\S+)", // example
+		{"(?<first_name>\\S+)\\s(?<last_name>\\S+)", // example
 			"Ryan Byington",
 			[]string{"0", "first_name", "last_name"},
 			[]int{0, 1, 2},
 			[]string{"Ryan Byington", "Ryan", "Byington"}},
-		d{"((?<One>abc)\\d+)?(?<Two>xyz)(.*)", // example
+		{"((?<One>abc)\\d+)?(?<Two>xyz)(.*)", // example
 			"abc208923xyzanqnakl",
 			[]string{"0", "1", "2", "One", "Two"},
 			[]int{0, 1, 2, 3, 4},
 			[]string{"abc208923xyzanqnakl", "abc208923", "anqnakl", "abc", "xyz"}},
-		d{"((?<256>abc)\\d+)?(?<16>xyz)(.*)", // numeric names
+		{"((?<256>abc)\\d+)?(?<16>xyz)(.*)", // numeric names
 			"0272saasdabc8978xyz][]12_+-",
 			[]string{"0", "1", "2", "16", "256"},
 			[]int{0, 1, 2, 16, 256},
 			[]string{"abc8978xyz][]12_+-", "abc8978", "][]12_+-", "xyz", "abc"}},
-		d{"((?<4>abc)(?<digits>\\d+))?(?<2>xyz)(?<everything_else>.*)", // mix numeric and string names
+		{"((?<4>abc)(?<digits>\\d+))?(?<2>xyz)(?<everything_else>.*)", // mix numeric and string names
 			"0272saasdabc8978xyz][]12_+-",
 			[]string{"0", "1", "2", "digits", "4", "everything_else"},
 			[]int{0, 1, 2, 3, 4, 5},
 			[]string{"abc8978xyz][]12_+-", "abc8978", "xyz", "8978", "abc", "][]12_+-"}},
-		d{"(?<first_name>\\S+)\\s(?<first_name>\\S+)", // dupe string names
+		{"(?<first_name>\\S+)\\s(?<first_name>\\S+)", // dupe string names
 			"Ryan Byington",
 			[]string{"0", "first_name"},
 			[]int{0, 1},
 			[]string{"Ryan Byington", "Byington"}},
-		d{"(?<15>\\S+)\\s(?<15>\\S+)", // dupe numeric names
+		{"(?<15>\\S+)\\s(?<15>\\S+)", // dupe numeric names
 			"Ryan Byington",
 			[]string{"0", "15"},
 			[]int{0, 15},
 			[]string{"Ryan Byington", "Byington"}},
 		// *** repeated from above, but with alt cap syntax ***
-		d{"(?'first_name'\\S+)\\s(?'last_name'\\S+)", //example
+		{"(?'first_name'\\S+)\\s(?'last_name'\\S+)", //example
 			"Ryan Byington",
 			[]string{"0", "first_name", "last_name"},
 			[]int{0, 1, 2},
 			[]string{"Ryan Byington", "Ryan", "Byington"}},
-		d{"((?'One'abc)\\d+)?(?'Two'xyz)(.*)", // example
+		{"((?'One'abc)\\d+)?(?'Two'xyz)(.*)", // example
 			"abc208923xyzanqnakl",
 			[]string{"0", "1", "2", "One", "Two"},
 			[]int{0, 1, 2, 3, 4},
 			[]string{"abc208923xyzanqnakl", "abc208923", "anqnakl", "abc", "xyz"}},
-		d{"((?'256'abc)\\d+)?(?'16'xyz)(.*)", // numeric names
+		{"((?'256'abc)\\d+)?(?'16'xyz)(.*)", // numeric names
 			"0272saasdabc8978xyz][]12_+-",
 			[]string{"0", "1", "2", "16", "256"},
 			[]int{0, 1, 2, 16, 256},
 			[]string{"abc8978xyz][]12_+-", "abc8978", "][]12_+-", "xyz", "abc"}},
-		d{"((?'4'abc)(?'digits'\\d+))?(?'2'xyz)(?'everything_else'.*)", // mix numeric and string names
+		{"((?'4'abc)(?'digits'\\d+))?(?'2'xyz)(?'everything_else'.*)", // mix numeric and string names
 			"0272saasdabc8978xyz][]12_+-",
 			[]string{"0", "1", "2", "digits", "4", "everything_else"},
 			[]int{0, 1, 2, 3, 4, 5},
 			[]string{"abc8978xyz][]12_+-", "abc8978", "xyz", "8978", "abc", "][]12_+-"}},
-		d{"(?'first_name'\\S+)\\s(?'first_name'\\S+)", // dupe string names
+		{"(?'first_name'\\S+)\\s(?'first_name'\\S+)", // dupe string names
 			"Ryan Byington",
 			[]string{"0", "first_name"},
 			[]int{0, 1},
 			[]string{"Ryan Byington", "Byington"}},
-		d{"(?'15'\\S+)\\s(?'15'\\S+)", // dupe numeric names
+		{"(?'15'\\S+)\\s(?'15'\\S+)", // dupe numeric names
 			"Ryan Byington",
 			[]string{"0", "15"},
 			[]int{0, 15},
 			[]string{"Ryan Byington", "Byington"}},
 	}
 
-	fatalf := func(re *Regexp, v d, format string, args ...interface{}) {
+	fatalf := func(re *Regexp, v d, format string, args ...any) {
 		args = append(args, v, re.code.Dump())
 
 		t.Fatalf(format+" using test data: %#v\ndump:%v", args...)
@@ -467,6 +465,14 @@ func TestErr_GroupName(t *testing.T) {
 
 }
 
+func TestErr_UnterminatedCommentAfterLiteral(t *testing.T) {
+	if _, err := Compile("a(?#"); err == nil {
+		t.Fatalf("unterminated comment, expected error during compile")
+	} else if want, got := "error parsing regexp: unterminated comment in `a(?#`", err.Error(); want != got {
+		t.Fatalf("invalid error text, want '%v', got '%v'", want, got)
+	}
+}
+
 func TestConstantUneffected(t *testing.T) {
 	// had a bug where "constant" sets would get modified with alternations and be broken in memory until restart
 	// this meant that if you used a known-set (like \s) in a larger set it would "poison" \s for the process
@@ -504,7 +510,7 @@ func TestStartingCharsOptionalNegate(t *testing.T) {
 	// to negate the individual categories rather than the CharSet itself
 	// this would deviate from corefx
 
-	re := MustCompile(`(^(\S{2} )?\S{2}(\d+|/) *\S{3}\S{3} ?\d{2,4}[A-Z] ?\d{2}[A-Z]{3}|(\S{2} )?\d{2,4})`)
+	re := MustCompile(`(^(\S{2} )?\S{2}(\d+|/) *\S{3}\S{3} ?\{2,4}[A-Z] ?\{2}[A-Z]{3}|(\S{2} )?\{2,4})`)
 	if re.code.FcPrefix != nil {
 		t.Fatalf("FcPrefix wanted nil, got %v", re.code.FcPrefix)
 	}
@@ -595,7 +601,7 @@ func TestRepeatingGroup(t *testing.T) {
 		t.Fatalf("wanted cap count %v, got %v", want, got)
 	}
 
-	if want, got := g.Captures[1].String(), g.Capture.String(); want != got {
+	if want, got := g.Captures[1].String(), g.String(); want != got {
 		t.Fatalf("expected last capture of the group to be embedded")
 	}
 
@@ -1388,7 +1394,7 @@ func TestParserFuzzCrashes(t *testing.T) {
 
 	for _, c := range crashes {
 		t.Log(c)
-		Compile(c)
+		_, _ = Compile(c)
 	}
 }
 
@@ -1399,7 +1405,7 @@ func TestParserFuzzHangs(t *testing.T) {
 
 	for _, c := range hangs {
 		t.Log(c)
-		Compile(c)
+		_, _ = Compile(c)
 	}
 }
 
@@ -1572,7 +1578,7 @@ func TestFuzzBytes_Match(t *testing.T) {
 				t.Fatal("should compile, but didn't")
 			}
 
-			re.MatchString(string(c.s))
+			_, _ = re.MatchString(string(c.s))
 		})
 	}
 }

@@ -227,7 +227,7 @@ func executeDefault(r *Runner) error {
 			return nil
 
 		case syntax.Nothing:
-			break
+			//noop
 
 		case syntax.Goto:
 			r.goTo(r.operand(0))
@@ -265,7 +265,6 @@ func executeDefault(r *Runner) error {
 
 		case syntax.Setmark | syntax.Back, syntax.Nullmark | syntax.Back:
 			r.stackPop()
-			break
 
 		case syntax.Getmark:
 			r.stackPop()
@@ -277,7 +276,6 @@ func executeDefault(r *Runner) error {
 		case syntax.Getmark | syntax.Back:
 			r.trackPop()
 			r.stackPush(r.trackPeek())
-			break
 
 		case syntax.Capturemark:
 			if r.operand(1) != -1 && !r.runmatch.isMatched(r.operand(1)) {
@@ -302,8 +300,6 @@ func executeDefault(r *Runner) error {
 			if r.operand(0) != -1 && r.operand(1) != -1 {
 				r.uncapture()
 			}
-
-			break
 
 		case syntax.Branchmark:
 			r.stackPop()
@@ -331,7 +327,7 @@ func executeDefault(r *Runner) error {
 		case syntax.Branchmark | syntax.Back2:
 			r.trackPop()
 			r.stackPush(r.trackPeek()) // Recall old mark
-			break                      // Backtrack
+			// Backtrack
 
 		case syntax.Lazybranchmark:
 			{
@@ -384,7 +380,6 @@ func executeDefault(r *Runner) error {
 				r.stackPop()
 			}
 			r.stackPush(oldMark) // Recall old mark
-			break
 
 		case syntax.Setcount:
 			r.stackPush2(r.textPos(), r.operand(0))
@@ -400,11 +395,9 @@ func executeDefault(r *Runner) error {
 
 		case syntax.Setcount | syntax.Back:
 			r.stackPopN(2)
-			break
 
 		case syntax.Nullcount | syntax.Back:
 			r.stackPopN(2)
-			break
 
 		case syntax.Branchcount:
 			// r.stackPush:
@@ -441,7 +434,6 @@ func executeDefault(r *Runner) error {
 				continue
 			}
 			r.stackPush2(r.trackPeek(), r.stackPeekN(1)-1) // recall old mark, old count
-			break
 
 		case syntax.Branchcount | syntax.Back2:
 			// r.trackPush:
@@ -449,7 +441,6 @@ func executeDefault(r *Runner) error {
 			//  1: Previous count
 			r.trackPopN(2)
 			r.stackPush2(r.trackPeek(), r.trackPeekN(1)) // Recall old mark, old count
-			break                                        // Backtrack
 
 		case syntax.Lazybranchcount:
 			// r.stackPush:
@@ -488,7 +479,7 @@ func executeDefault(r *Runner) error {
 				continue
 			} else { // Max loops or empty match -> backtrack
 				r.stackPush2(r.trackPeek(), r.trackPeekN(1)) // Recall old mark, count
-				break                                        // backtrack
+				// backtrack
 			}
 
 		case syntax.Lazybranchcount | syntax.Back2:
@@ -500,7 +491,7 @@ func executeDefault(r *Runner) error {
 			r.trackPop()
 			r.stackPopN(2)
 			r.stackPush2(r.trackPeek(), r.stackPeekN(1)-1) // Recall old mark, count
-			break                                          // Backtrack
+			// Backtrack
 
 		case syntax.Setjump:
 			r.stackPush2(r.trackpos(), r.Crawlpos())
@@ -510,7 +501,6 @@ func executeDefault(r *Runner) error {
 
 		case syntax.Setjump | syntax.Back:
 			r.stackPopN(2)
-			break
 
 		case syntax.Backjump:
 			// r.stackPush:
@@ -522,8 +512,6 @@ func executeDefault(r *Runner) error {
 			for r.Crawlpos() != r.stackPeekN(1) {
 				r.uncapture()
 			}
-
-			break
 
 		case syntax.Forejump:
 			// r.stackPush:
@@ -543,8 +531,6 @@ func executeDefault(r *Runner) error {
 			for r.Crawlpos() != r.trackPeek() {
 				r.uncapture()
 			}
-
-			break
 
 		case syntax.Bol:
 			if r.leftchars() > 0 && r.charAt(r.textPos()-1) != '\n' {
@@ -1628,35 +1614,6 @@ func findLiteralAfterLoopLeftToRight(r *Runner, literal *syntax.LiteralAfterLoop
 	return false
 }
 
-func findLeadingCharRightToLeft(r *Runner, ch rune) bool {
-	for i := r.Runtextpos - 1; i >= 0; i-- {
-		if r.Runtext[i] == ch {
-			r.Runtextpos = i + 1
-			return true
-		}
-	}
-	r.Runtextpos = 0
-	return false
-}
-
-func findLeadingSetRightToLeft(r *Runner, sets []syntax.FixedDistanceSet) bool {
-	if len(sets) == 0 || sets[0].Set == nil {
-		return false
-	}
-	set := sets[0]
-	if set.Distance != 0 {
-		return false
-	}
-	for i := r.Runtextpos - 1; i >= 0; i-- {
-		if charInFixedDistanceSet(set, r.Runtext[i]) {
-			r.Runtextpos = i + 1
-			return true
-		}
-	}
-	r.Runtextpos = 0
-	return false
-}
-
 func indexOfLiteralAfterLoop(r *Runner, literal *syntax.LiteralAfterLoop, searchStart int) int {
 	switch {
 	case literal.String != "":
@@ -1969,16 +1926,6 @@ func (r *Runner) startTimeoutWatch() {
 func (r *Runner) CheckTimeout() error {
 	if r.ignoreTimeout || !r.deadline.reached() {
 		return nil
-	}
-
-	if r.debug {
-		//Debug.WriteLine("")
-		//Debug.WriteLine("RegEx match timeout occurred!")
-		//Debug.WriteLine("Specified timeout:       " + TimeSpan.FromMilliseconds(_timeout).ToString())
-		//Debug.WriteLine("Timeout check frequency: " + TimeoutCheckFrequency)
-		//Debug.WriteLine("Search pattern:          " + _runregex._pattern)
-		//Debug.WriteLine("Input:                   " + r.runtext)
-		//Debug.WriteLine("About to throw RegexMatchTimeoutException.")
 	}
 
 	return fmt.Errorf("match timeout after %v on input `%v`", r.timeout, string(r.Runtext))

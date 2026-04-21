@@ -83,9 +83,13 @@ func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 
 		for {
 			if len(curNode.Children) == 0 {
-				w.emitFragment(curNode.T, curNode, 0)
+				if err := w.emitFragment(curNode.T, curNode, 0); err != nil {
+					return nil, err
+				}
 			} else if curChild < len(curNode.Children) {
-				w.emitFragment(curNode.T|BeforeChild, curNode, curChild)
+				if err := w.emitFragment(curNode.T|BeforeChild, curNode, curChild); err != nil {
+					return nil, err
+				}
 
 				curNode = curNode.Children[curChild]
 
@@ -101,7 +105,9 @@ func (w *writer) codeFromTree(tree *RegexTree) (*Code, error) {
 			curChild = w.popInt()
 			curNode = curNode.Parent
 
-			w.emitFragment(curNode.T|AfterChild, curNode, curChild)
+			if err := w.emitFragment(curNode.T|AfterChild, curNode, curChild); err != nil {
+				return nil, err
+			}
 			curChild++
 		}
 
@@ -163,7 +169,6 @@ func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) 
 
 	switch nodetype {
 	case NtConcatenate | BeforeChild, NtConcatenate | AfterChild, NtEmpty:
-		break
 
 	case NtAlternate | BeforeChild:
 		if curIndex < len(node.Children)-1 {
@@ -182,7 +187,6 @@ func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) 
 				w.patchJump(w.popInt(), w.curPos())
 			}
 		}
-		break
 
 	case NtBackRefCond | BeforeChild:
 		if curIndex == 0 {
@@ -194,7 +198,8 @@ func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) 
 		}
 
 	case NtBackRefCond | AfterChild:
-		if curIndex == 0 {
+		switch curIndex {
+		case 0:
 			branchpos := w.popInt()
 			w.pushInt(w.curPos())
 			w.emit1(Goto, 0)
@@ -203,7 +208,7 @@ func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) 
 			if len(node.Children) <= 1 {
 				w.patchJump(w.popInt(), w.curPos())
 			}
-		} else if curIndex == 1 {
+		case 1:
 			w.patchJump(w.popInt(), w.curPos())
 		}
 
@@ -216,20 +221,21 @@ func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) 
 		}
 
 	case NtExprCond | AfterChild:
-		if curIndex == 0 {
+		switch curIndex {
+		case 0:
 			w.emit(Getmark)
 			w.emit(Forejump)
-		} else if curIndex == 1 {
-			Branchpos := w.popInt()
+		case 1:
+			branchpos := w.popInt()
 			w.pushInt(w.curPos())
 			w.emit1(Goto, 0)
-			w.patchJump(Branchpos, w.curPos())
+			w.patchJump(branchpos, w.curPos())
 			w.emit(Getmark)
 			w.emit(Forejump)
 			if len(node.Children) <= 2 {
 				w.patchJump(w.popInt(), w.curPos())
 			}
-		} else if curIndex == 2 {
+		case 2:
 			w.patchJump(w.popInt(), w.curPos())
 		}
 
@@ -350,7 +356,7 @@ func (w *writer) emitFragment(nodetype NodeType, node *RegexNode, curIndex int) 
 	case NtRef:
 		w.emit1(InstOp(node.T|ntBits), w.mapCapnum(node.M))
 
-	case NtNothing, NtBol, NtEol, NtBoundary, NtNonboundary, NtECMABoundary, NtNonECMABoundary, NtBeginning, NtStart, NtEndZ, NtEnd:
+	case NtNothing, NtBol, NtEol, NtBoundary, NtNonboundary, NtECMABoundary, NtNonECMABoundary, NtBeginning, NtStart, NtEndZ, NtEnd, NtUpdateBumpalong:
 		w.emit(InstOp(node.T))
 
 	default:

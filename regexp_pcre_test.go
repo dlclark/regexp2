@@ -28,7 +28,7 @@ func TestPcre_Basics(t *testing.T) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer file.Close()
+	defer file.Close() // nolint: errcheck
 
 	// the high level structure of the file:
 	//		#comments - ignore only outside of the pattern
