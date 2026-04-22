@@ -5,12 +5,13 @@ import (
 )
 
 type RuntimeEngineData struct {
-	Caps          map[int]int        // capnum->index
-	CapNames      map[string]int     // cap group name -> index
-	CapsList      []string           // sorted list of capture group names
-	CapSize       int                // size of the capture array
-	FindFirstChar func(*Runner) bool // generated candidate search
-	Execute       func(*Runner) error
+	Caps               map[int]int        // capnum->index
+	CapNames           map[string]int     // cap group name -> index
+	CapsList           []string           // sorted list of capture group names
+	CapSize            int                // size of the capture array
+	FindFirstChar      func(*Runner) bool // generated candidate search
+	Execute            func(*Runner) error
+	StringPrefixFilter StringPrefixFilter // optional pre-decode candidate search for string input
 }
 
 type cacheKey struct {
@@ -28,17 +29,18 @@ func RegisterEngine(pattern string, engine RuntimeEngineData, options ...Compile
 
 func newEngineRegexp(pattern string, c compileConfig, engine RuntimeEngineData) *Regexp {
 	re := &Regexp{
-		pattern:       pattern,
-		options:       c.regexOptions,
-		debug:         c.debug,
-		caps:          engine.Caps,
-		capnames:      engine.CapNames,
-		capslist:      engine.CapsList,
-		capsize:       engine.CapSize,
-		MatchTimeout:  DefaultMatchTimeout,
-		optimizations: c.optimizations,
-		findFirstChar: engine.FindFirstChar,
-		execute:       engine.Execute,
+		pattern:            pattern,
+		options:            c.regexOptions,
+		debug:              c.debug,
+		caps:               engine.Caps,
+		capnames:           engine.CapNames,
+		capslist:           engine.CapsList,
+		capsize:            engine.CapSize,
+		MatchTimeout:       DefaultMatchTimeout,
+		optimizations:      c.optimizations,
+		findFirstChar:      engine.FindFirstChar,
+		execute:            engine.Execute,
+		stringPrefixFilter: engine.StringPrefixFilter,
 	}
 	re.initCaches()
 	return re

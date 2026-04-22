@@ -160,3 +160,33 @@ func TestRegisterEngine_CacheHitMaintainCaptureOrder(t *testing.T) {
 		t.Fatal("Expected no match")
 	}
 }
+
+func TestStringPrefixFilterSkipsDecodeOnMiss(t *testing.T) {
+	const pattern = `string-prefix-filter-miss-only`
+	RegisterEngine(pattern, RuntimeEngineData{
+		CapSize: 1,
+		StringPrefixFilter: func(input string, startAt int) (candidateByteIndex int, ok bool) {
+			if input != "missing" || startAt != 0 {
+				t.Fatalf("filter got input=%q startAt=%d", input, startAt)
+			}
+			return 0, false
+		},
+		FindFirstChar: func(r *Runner) bool {
+			t.Fatal("FindFirstChar should not run after a string prefix filter miss")
+			return false
+		},
+		Execute: func(r *Runner) error {
+			t.Fatal("Execute should not run after a string prefix filter miss")
+			return nil
+		},
+	})
+
+	re := MustCompile(pattern)
+	matched, err := re.MatchString("missing")
+	if err != nil {
+		t.Fatalf("MatchString failed: %v", err)
+	}
+	if matched {
+		t.Fatal("unexpected match")
+	}
+}

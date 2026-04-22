@@ -55,8 +55,9 @@ type Regexp struct {
 	replaceCache *replacerDataCache
 
 	// hook points to override runner functions
-	findFirstChar func(r *Runner) bool
-	execute       func(r *Runner) error
+	findFirstChar      func(r *Runner) bool
+	execute            func(r *Runner) error
+	stringPrefixFilter StringPrefixFilter
 }
 
 // Compile parses a regular expression and returns, if successful,
@@ -107,6 +108,7 @@ func compile(expr string, c compileConfig) (*Regexp, error) {
 		MatchTimeout:  DefaultMatchTimeout,
 		optimizations: c.optimizations,
 	}
+	re.stringPrefixFilter = newStringPrefixFilter(code)
 	re.initCaches()
 	return re, nil
 }
@@ -214,8 +216,19 @@ func (re *Regexp) ReplaceFunc(input string, evaluator MatchEvaluator, startAt, c
 
 // FindStringMatch searches the input string for a Regexp match
 func (re *Regexp) FindStringMatch(s string) (*Match, error) {
-	r := getRunes(s)
-	return re.run(false, -1, r, newStringMatchText(s, r))
+	startAt, ok, err := re.findStringMatchStart(s, -1)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+
+	r, runeStart := re.getRunesAndStart(s, startAt)
+	if runeStart < 0 {
+		runeStart = 0
+	}
+	return re.run(false, runeStart, r, newStringMatchText(s, r))
 }
 
 // FindRunesMatch searches the input rune slice for a Regexp match
@@ -225,9 +238,14 @@ func (re *Regexp) FindRunesMatch(r []rune) (*Match, error) {
 
 // FindStringMatchStartingAt searches the input string for a Regexp match starting at the startAt index
 func (re *Regexp) FindStringMatchStartingAt(s string, startAt int) (*Match, error) {
-	if startAt > len(s) {
-		return nil, errors.New("startAt must be less than the length of the input string")
+	startAt, ok, err := re.findStringMatchStart(s, startAt)
+	if err != nil {
+		return nil, err
 	}
+	if !ok {
+		return nil, nil
+	}
+
 	r, startAt := re.getRunesAndStart(s, startAt)
 	if startAt == -1 {
 		// we didn't find our start index in the string -- that's a problem
@@ -277,6 +295,47 @@ func (re *Regexp) FindNextMatch(m *Match) (*Match, error) {
 // MatchString return true if the string matches the regex
 // error will be set if a timeout occurs
 func (re *Regexp) MatchString(s string) (bool, error) {
+	if re.stringPrefixFilter == nil {
+		return re.matchString(s)
+	}
+
+	startAt, ok, err := re.findStringMatchStart(s, -1)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+
+	runner := re.getRunner()
+	var input []rune
+	var pooledInput *[]rune
+	runeStart := 0
+	if startAt == 0 {
+		input, pooledInput = runner.decodeString(s)
+	} else {
+		input, runeStart, pooledInput = runner.decodeStringWithStart(s, startAt)
+	}
+	defer func() {
+		re.putRunner(runner)
+		if pooledInput != nil {
+			*pooledInput = input
+			pooledRuneBuffers.put(pooledInput)
+		}
+	}()
+
+	if runeStart < 0 {
+		runeStart = 0
+	}
+
+	m, err := runner.scan(input, nil, runeStart, true, re.MatchTimeout)
+	if err != nil {
+		return false, err
+	}
+	return m != nil, nil
+}
+
+func (re *Regexp) matchString(s string) (bool, error) {
 	runner := re.getRunner()
 	input, pooledInput := runner.decodeString(s)
 	defer func() {

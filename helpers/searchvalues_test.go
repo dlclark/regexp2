@@ -78,8 +78,6 @@ func makeText(n int) []rune {
 	return text
 }
 
-var val = 0
-
 func benchmarkAsciiSearchValues(b *testing.B, chars string, n int) {
 	sv := NewAsciiSearchValues(chars)
 	t := makeText(n)

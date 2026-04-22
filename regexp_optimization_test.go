@@ -79,3 +79,30 @@ func TestMinRequiredLengthShortCircuits(t *testing.T) {
 		t.Fatalf("unexpected match %q", m.String())
 	}
 }
+
+func TestStringPrefixFilterFindStringMatchStartingAtInvalidBoundary(t *testing.T) {
+	re := MustCompile(`abc`)
+	if re.stringPrefixFilter == nil {
+		t.Fatal("expected string prefix filter")
+	}
+	if _, err := re.FindStringMatchStartingAt("aéabc", 2); err == nil {
+		t.Fatal("expected invalid rune boundary error")
+	}
+}
+
+func TestStringPrefixFilterFindStringMatchCandidate(t *testing.T) {
+	re := MustCompile(`abc`)
+	if re.stringPrefixFilter == nil {
+		t.Fatal("expected string prefix filter")
+	}
+	m, err := re.FindStringMatch("xxabc")
+	if err != nil {
+		t.Fatalf("FindStringMatch failed: %v", err)
+	}
+	if m == nil {
+		t.Fatal("expected match")
+	}
+	if got, want := m.RuneIndex, 2; got != want {
+		t.Fatalf("match index = %d, want %d", got, want)
+	}
+}
