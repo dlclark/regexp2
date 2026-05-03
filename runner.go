@@ -1462,7 +1462,11 @@ func findLeadingStringLeftToRight(r *Runner, prefix []rune, ignoreCase bool) boo
 	search := r.Runtext[r.Runtextpos:]
 	var offset int
 	if ignoreCase {
-		offset = helpers.IndexOfIgnoreCase(search, prefix)
+		if isASCIIRunes(prefix) {
+			offset = helpers.IndexOfIgnoreCaseAscii(search, prefix)
+		} else {
+			offset = helpers.IndexOfIgnoreCase(search, prefix)
+		}
 	} else {
 		offset = helpers.IndexOf(search, prefix)
 	}
@@ -1619,7 +1623,13 @@ func indexOfLiteralAfterLoop(r *Runner, literal *syntax.LiteralAfterLoop, search
 	case literal.String != "":
 		needle := []rune(literal.String)
 		if literal.StringIgnoreCase {
-			if offset := helpers.IndexOfIgnoreCase(r.Runtext[searchStart:], needle); offset >= 0 {
+			var offset int
+			if isASCIIString(literal.String) {
+				offset = helpers.IndexOfIgnoreCaseAscii(r.Runtext[searchStart:], needle)
+			} else {
+				offset = helpers.IndexOfIgnoreCase(r.Runtext[searchStart:], needle)
+			}
+			if offset >= 0 {
 				return searchStart + offset
 			}
 		} else if offset := helpers.IndexOf(r.Runtext[searchStart:], needle); offset >= 0 {
@@ -1635,6 +1645,15 @@ func indexOfLiteralAfterLoop(r *Runner, literal *syntax.LiteralAfterLoop, search
 		}
 	}
 	return -1
+}
+
+func isASCIIRunes(in []rune) bool {
+	for _, ch := range in {
+		if ch > unicode.MaxASCII {
+			return false
+		}
+	}
+	return true
 }
 
 func indexOfSet(chars []rune, set syntax.FixedDistanceSet) int {

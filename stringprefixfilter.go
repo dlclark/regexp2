@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/dlclark/regexp2/v2/helpers"
 	"github.com/dlclark/regexp2/v2/syntax"
 )
 
@@ -56,7 +57,7 @@ func stringIndexPrefixFilter(prefix string, ignoreCase bool, minRequiredLength i
 
 		var offset int
 		if ignoreCase {
-			offset = indexASCIIIgnoreCase(input[startAt:], prefix)
+			offset = helpers.IndexStringIgnoreCaseASCII(input[startAt:], prefix)
 		} else {
 			offset = strings.Index(input[startAt:], prefix)
 		}
@@ -90,7 +91,7 @@ func stringIndexPrefixesFilter(prefixes []string, ignoreCase bool, minRequiredLe
 		for _, prefix := range prefixes {
 			var offset int
 			if ignoreCase {
-				offset = indexASCIIIgnoreCase(remaining, prefix)
+				offset = helpers.IndexStringIgnoreCaseASCII(remaining, prefix)
 			} else {
 				offset = strings.Index(remaining, prefix)
 			}
@@ -171,33 +172,4 @@ func isASCIIString(s string) bool {
 		}
 	}
 	return true
-}
-
-func indexASCIIIgnoreCase(s, prefix string) int {
-	if len(prefix) == 0 {
-		return 0
-	}
-	end := len(s) - len(prefix)
-	for i := 0; i <= end; i++ {
-		if equalASCIIIgnoreCase(s[i:i+len(prefix)], prefix) {
-			return i
-		}
-	}
-	return -1
-}
-
-func equalASCIIIgnoreCase(s, prefix string) bool {
-	for i := 0; i < len(prefix); i++ {
-		if foldASCII(s[i]) != foldASCII(prefix[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-func foldASCII(c byte) byte {
-	if 'A' <= c && c <= 'Z' {
-		return c + ('a' - 'A')
-	}
-	return c
 }

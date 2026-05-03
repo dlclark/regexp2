@@ -3,6 +3,7 @@ package helpers
 import (
 	"bytes"
 	"slices"
+	"strings"
 	"unicode"
 	"unsafe"
 
@@ -208,11 +209,85 @@ func IndexOfIgnoreCase(in []rune, find []rune) int {
 	return -1
 }
 
-// TODO: this
 func IndexOfIgnoreCaseAscii(in []rune, find []rune) int {
 	// search the in slice for the "find" slice, ignoring case in the comparisons
 	// we can assume the find chars are ascii and do simple masks on them
-	panic("not implemented")
+	if len(find) == 0 {
+		return 0
+	}
+	end := len(in) - len(find)
+	first := foldASCII(rune(find[0]))
+	for i := 0; i <= end; i++ {
+		if foldASCII(in[i]) != first {
+			continue
+		}
+		match := true
+		for j := 1; j < len(find); j++ {
+			if foldASCII(in[i+j]) != foldASCII(find[j]) {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i
+		}
+	}
+	return -1
+}
+
+func IndexStringIgnoreCaseASCII(s, prefix string) int {
+	if len(prefix) == 0 {
+		return 0
+	}
+
+	for start, end := 0, len(s)-len(prefix); start <= end; {
+		offset := indexASCIIByteIgnoreCase(s[start:], prefix[0])
+		if offset < 0 || start+offset > end {
+			return -1
+		}
+
+		i := start + offset
+		if EqualStringIgnoreCaseASCII(s[i:i+len(prefix)], prefix) {
+			return i
+		}
+		start = i + 1
+	}
+	return -1
+}
+
+func EqualStringIgnoreCaseASCII(s, prefix string) bool {
+	if len(s) < len(prefix) {
+		return false
+	}
+	for i := 0; i < len(prefix); i++ {
+		if foldASCII(rune(s[i])) != foldASCII(rune(prefix[i])) {
+			return false
+		}
+	}
+	return true
+}
+
+func indexASCIIByteIgnoreCase(s string, ch byte) int {
+	ch = byte(foldASCII(rune(ch)))
+	lower := strings.IndexByte(s, ch)
+	if ch < 'a' || ch > 'z' {
+		return lower
+	}
+	upper := strings.IndexByte(s, ch-('a'-'A'))
+	if lower < 0 {
+		return upper
+	}
+	if upper >= 0 && upper < lower {
+		return upper
+	}
+	return lower
+}
+
+func foldASCII(c rune) rune {
+	if 'A' <= c && c <= 'Z' {
+		return c + ('a' - 'A')
+	}
+	return c
 }
 
 func IndexOf(in []rune, find []rune) int {

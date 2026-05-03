@@ -46,3 +46,13 @@ func IsInMask64(ch rune, mask uint64) bool {
 	//charMinusLowUInt64 := int64(ch - low)
 	return int64((mask<<uint32(ch))&uint64(ch-64)) < 0
 }
+
+func IsInASCIIBitmap(ch rune, lo uint64, hi uint64) bool {
+	if ch < 64 {
+		return lo&(1<<uint(ch)) != 0
+	}
+	if ch < 128 {
+		return hi&(1<<uint(ch-64)) != 0
+	}
+	return false
+}
