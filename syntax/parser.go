@@ -1331,6 +1331,11 @@ func (p *parser) scanBackslash(scanOnly bool) (*RegexNode, error) {
 		return newRegexNodeSet(NtSet, p.options, NotDigitClass()), nil
 
 	case 'p', 'P':
+		// skip if we're in ECMAScript mode WITHOUT unicode flag
+		if p.useOptionE() && !p.useOptionU() {
+			return p.scanBasicBackslash(scanOnly)
+		}
+
 		p.moveRight(1)
 		prop, err := p.parseProperty()
 		if err != nil {

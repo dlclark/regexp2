@@ -377,3 +377,83 @@ func TestECMA_CharSetRange(t *testing.T) {
 		})
 	}
 }
+
+func TestEMCAScriptUnicodeSets(t *testing.T) {
+	// test unicode sets with and without the unicode flag
+	// also test Unicode Category Aliases
+	tests := []struct {
+		expr           string
+		data           string
+		wantUnicode    string
+		wantNonUnicode string
+	}{
+		{
+			expr:           `\p{L}+`,
+			data:           "abc",
+			wantUnicode:    "abc",
+			wantNonUnicode: "",
+		},
+		{
+			expr:           `\p{Letter}+`,
+			data:           "abc\u00E9",
+			wantUnicode:    "abc\u00E9",
+			wantNonUnicode: "",
+		},
+		{
+			expr:           `\p{L}`,
+			data:           "p{L}",
+			wantUnicode:    "p",
+			wantNonUnicode: "p{L}",
+		},
+		{
+			expr:           `\p{digit}`,
+			data:           "abc1",
+			wantUnicode:    "1",
+			wantNonUnicode: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expr, func(t *testing.T) {
+			// first check ECMAScript with Unicode flag
+			re := MustCompile(tt.expr, ECMAScript|Unicode)
+
+			match, err := re.FindStringMatch(tt.data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantUnicode == "" {
+				if match != nil {
+					t.Fatalf("expected no match unicode, got one: %q", match.String())
+				}
+			} else {
+				if match == nil {
+					t.Fatal("expected match unicode, got none")
+				}
+				if got := match.String(); got != tt.wantUnicode {
+					t.Fatalf("expected unicode %q, got %q", tt.wantUnicode, got)
+				}
+			}
+
+			// validate behavior of ECMAScript without Unicode flag
+			re = MustCompile(tt.expr, ECMAScript)
+			match, err = re.FindStringMatch(tt.data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantNonUnicode == "" {
+				if match != nil {
+					t.Fatalf("expected no match non-unicode, got one: %q", match.String())
+				}
+			} else {
+				if match == nil {
+					t.Fatal("expected match non-unicode, got none")
+				}
+				if got := match.String(); got != tt.wantNonUnicode {
+					t.Fatalf("expected non-unicode %q, got %q", tt.wantNonUnicode, got)
+				}
+			}
+		})
+	}
+
+}

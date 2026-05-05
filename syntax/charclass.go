@@ -80,6 +80,10 @@ var unicodeCategories = func() map[string]*unicode.RangeTable {
 	for k, v := range unicode.Categories {
 		retVal[k] = v
 	}
+	// aliases are just pointers to the original keys
+	for k, v := range unicode.CategoryAliases {
+		retVal[k] = unicode.Categories[v]
+	}
 	for k, v := range unicode.Properties {
 		retVal[k] = v
 	}
