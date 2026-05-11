@@ -1,0 +1,72 @@
+version: 2.1
+
+orbs:
+  win: circleci/windows@5.0
+
+jobs:
+  test-linux:
+    parameters:
+      goarch:
+        type: string
+      resource_class:
+        type: string
+    docker:
+      - image: cimg/go:1.26
+    resource_class: << parameters.resource_class >>
+    environment:
+      CGO_ENABLED: "0"
+      GOARCH: << parameters.goarch >>
+      GOOS: linux
+    steps:
+      - checkout
+      - run:
+          name: Show Go environment
+          command: go env GOOS GOARCH GOVERSION
+      - run:
+          name: Test
+          command: go test ./...
+
+  test-windows:
+    executor:
+      name: win/default
+      size: medium
+    environment:
+      CGO_ENABLED: "0"
+      GOARCH: amd64
+      GOOS: windows
+    steps:
+      - checkout
+      - run:
+          name: Install Go
+          command: |
+            choco install golang --version=1.26.1 -y
+            $env:PATH = "C:\Program Files\Go\bin;$env:PATH"
+            go version
+      - run:
+          name: Show Go environment
+          command: |
+            $env:PATH = "C:\Program Files\Go\bin;$env:PATH"
+            go env GOOS GOARCH GOVERSION
+      - run:
+          name: Test
+          command: |
+            $env:PATH = "C:\Program Files\Go\bin;$env:PATH"
+            go test ./...
+
+workflows:
+  builds:
+    jobs:
+      - test-linux:
+          name: test-linux-amd64
+          goarch: amd64
+          resource_class: medium
+      - test-linux:
+          name: test-linux-arm64
+          goarch: arm64
+          resource_class: arm.medium
+      - test-linux:
+          name: test-linux-386
+          goarch: "386"
+          resource_class: medium
+      - test-windows:
+          name: test-windows-amd64

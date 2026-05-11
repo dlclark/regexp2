@@ -27,7 +27,7 @@ func (re *Regexp) Split(input string, count int) ([]string, error) {
 	}
 	if count == -1 {
 		// no limit
-		count = math.MaxInt64
+		count = math.MaxInt
 	}
 
 	// iterate through the matches

@@ -1408,19 +1408,65 @@ func (n *RegexNode) reduceConcatenation() *RegexNode {
 	return n.replaceNodeIfUnnecessary()
 }
 
+func addMinLength(x, y int) int {
+	const maxMinLength = math.MaxInt32 - 1
+	if x >= maxMinLength || y >= maxMinLength || x > maxMinLength-y {
+		return maxMinLength
+	}
+	return x + y
+}
+
+func multiplyMinLength(x, y int) int {
+	const maxMinLength = math.MaxInt32 - 1
+	if x == 0 || y == 0 {
+		return 0
+	}
+	if x >= maxMinLength || y >= maxMinLength || x > maxMinLength/y {
+		return maxMinLength
+	}
+	return x * y
+}
+
+func addMaxLength(x, y int) int {
+	if x < 0 || y < 0 || x >= math.MaxInt32 || y >= math.MaxInt32 || x > (math.MaxInt32-1)-y {
+		return -1
+	}
+	return x + y
+}
+
+func multiplyMaxLength(x, y int) int {
+	if x < 0 || y < 0 {
+		return -1
+	}
+	if x == 0 || y == 0 {
+		return 0
+	}
+	if x >= math.MaxInt32 || y >= math.MaxInt32 || x > (math.MaxInt32-1)/y {
+		return -1
+	}
+	return x * y
+}
+
+func maxLessThanTwiceMin(max, min int) bool {
+	if min <= math.MaxInt32/2 {
+		return max < min*2
+	}
+	return max != math.MaxInt32
+}
+
 func canCombineCounts(nodeMin, nodeMax, nextMin, nextMax int) bool {
 	// We shouldn't have an infinite minimum; bail if we find one. Also check for the
 	// degenerate case where we'd make the min overflow or go infinite when it wasn't already.
 	if nodeMin == math.MaxInt32 ||
 		nextMin == math.MaxInt32 ||
-		nodeMin+nextMin >= math.MaxInt32 {
+		addMaxLength(nodeMin, nextMin) < 0 {
 		return false
 	}
 
 	// Similar overflow / go infinite check for max (which can be infinite).
 	if nodeMax != math.MaxInt32 &&
 		nextMax != math.MaxInt32 &&
-		nodeMax+nextMax >= math.MaxInt32 {
+		addMaxLength(nodeMax, nextMax) < 0 {
 		return false
 	}
 
@@ -1665,7 +1711,7 @@ func (n *RegexNode) reduceRep() *RegexNode {
 
 		// child can be too lumpy to blur, e.g., (a {100,105}) {3} or (a {2,})?
 		// [but things like (a {2,})+ are not too lumpy...]
-		if u.M == 0 && child.M > 1 || child.N < child.M*2 {
+		if u.M == 0 && child.M > 1 || maxLessThanTwiceMin(child.N, child.M) {
 			break
 		}
 
@@ -1831,7 +1877,7 @@ func (n *RegexNode) ComputeMinLength() int {
 		return n.M
 	case NtLazyloop, NtLoop:
 		// A node graph repeated at least M times.
-		return min(math.MaxInt32-1, n.M*n.Children[0].ComputeMinLength())
+		return multiplyMinLength(n.M, n.Children[0].ComputeMinLength())
 	case NtAlternate:
 		// The minimum required length for any of the alternation's branches.
 		childCount := len(n.Children)
@@ -1869,9 +1915,9 @@ func (n *RegexNode) ComputeMinLength() int {
 		// The sum of all of the concatenation's children.
 		sum := 0
 		for i := 0; i < len(n.Children); i++ {
-			sum += n.Children[i].ComputeMinLength()
+			sum = addMinLength(sum, n.Children[i].ComputeMinLength())
 		}
-		return min(math.MaxInt32-1, sum)
+		return sum
 	case NtAtomic, NtCapture, NtGroup:
 		// For groups, we just delegate to the sole child.
 		return n.Children[0].ComputeMinLength()
@@ -1907,11 +1953,7 @@ func (n *RegexNode) computeMaxLength() int {
 		}
 		// A node graph repeated a fixed number of times
 		if c := n.Children[0].computeMaxLength(); c >= 0 {
-			maxLen := n.N * c
-			if maxLen < math.MaxInt32 {
-				return maxLen
-			}
-			return -1
+			return multiplyMaxLength(n.N, c)
 		}
 	case NtAlternate:
 		// The maximum length of any child branch, as long as they all have one.
@@ -1961,12 +2003,12 @@ func (n *RegexNode) computeMaxLength() int {
 			if c < 0 {
 				return -1
 			}
-			sum += c
+			sum = addMaxLength(sum, c)
+			if sum < 0 {
+				return -1
+			}
 		}
-		if sum < math.MaxInt32 {
-			return sum
-		}
-		return -1
+		return sum
 
 	case NtAtomic, NtCapture:
 		// For groups, we just delegate to the sole child.

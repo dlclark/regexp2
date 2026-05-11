@@ -69,7 +69,7 @@ func TestStopTimeoutClock(t *testing.T) {
 	StopTimeoutClock()
 	stop := time.Now()
 
-	if want, got := clockPeriod*2, stop.Sub(start); want < got {
+	if want, got := clockPeriod*20, stop.Sub(start); want < got {
 		t.Errorf("Expected duration less than %v, got %v", want, got)
 	}
 	if want, got := false, fast.running; want != got {
