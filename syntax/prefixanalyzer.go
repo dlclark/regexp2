@@ -1034,6 +1034,50 @@ func sumFrequencies(chars []rune) float32 {
 	return sum
 }
 
+func hasHighFrequencyChars(set FixedDistanceSet) bool {
+	if set.Negated {
+		return true
+	}
+
+	// Sets without extracted chars can't be frequency-analyzed.
+	// Single-char sets use IndexOf, which is a strong filter regardless of frequency.
+	if len(set.Chars) <= 1 {
+		return false
+	}
+
+	totalFrequency := sumFrequencies(set.Chars)
+
+	// If the average frequency of the set's chars exceeds this threshold, the
+	// characters are common enough that a multi-string search may be a better filter.
+	const highFrequencyThreshold = 0.6
+	return totalFrequency >= highFrequencyThreshold*float32(len(set.Chars))
+}
+
+func mayContainCaseInsensitiveMatching(node *RegexNode) bool {
+	if node.Options&IgnoreCase != 0 {
+		return true
+	}
+
+	if node.Set != nil {
+		chars := node.Set.GetSetChars(maxPrefixes)
+		for _, ch := range chars {
+			if participatesInCaseConversion(ch) &&
+				slices.Contains(chars, unicode.ToLower(ch)) &&
+				slices.Contains(chars, unicode.ToUpper(ch)) {
+				return true
+			}
+		}
+	}
+
+	for _, child := range node.Children {
+		if mayContainCaseInsensitiveMatching(child) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Percent occurrences in source text (100 * char count / total count)
 var frequency = []float32{
 	0.000 /* '\x00' */, 0.000 /* '\x01' */, 0.000 /* '\x02' */, 0.000 /* '\x03' */, 0.000 /* '\x04' */, 0.000 /* '\x05' */, 0.000 /* '\x06' */, 0.000, /* '\x07' */
@@ -1218,4 +1262,45 @@ func findLiteralFollowingLeadingLoop(node *RegexNode) *LiteralAfterLoop {
 
 	// Otherwise, we couldn't find the pattern of an atomic set loop followed by a literal.
 	return nil
+}
+
+// Returns a leading positive lookahead if found and whether to keep examining subsequent nodes in a concatenation.
+func findLeadingPositiveLookahead(node *RegexNode) (*RegexNode, bool) {
+	for {
+		if node.Options&RightToLeft != 0 {
+			return nil, false
+		}
+
+		switch node.T {
+		case NtPosLook:
+			return node, false
+
+		case NtBol, NtEol, NtBeginning, NtStart, NtEndZ, NtEnd,
+			NtBoundary, NtECMABoundary, NtNegLook, NtEmpty:
+			return nil, true
+
+		case NtAtomic, NtCapture:
+			node = node.Children[0]
+			continue
+
+		case NtLoop, NtLazyloop:
+			if node.M < 1 {
+				return nil, false
+			}
+			lookahead, _ := findLeadingPositiveLookahead(node.Children[0])
+			return lookahead, false
+
+		case NtConcatenate:
+			for i := 0; i < len(node.Children); i++ {
+				lookahead, keepLooking := findLeadingPositiveLookahead(node.Children[i])
+				if lookahead != nil || !keepLooking {
+					return lookahead, false
+				}
+			}
+			return nil, true
+
+		default:
+			return nil, false
+		}
+	}
 }

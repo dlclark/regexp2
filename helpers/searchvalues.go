@@ -165,10 +165,10 @@ func (s StringSearchValues) IndexOfAny(in []rune) int {
 		j += i
 		// found a first char, do our full search through each item
 		for _, val := range s.vals {
-			if Equals(in, j, len(in)-j, val) {
+			if len(in)-j >= len(val) && Equals(in, j, len(val), val) {
 				return j
 			}
-			if s.ignoreCase && EqualsIgnoreCase(in, j, len(in)-j, val) {
+			if s.ignoreCase && len(in)-j >= len(val) && EqualsIgnoreCase(in, j, len(val), val) {
 				return j
 			}
 		}

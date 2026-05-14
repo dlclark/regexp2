@@ -255,3 +255,36 @@ func TestFindPrefixes(t *testing.T) {
 		})
 	}
 }
+
+func TestFindOptimizationsUsesLeadingPositiveLookahead(t *testing.T) {
+	tree, err := Parse(`(?=ERROR)`, ParseOptions{CodeGen: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := tree.FindOptimizations
+	if opts.FindMode != LeadingString_LeftToRight {
+		t.Fatalf("FindMode = %v, want %v", opts.FindMode, LeadingString_LeftToRight)
+	}
+	if opts.LeadingPrefix != "ERROR" {
+		t.Fatalf("LeadingPrefix = %q, want %q", opts.LeadingPrefix, "ERROR")
+	}
+	if opts.MinRequiredLength != len("ERROR") {
+		t.Fatalf("MinRequiredLength = %d, want %d", opts.MinRequiredLength, len("ERROR"))
+	}
+}
+
+func TestFindOptimizationsPreferPrefixesForHighFrequencyFirstSet(t *testing.T) {
+	tree, err := Parse(`apple|tiger`, ParseOptions{CodeGen: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := tree.FindOptimizations
+	if opts.FindMode != LeadingStrings_LeftToRight {
+		t.Fatalf("FindMode = %v, want %v", opts.FindMode, LeadingStrings_LeftToRight)
+	}
+	if want, got := []string{"apple", "tiger"}, opts.LeadingPrefixes; !slices.Equal(want, got) {
+		t.Fatalf("LeadingPrefixes = %#v, want %#v", got, want)
+	}
+}

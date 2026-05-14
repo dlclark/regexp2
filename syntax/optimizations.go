@@ -103,10 +103,29 @@ const (
 )
 
 func newFindOptimizations(tree *RegexTree, opt ParseOptions) *FindOptimizations {
+	f := newFindOptimizationsForNode(tree.Root, opt, false)
+
+	if !f.rightToLeft && !f.isUseful() {
+		if positiveLookahead, _ := findLeadingPositiveLookahead(tree.Root); positiveLookahead != nil {
+			positiveLookaheadOpts := newFindOptimizationsForNode(positiveLookahead.Children[0], opt, true)
+
+			// Lookaheads don't currently factor into the whole-pattern length analysis,
+			// as they can overlap with the rest of the expression. Keep the whole-pattern
+			// minimum if it's larger, and preserve any max from the original expression.
+			positiveLookaheadOpts.MinRequiredLength = max(f.MinRequiredLength, positiveLookaheadOpts.MinRequiredLength)
+			positiveLookaheadOpts.MaxPossibleLength = f.MaxPossibleLength
+			f = positiveLookaheadOpts
+		}
+	}
+
+	return f
+}
+
+func newFindOptimizationsForNode(root *RegexNode, opt ParseOptions, isLeadingPartial bool) *FindOptimizations {
 	f := &FindOptimizations{
 		rightToLeft:       opt.RegexOptions&RightToLeft != 0,
-		MinRequiredLength: tree.Root.ComputeMinLength(),
-		LeadingAnchor:     findLeadingOrTrailingAnchor(tree.Root, true),
+		MinRequiredLength: root.ComputeMinLength(),
+		LeadingAnchor:     findLeadingOrTrailingAnchor(root, true),
 		MaxPossibleLength: -1,
 	}
 
@@ -122,10 +141,10 @@ func newFindOptimizations(tree *RegexTree, opt ParseOptions) *FindOptimizations 
 
 	// Compute any anchor trailing the expression.  If there is one, and we can also compute a fixed length
 	// for the whole expression, we can use that to quickly jump to the right location in the input.
-	if !f.rightToLeft {
-		f.TrailingAnchor = findLeadingOrTrailingAnchor(tree.Root, false)
+	if !f.rightToLeft && !isLeadingPartial {
+		f.TrailingAnchor = findLeadingOrTrailingAnchor(root, false)
 		if f.TrailingAnchor == NtEnd || f.TrailingAnchor == NtEndZ {
-			f.MaxPossibleLength = tree.Root.computeMaxLength()
+			f.MaxPossibleLength = root.computeMaxLength()
 			if f.MinRequiredLength == f.MaxPossibleLength {
 				if f.TrailingAnchor == NtEnd {
 					f.FindMode = TrailingAnchor_FixedLength_LeftToRight_End
@@ -138,7 +157,7 @@ func newFindOptimizations(tree *RegexTree, opt ParseOptions) *FindOptimizations 
 	}
 
 	// If there's a leading substring, just use IndexOf and inherit all of its optimizations.
-	prefix := findPrefix(tree.Root)
+	prefix := findPrefix(root)
 	if len(prefix) > 1 {
 		f.LeadingPrefix = prefix
 		if f.rightToLeft {
@@ -165,7 +184,7 @@ func newFindOptimizations(tree *RegexTree, opt ParseOptions) *FindOptimizations 
 	// is used very rarely and thus we don't need to invest in special-casing it.
 	if f.rightToLeft {
 		// Determine a set for anything that can possibly start the expression.
-		set := findFirstCharClass(tree.Root)
+		set := findFirstCharClass(root)
 		if set != nil {
 			var chars []rune
 			if !set.IsNegated() {
@@ -194,7 +213,7 @@ func newFindOptimizations(tree *RegexTree, opt ParseOptions) *FindOptimizations 
 
 	// We're now left-to-right only.
 
-	prefix = findPrefixOrdinalCaseInsensitive(tree.Root)
+	prefix = findPrefixOrdinalCaseInsensitive(root)
 	if len(prefix) > 1 {
 		f.LeadingPrefix = prefix
 		f.FindMode = LeadingString_OrdinalIgnoreCase_LeftToRight
@@ -207,7 +226,7 @@ func newFindOptimizations(tree *RegexTree, opt ParseOptions) *FindOptimizations 
 	// this works in the interpreter, but we avoid it due to additional cost during construction
 
 	if !interpreter {
-		ciPrefixes := findPrefixes(tree.Root, true)
+		ciPrefixes := findPrefixes(root, true)
 		if len(ciPrefixes) > 1 {
 			f.LeadingPrefixes = ciPrefixes
 			f.FindMode = LeadingStrings_OrdinalIgnoreCase_LeftToRight
@@ -220,7 +239,7 @@ func newFindOptimizations(tree *RegexTree, opt ParseOptions) *FindOptimizations 
 	}
 
 	// Build up a list of all of the sets that are a fixed distance from the start of the expression.
-	fixedDistanceSets := findFixedDistanceSets(tree.Root, !interpreter)
+	fixedDistanceSets := findFixedDistanceSets(root, !interpreter)
 
 	// See if we can make a string of at least two characters long out of those sets.  We should have already caught
 	// one at the beginning of the pattern, but there may be one hiding at a non-zero fixed distance into the pattern.
@@ -236,7 +255,7 @@ func newFindOptimizations(tree *RegexTree, opt ParseOptions) *FindOptimizations 
 	// As a backup, see if we can find a literal after a leading atomic loop.  That might be better than whatever sets we find, so
 	// we want to know whether we have one in our pocket before deciding whether to use a leading set (we'll prefer a leading
 	// set if it's something for which we can search efficiently).
-	literalAfterLoop := findLiteralFollowingLeadingLoop(tree.Root)
+	literalAfterLoop := findLiteralFollowingLeadingLoop(root)
 
 	// If we got such sets, we'll likely use them.  However, if the best of them is something that doesn't support an efficient
 	// search and we did successfully find a literal after an atomic loop we could search instead, we prefer the efficient search.
@@ -247,6 +266,18 @@ func newFindOptimizations(tree *RegexTree, opt ParseOptions) *FindOptimizations 
 		// Sort the sets by "quality", such that whatever set is first is the one deemed most efficient to use.
 		// In some searches, we may use multiple sets, so we want the subsequent ones to also be the efficiency runners-up.
 		slices.SortFunc(fixedDistanceSets, compareFixedDistanceSetsByQuality)
+
+		// If the best fixed-distance set is composed of high-frequency characters, IndexOfAny on
+		// those characters is likely to match too many positions. Prefer a case-sensitive
+		// multi-prefix search when one is available.
+		if !interpreter && !mayContainCaseInsensitiveMatching(root) && hasHighFrequencyChars(fixedDistanceSets[0]) {
+			caseSensitivePrefixes := findPrefixes(root, false)
+			if len(caseSensitivePrefixes) > 1 {
+				f.LeadingPrefixes = caseSensitivePrefixes
+				f.FindMode = LeadingStrings_LeftToRight
+				return f
+			}
+		}
 
 		// If there is no literal after the loop, use whatever set we got.
 		// If there is a literal after the loop, consider it to be better than a negated set and better than a set with many characters.
@@ -290,6 +321,10 @@ func newFindOptimizations(tree *RegexTree, opt ParseOptions) *FindOptimizations 
 	}
 
 	return f
+}
+
+func (f *FindOptimizations) isUseful() bool {
+	return f.FindMode != NoSearch || f.LeadingAnchor == NtBol
 }
 
 func getFindMode(rtl bool, t NodeType) FindNextStartingPositionMode {
