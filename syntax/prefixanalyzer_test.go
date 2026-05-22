@@ -288,3 +288,27 @@ func TestFindOptimizationsPreferPrefixesForHighFrequencyFirstSet(t *testing.T) {
 		t.Fatalf("LeadingPrefixes = %#v, want %#v", got, want)
 	}
 }
+
+func TestFindOptimizationsRequiredLandmarkChain(t *testing.T) {
+	tree, err := Parse(`(?P<name>[-\w\d\.]+?)(?:\s+at\s+|\s*@\s*|\s*(?:[\[\]@]){3}\s*)(?P<host>[-\w\d\.]*?)\s*(?:dot|\.|(?:[\[\]dot\.]){3,5})\s*(?P<domain>\w+)`, ParseOptions{RegexOptions: RE2})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := tree.FindOptimizations
+	if opts.FindMode != RequiredLandmarkChain_LeftToRight {
+		t.Fatalf("FindMode = %v, want %v", opts.FindMode, RequiredLandmarkChain_LeftToRight)
+	}
+	if opts.LandmarkChain == nil {
+		t.Fatal("LandmarkChain is nil")
+	}
+	if got, want := len(opts.LandmarkChain.Landmarks), 2; got != want {
+		t.Fatalf("len(Landmarks) = %d, want %d", got, want)
+	}
+	if got, want := len(opts.LandmarkChain.Landmarks[0].Alternatives), 3; got != want {
+		t.Fatalf("len(first alternatives) = %d, want %d", got, want)
+	}
+	if got, want := len(opts.LandmarkChain.Landmarks[1].Alternatives), 3; got != want {
+		t.Fatalf("len(second alternatives) = %d, want %d", got, want)
+	}
+}

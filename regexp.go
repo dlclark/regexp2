@@ -13,9 +13,11 @@ import (
 	"errors"
 	"log"
 	"math"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dlclark/regexp2/v2/syntax"
 )
@@ -260,6 +262,157 @@ func (re *Regexp) FindRunesMatchStartingAt(r []rune, startAt int) (*Match, error
 	return re.run(false, startAt, r, newMatchText(r))
 }
 
+// FindAllStringIndex returns a slice of byte index pairs identifying all
+// successive matches in s.
+func (re *Regexp) FindAllStringIndex(s string, n int) ([][]int, error) {
+	if n == 0 {
+		return nil, nil
+	}
+
+	startAt, ok, err := re.findStringMatchStart(s, -1)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+
+	runner := re.getRunner()
+	var input []rune
+	var pooledInput *[]rune
+	runeStart := 0
+	if startAt == 0 {
+		input, pooledInput = runner.decodeString(s)
+	} else {
+		input, runeStart, pooledInput = runner.decodeStringWithStart(s, startAt)
+	}
+	defer func() {
+		re.putRunner(runner)
+		if pooledInput != nil {
+			*pooledInput = input
+			pooledRuneBuffers.put(pooledInput)
+		}
+	}()
+
+	if runeStart < 0 {
+		runeStart = 0
+	}
+
+	byteOffsets := newStringByteMapper(s)
+	return re.findAllRunesIndex(runner, input, runeStart, n, func(runeIndex, runeLength int) (int, int) {
+		if byteOffsets == nil {
+			return runeIndex, runeIndex + runeLength
+		}
+		return byteOffsets.byteIndex(runeIndex), byteOffsets.byteIndex(runeIndex + runeLength)
+	})
+}
+
+// FindAllRunesIndex returns a slice of rune index pairs identifying all
+// successive matches in r.
+func (re *Regexp) FindAllRunesIndex(r []rune, n int) ([][]int, error) {
+	if n == 0 {
+		return nil, nil
+	}
+
+	runner := re.getRunner()
+	defer re.putRunner(runner)
+
+	startAt := 0
+	if re.RightToLeft() {
+		startAt = len(r)
+	}
+	return re.findAllRunesIndex(runner, r, startAt, n, func(runeIndex, runeLength int) (int, int) {
+		return runeIndex, runeIndex + runeLength
+	})
+}
+
+func (re *Regexp) findAllRunesIndex(runner *Runner, input []rune, startAt, n int, makeIndex func(runeIndex, runeLength int) (int, int)) ([][]int, error) {
+	var out [][]int
+	var flat []int
+	if n > 0 {
+		out = make([][]int, 0, n)
+		flat = make([]int, 0, n*2)
+	}
+
+	prevEnd := -1
+	for n != 0 {
+		m, err := runner.scan(input, nil, startAt, true, re.MatchTimeout)
+		if err != nil {
+			return nil, err
+		}
+		if m == nil {
+			break
+		}
+
+		if m.RuneLength != 0 || m.RuneIndex != prevEnd {
+			start, end := makeIndex(m.RuneIndex, m.RuneLength)
+			flat = append(flat, start, end)
+			out = append(out, flat[len(flat)-2:len(flat):len(flat)])
+			prevEnd = m.RuneIndex + m.RuneLength
+			if n > 0 {
+				n--
+			}
+		}
+
+		startAt = m.textpos
+		if m.RuneLength == 0 {
+			if re.RightToLeft() {
+				if m.textpos == 0 {
+					break
+				}
+				if startAt == m.textstart {
+					startAt--
+				}
+			} else {
+				if m.textpos == len(input) {
+					break
+				}
+				if startAt == m.textstart {
+					startAt++
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+type stringByteMapper struct {
+	runeIndexes []int
+	deltas      []int
+}
+
+func newStringByteMapper(s string) *stringByteMapper {
+	var mapper *stringByteMapper
+	runeIndex := 0
+	delta := 0
+	for strIdx, ch := range s {
+		runeLen := utf8.RuneLen(ch)
+		if ch == utf8.RuneError {
+			_, runeLen = utf8.DecodeRuneInString(s[strIdx:])
+		}
+		if runeLen != 1 {
+			if mapper == nil {
+				mapper = &stringByteMapper{}
+			}
+			delta += runeLen - 1
+			mapper.runeIndexes = append(mapper.runeIndexes, runeIndex+1)
+			mapper.deltas = append(mapper.deltas, delta)
+		}
+		runeIndex++
+	}
+	return mapper
+}
+
+func (m *stringByteMapper) byteIndex(runeIndex int) int {
+	i := sort.Search(len(m.runeIndexes), func(i int) bool {
+		return m.runeIndexes[i] > runeIndex
+	}) - 1
+	if i < 0 {
+		return runeIndex
+	}
+	return runeIndex + m.deltas[i]
+}
+
 // FindNextMatch returns the next match in the same input string as the match parameter.
 // Will return nil if there is no next match or if given a nil match.
 func (re *Regexp) FindNextMatch(m *Match) (*Match, error) {
@@ -295,26 +448,36 @@ func (re *Regexp) FindNextMatch(m *Match) (*Match, error) {
 // MatchString return true if the string matches the regex
 // error will be set if a timeout occurs
 func (re *Regexp) MatchString(s string) (bool, error) {
-	if re.stringPrefixFilter == nil {
-		return re.matchString(s)
-	}
+	if re.stringPrefixFilter != nil && !re.RightToLeft() {
+		candidateByteIndex, ok := re.stringPrefixFilter(s, 0)
+		if !ok {
+			return false, nil
+		}
 
-	startAt, ok, err := re.findStringMatchStart(s, -1)
-	if err != nil {
-		return false, err
+		return re.matchStringAt(s, candidateByteIndex)
 	}
-	if !ok {
-		return false, nil
-	}
+	return re.matchString(s)
+}
 
+func (re *Regexp) matchString(s string) (bool, error) {
+	return re.matchStringAt(s, -1)
+}
+
+func (re *Regexp) matchStringAt(s string, startAt int) (bool, error) {
 	runner := re.getRunner()
 	var input []rune
 	var pooledInput *[]rune
 	runeStart := 0
-	if startAt == 0 {
+	if startAt <= 0 {
 		input, pooledInput = runner.decodeString(s)
+		if re.RightToLeft() {
+			runeStart = len(input)
+		}
 	} else {
 		input, runeStart, pooledInput = runner.decodeStringWithStart(s, startAt)
+		if runeStart < 0 {
+			runeStart = 0
+		}
 	}
 	defer func() {
 		re.putRunner(runner)
@@ -323,35 +486,8 @@ func (re *Regexp) MatchString(s string) (bool, error) {
 			pooledRuneBuffers.put(pooledInput)
 		}
 	}()
-
-	if runeStart < 0 {
-		runeStart = 0
-	}
 
 	m, err := runner.scan(input, nil, runeStart, true, re.MatchTimeout)
-	if err != nil {
-		return false, err
-	}
-	return m != nil, nil
-}
-
-func (re *Regexp) matchString(s string) (bool, error) {
-	runner := re.getRunner()
-	input, pooledInput := runner.decodeString(s)
-	defer func() {
-		re.putRunner(runner)
-		if pooledInput != nil {
-			*pooledInput = input
-			pooledRuneBuffers.put(pooledInput)
-		}
-	}()
-
-	textstart := 0
-	if re.RightToLeft() {
-		textstart = len(input)
-	}
-
-	m, err := runner.scan(input, nil, textstart, true, re.MatchTimeout)
 	if err != nil {
 		return false, err
 	}

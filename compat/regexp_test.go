@@ -68,6 +68,7 @@ func TestRegexpMethodsUseByteIndexes(t *testing.T) {
 
 	assertEqual(t, "FindStringIndex", re.FindStringIndex(input), std.FindStringIndex(input))
 	assertEqual(t, "FindStringSubmatchIndex", re.FindStringSubmatchIndex(input), std.FindStringSubmatchIndex(input))
+	assertEqual(t, "FindAllIndex", re.FindAllIndex([]byte(input), -1), std.FindAllIndex([]byte(input), -1))
 	assertEqual(t, "FindAllStringSubmatchIndex", re.FindAllStringSubmatchIndex(input, -1), std.FindAllStringSubmatchIndex(input, -1))
 	assertEqual(t, "FindReaderSubmatchIndex", re.FindReaderSubmatchIndex(strings.NewReader(input)), std.FindReaderSubmatchIndex(strings.NewReader(input)))
 }

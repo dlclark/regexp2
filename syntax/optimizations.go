@@ -22,6 +22,7 @@ type FindOptimizations struct {
 	FixedDistanceLiteral FixedDistanceLiteral
 	FixedDistanceSets    []FixedDistanceSet
 	LiteralAfterLoop     *LiteralAfterLoop
+	LandmarkChain        *RequiredLandmarkChain
 }
 
 type LiteralAfterLoop struct {
@@ -45,6 +46,26 @@ type FixedDistanceLiteral struct {
 	S        string
 	C        rune
 	Distance int
+}
+
+type RequiredLandmarkChain struct {
+	LeadingLoopSet *CharSet
+	Landmarks      []RequiredLandmark
+}
+
+type RequiredLandmark struct {
+	Alternatives []RequiredLandmarkAlternative
+}
+
+type RequiredLandmarkAlternative struct {
+	Literal                 string
+	Chars                   []rune
+	Set                     *CharSet
+	WhitespaceSet           *CharSet
+	MinRepeat               int
+	MaxRepeat               int
+	RequireWhitespaceBefore bool
+	RequireWhitespaceAfter  bool
 }
 
 type FindNextStartingPositionMode int
@@ -100,6 +121,9 @@ const (
 
 	// A literal (single character, multi-char string, or set with small number of characters) after a non-overlapping set loop at the start of the pattern.
 	LiteralAfterLoop_LeftToRight
+
+	// A sequence of required landmarks after a leading loop.
+	RequiredLandmarkChain_LeftToRight
 )
 
 func newFindOptimizations(tree *RegexTree, opt ParseOptions) *FindOptimizations {
@@ -250,6 +274,15 @@ func newFindOptimizationsForNode(root *RegexNode, opt ParseOptions, isLeadingPar
 			f.FixedDistanceLiteral = *bestFixedDistanceString
 			return f
 		}
+	}
+
+	// A landmark chain is more selective than a single leading set for shapes like
+	// /name-separator host-separator domain/. Prefer it before falling back to
+	// one-position or one-literal candidate searches.
+	if landmarkChain := findRequiredLandmarkChain(root); landmarkChain != nil {
+		f.FindMode = RequiredLandmarkChain_LeftToRight
+		f.LandmarkChain = landmarkChain
+		return f
 	}
 
 	// As a backup, see if we can find a literal after a leading atomic loop.  That might be better than whatever sets we find, so

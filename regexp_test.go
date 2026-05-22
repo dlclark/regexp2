@@ -661,6 +661,70 @@ func TestFindNextMatch_Basic(t *testing.T) {
 	}
 }
 
+func TestFindAllStringIndex(t *testing.T) {
+	re := MustCompile(`é(.)`, RE2)
+	got, err := re.FindAllStringIndex("éxéy", -1)
+	if err != nil {
+		t.Fatalf("FindAllStringIndex failed: %v", err)
+	}
+	want := [][]int{{0, 3}, {3, 6}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FindAllStringIndex = %#v, want %#v", got, want)
+	}
+
+	got, err = re.FindAllStringIndex("éxéy", 1)
+	if err != nil {
+		t.Fatalf("FindAllStringIndex limited failed: %v", err)
+	}
+	want = [][]int{{0, 3}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FindAllStringIndex limited = %#v, want %#v", got, want)
+	}
+
+	if got, err := re.FindAllStringIndex("éxéy", 0); err != nil {
+		t.Fatalf("FindAllStringIndex n=0 failed: %v", err)
+	} else if got != nil {
+		t.Fatalf("FindAllStringIndex n=0 = %#v, want nil", got)
+	}
+}
+
+func TestFindAllRunesIndex(t *testing.T) {
+	re := MustCompile(`é(.)`, RE2)
+	got, err := re.FindAllRunesIndex([]rune("éxéy"), -1)
+	if err != nil {
+		t.Fatalf("FindAllRunesIndex failed: %v", err)
+	}
+	want := [][]int{{0, 2}, {2, 4}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FindAllRunesIndex = %#v, want %#v", got, want)
+	}
+}
+
+func TestFindAllIndexEmptyMatches(t *testing.T) {
+	re := MustCompile(`x*`, RE2)
+	got, err := re.FindAllStringIndex("ax", -1)
+	if err != nil {
+		t.Fatalf("FindAllStringIndex failed: %v", err)
+	}
+	want := [][]int{{0, 0}, {1, 2}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FindAllStringIndex = %#v, want %#v", got, want)
+	}
+}
+
+func TestFindAllStringIndexRequiredLandmarkChainEmail(t *testing.T) {
+	re := MustCompile(`(?P<name>[-\w\d\.]+?)(?:\s+at\s+|\s*@\s*|\s*(?:[\[\]@]){3}\s*)(?P<host>[-\w\d\.]*?)\s*(?:dot|\.|(?:[\[\]dot\.]){3,5})\s*(?P<domain>\w+)`, RE2)
+	input := "123@mail.co x user at example dot com y foo@@@bar...baz"
+	got, err := re.FindAllStringIndex(input, -1)
+	if err != nil {
+		t.Fatalf("FindAllStringIndex failed: %v", err)
+	}
+	want := [][]int{{0, 11}, {14, 37}, {40, 55}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FindAllStringIndex = %#v, want %#v", got, want)
+	}
+}
+
 func TestUnicodeSupplementaryCharSetMatch(t *testing.T) {
 	//0x2070E 0x20731 𠜱 0x20779 𠝹
 	re := MustCompile("[𠜎-𠝹]")

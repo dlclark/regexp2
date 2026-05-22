@@ -1405,7 +1405,8 @@ func shouldUseFindFirstCharOptimized(r *Runner) bool {
 		syntax.FixedDistanceChar_LeftToRight,
 		syntax.FixedDistanceString_LeftToRight,
 		syntax.FixedDistanceSets_LeftToRight,
-		syntax.LiteralAfterLoop_LeftToRight:
+		syntax.LiteralAfterLoop_LeftToRight,
+		syntax.RequiredLandmarkChain_LeftToRight:
 		return true
 	default:
 		return false
@@ -1439,6 +1440,8 @@ func findFirstCharOptimized(r *Runner) (handled bool, found bool) {
 		return true, findFixedDistanceStringLeftToRight(r, []rune(opts.FixedDistanceLiteral.S), opts.FixedDistanceLiteral.Distance)
 	case syntax.LiteralAfterLoop_LeftToRight:
 		return true, findLiteralAfterLoopLeftToRight(r, opts.LiteralAfterLoop)
+	case syntax.RequiredLandmarkChain_LeftToRight:
+		return true, findRequiredLandmarkChainLeftToRight(r, opts.LandmarkChain)
 	default:
 		return false, false
 	}
@@ -1616,6 +1619,104 @@ func findLiteralAfterLoopLeftToRight(r *Runner, literal *syntax.LiteralAfterLoop
 
 	r.Runtextpos = r.Runtextend
 	return false
+}
+
+func findRequiredLandmarkChainLeftToRight(r *Runner, chain *syntax.RequiredLandmarkChain) bool {
+	if chain == nil || chain.LeadingLoopSet == nil || len(chain.Landmarks) == 0 {
+		return false
+	}
+
+	for searchStart := r.Runtextpos; searchStart <= latestPossibleStart(r); {
+		firstStart, firstEnd, ok := findNextRequiredLandmarkRunes(r.Runtext, searchStart, r.Runtextend, chain.Landmarks[0])
+		if !ok {
+			r.Runtextpos = r.Runtextend
+			return false
+		}
+
+		nextStart := firstEnd
+		for i := 1; i < len(chain.Landmarks); i++ {
+			_, landmarkEnd, ok := findNextRequiredLandmarkRunes(r.Runtext, nextStart, r.Runtextend, chain.Landmarks[i])
+			if !ok {
+				r.Runtextpos = r.Runtextend
+				return false
+			}
+			nextStart = landmarkEnd
+		}
+
+		candidate := firstStart
+		firstWhitespaceSet := firstLandmarkWhitespaceSet(chain.Landmarks[0])
+		for candidate > r.Runtextpos && firstWhitespaceSet != nil && firstWhitespaceSet.CharIn(r.Runtext[candidate-1]) {
+			candidate--
+		}
+		for candidate > r.Runtextpos && chain.LeadingLoopSet.CharIn(r.Runtext[candidate-1]) {
+			candidate--
+		}
+		if hasRequiredLengthAt(r, candidate) {
+			r.Runtextpos = candidate
+			return true
+		}
+
+		searchStart = firstStart + 1
+	}
+
+	r.Runtextpos = r.Runtextend
+	return false
+}
+
+func findNextRequiredLandmarkRunes(input []rune, startAt, endAt int, landmark syntax.RequiredLandmark) (start int, end int, ok bool) {
+	for i := startAt; i < endAt; i++ {
+		for _, alt := range landmark.Alternatives {
+			if end, ok := requiredLandmarkAlternativeEnd(input, i, endAt, alt); ok {
+				return i, end, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+func requiredLandmarkAlternativeEnd(input []rune, start, endAt int, alt syntax.RequiredLandmarkAlternative) (int, bool) {
+	if alt.RequireWhitespaceBefore &&
+		(start == 0 || alt.WhitespaceSet == nil || !alt.WhitespaceSet.CharIn(input[start-1])) {
+		return 0, false
+	}
+
+	var end int
+	if alt.Literal != "" {
+		literal := []rune(alt.Literal)
+		if len(literal) == 0 || start+len(literal) > endAt || !helpers.StartsWith(input[start:], literal) {
+			return 0, false
+		}
+		end = start + len(literal)
+	} else if alt.Set != nil && alt.MinRepeat > 0 {
+		end = start
+		maxRepeat := alt.MaxRepeat
+		if maxRepeat <= 0 {
+			maxRepeat = alt.MinRepeat
+		}
+		for end < endAt && end-start < maxRepeat && alt.Set.CharIn(input[end]) {
+			end++
+		}
+		if end-start < alt.MinRepeat {
+			return 0, false
+		}
+	} else {
+		return 0, false
+	}
+
+	if alt.RequireWhitespaceAfter &&
+		(end >= endAt || alt.WhitespaceSet == nil || !alt.WhitespaceSet.CharIn(input[end])) {
+		return 0, false
+	}
+	return end, true
+}
+
+func firstLandmarkWhitespaceSet(landmark syntax.RequiredLandmark) *syntax.CharSet {
+	for _, alt := range landmark.Alternatives {
+		if alt.WhitespaceSet != nil {
+			return alt.WhitespaceSet
+		}
+	}
+	return nil
 }
 
 func indexOfLiteralAfterLoop(r *Runner, literal *syntax.LiteralAfterLoop, searchStart int) int {

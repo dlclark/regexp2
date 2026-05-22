@@ -4,6 +4,7 @@ package compat
 
 import (
 	"io"
+	"unicode/utf8"
 
 	regexp2 "github.com/dlclark/regexp2/v2"
 )
@@ -188,7 +189,17 @@ func (re *Regexp) FindAll(b []byte, n int) [][]byte {
 
 // FindAllIndex returns a slice of byte index pairs for all successive matches in b.
 func (re *Regexp) FindAllIndex(b []byte, n int) [][]int {
-	return re.FindAllStringIndex(string(b), n)
+	runes, byteOffsets := bytesToRunesAndOffsets(b)
+	locs, err := re.re.FindAllRunesIndex(runes, n)
+	must(err)
+	if byteOffsets == nil {
+		return locs
+	}
+	for _, loc := range locs {
+		loc[0] = byteOffsets[loc[0]]
+		loc[1] = byteOffsets[loc[1]]
+	}
+	return locs
 }
 
 // FindAllString returns a slice of all successive matches in s.
@@ -205,14 +216,9 @@ func (re *Regexp) FindAllString(s string, n int) []string {
 
 // FindAllStringIndex returns a slice of byte index pairs for all successive matches in s.
 func (re *Regexp) FindAllStringIndex(s string, n int) [][]int {
-	if n == 0 {
-		return nil
-	}
-	var out [][]int
-	re.forEachStringMatch(s, n, func(m *regexp2.Match) {
-		out = append(out, captureIndex(&m.Capture))
-	})
-	return out
+	locs, err := re.re.FindAllStringIndex(s, n)
+	must(err)
+	return locs
 }
 
 // FindAllSubmatch returns a slice of all successive matches and their submatches in b.
@@ -366,4 +372,28 @@ func must(err error) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func bytesToRunesAndOffsets(b []byte) ([]rune, []int) {
+	runes := make([]rune, 0, len(b))
+	var byteOffsets []int
+	for byteIndex := 0; byteIndex < len(b); {
+		ch, runeLen := utf8.DecodeRune(b[byteIndex:])
+		if byteOffsets != nil {
+			byteOffsets = append(byteOffsets, byteIndex)
+		}
+		if byteOffsets == nil && (byteIndex != len(runes) || runeLen != 1) {
+			byteOffsets = make([]int, 0, len(b)+1)
+			for i := range runes {
+				byteOffsets = append(byteOffsets, i)
+			}
+			byteOffsets = append(byteOffsets, byteIndex)
+		}
+		runes = append(runes, ch)
+		byteIndex += runeLen
+	}
+	if byteOffsets != nil {
+		byteOffsets = append(byteOffsets, len(b))
+	}
+	return runes, byteOffsets
 }

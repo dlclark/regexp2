@@ -9,6 +9,8 @@ import (
 	"github.com/dlclark/regexp2/v2/syntax"
 )
 
+const maxStringFilterLiteralLen = 8
+
 var (
 	errStringStartAtTooLarge        = errors.New("startAt must be less than the length of the input string")
 	errStringStartAtNotRuneBoundary = errors.New("startAt must align to the start of a valid rune in the input string")
@@ -37,6 +39,12 @@ func newStringPrefixFilter(code *syntax.Code) StringPrefixFilter {
 		return stringIndexPrefixesFilter(opts.LeadingPrefixes, false, minRequiredLength)
 	case syntax.LeadingStrings_OrdinalIgnoreCase_LeftToRight:
 		return stringIndexPrefixesFilter(opts.LeadingPrefixes, true, minRequiredLength)
+	case syntax.FixedDistanceChar_LeftToRight:
+		return stringFixedDistanceCharFilter(opts.FixedDistanceLiteral.C, opts.FixedDistanceLiteral.Distance, minRequiredLength)
+	case syntax.FixedDistanceString_LeftToRight:
+		return stringFixedDistanceStringFilter(opts.FixedDistanceLiteral.S, opts.FixedDistanceLiteral.Distance, minRequiredLength)
+	case syntax.LiteralAfterLoop_LeftToRight:
+		return stringLiteralAfterLoopFilter(opts.LiteralAfterLoop, minRequiredLength)
 	default:
 		return nil
 	}
@@ -104,6 +112,118 @@ func stringIndexPrefixesFilter(prefixes []string, ignoreCase bool, minRequiredLe
 		}
 		return startAt + best, true
 	}
+}
+
+func stringFixedDistanceCharFilter(ch rune, distance, minRequiredLength int) StringPrefixFilter {
+	if distance < 0 {
+		return nil
+	}
+
+	return func(input string, startAt int) (candidateByteIndex int, ok bool) {
+		if !hasMinRequiredBytes(input, startAt, minRequiredLength) {
+			return 0, false
+		}
+
+		searchAt := startAt
+		for {
+			offset := strings.IndexRune(input[searchAt:], ch)
+			if offset < 0 {
+				return 0, false
+			}
+			byteIndex := searchAt + offset
+			candidateByteIndex, ok := stringFixedDistanceCandidateStart(input, startAt, byteIndex, distance)
+			if ok && hasMinRequiredBytes(input, candidateByteIndex, minRequiredLength) {
+				return candidateByteIndex, true
+			}
+			if ok {
+				return 0, false
+			}
+			_, size := utf8.DecodeRuneInString(input[byteIndex:])
+			if size == 0 {
+				return 0, false
+			}
+			searchAt = byteIndex + size
+		}
+	}
+}
+
+func stringFixedDistanceStringFilter(literal string, distance, minRequiredLength int) StringPrefixFilter {
+	if literal == "" || distance < 0 || len(literal) > maxStringFilterLiteralLen {
+		return nil
+	}
+
+	return func(input string, startAt int) (candidateByteIndex int, ok bool) {
+		if !hasMinRequiredBytes(input, startAt, minRequiredLength) {
+			return 0, false
+		}
+
+		searchAt := startAt
+		for searchAt <= len(input)-len(literal) {
+			offset := strings.Index(input[searchAt:], literal)
+			if offset < 0 {
+				return 0, false
+			}
+			literalIndex := searchAt + offset
+			candidateByteIndex, ok := stringFixedDistanceCandidateStart(input, startAt, literalIndex, distance)
+			if ok && hasMinRequiredBytes(input, candidateByteIndex, minRequiredLength) {
+				return candidateByteIndex, true
+			}
+			if ok {
+				return 0, false
+			}
+			searchAt = literalIndex + 1
+		}
+		return 0, false
+	}
+}
+
+func stringLiteralAfterLoopFilter(literal *syntax.LiteralAfterLoop, minRequiredLength int) StringPrefixFilter {
+	if literal == nil || literal.LoopNode == nil || literal.LoopNode.Set == nil {
+		return nil
+	}
+	if literal.StringIgnoreCase && (literal.String == "" || !isASCIIString(literal.String)) {
+		return nil
+	}
+
+	return func(input string, startAt int) (candidateByteIndex int, ok bool) {
+		if !hasMinRequiredBytes(input, startAt, minRequiredLength) {
+			return 0, false
+		}
+		if !stringHasLiteralAfterLoop(input, startAt, literal) {
+			return 0, false
+		}
+		return startAt, true
+	}
+}
+
+func stringHasLiteralAfterLoop(input string, searchAt int, literal *syntax.LiteralAfterLoop) bool {
+	switch {
+	case literal.String != "":
+		if literal.StringIgnoreCase {
+			return helpers.IndexStringIgnoreCaseASCII(input[searchAt:], literal.String) >= 0
+		}
+		return strings.Contains(input[searchAt:], literal.String)
+	case len(literal.Chars) > 0:
+		needle := string(literal.Chars)
+		return strings.ContainsAny(input[searchAt:], needle)
+	default:
+		return strings.ContainsRune(input[searchAt:], literal.Char)
+	}
+}
+
+func stringFixedDistanceCandidateStart(input string, startAt, byteIndex, distance int) (int, bool) {
+	candidateByteIndex := byteIndex
+	for i := 0; i < distance; i++ {
+		if candidateByteIndex <= startAt {
+			return 0, false
+		}
+		_, size := utf8.DecodeLastRuneInString(input[:candidateByteIndex])
+		if size == 0 {
+			return 0, false
+		}
+		candidateByteIndex -= size
+	}
+	return candidateByteIndex, true
 }
 
 func (re *Regexp) findStringPrefixCandidate(input string, startAt int) (candidateByteIndex int, ok bool) {

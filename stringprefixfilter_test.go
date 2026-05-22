@@ -1,6 +1,10 @@
 package regexp2
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/dlclark/regexp2/v2/syntax"
+)
 
 func TestStringIndexPrefixFilter(t *testing.T) {
 	filter := stringIndexPrefixFilter("abc", false, 3)
@@ -110,6 +114,117 @@ func TestStringIndexPrefixesFilterASCIIIgnoreCase(t *testing.T) {
 func TestStringIndexPrefixesFilterRejectsNonASCIIIgnoreCasePrefix(t *testing.T) {
 	if filter := stringIndexPrefixesFilter([]string{"abc", "é"}, true, 1); filter != nil {
 		t.Fatal("expected nil filter for non-ASCII ignore-case prefix")
+	}
+}
+
+func TestStringFixedDistanceCharFilter(t *testing.T) {
+	filter := stringFixedDistanceCharFilter('a', 2, 3)
+	if filter == nil {
+		t.Fatal("expected filter")
+	}
+
+	candidateByteIndex, ok := filter("é12a", 0)
+	if !ok {
+		t.Fatal("expected candidate")
+	}
+	if got, want := candidateByteIndex, 2; got != want {
+		t.Fatalf("candidateByteIndex = %d, want %d", got, want)
+	}
+
+	if _, ok := filter("xyz", 0); ok {
+		t.Fatal("unexpected candidate for missing char")
+	}
+
+	if _, ok := filter("xyz", 0); ok {
+		t.Fatal("unexpected candidate for missing char")
+	}
+}
+
+func TestStringFixedDistanceCharFilterCandidateBeforeStart(t *testing.T) {
+	filter := stringFixedDistanceCharFilter('a', 2, 1)
+	if filter == nil {
+		t.Fatal("expected filter")
+	}
+
+	if _, ok := filter("xya", 2); ok {
+		t.Fatal("unexpected candidate when candidate would be before startAt")
+	}
+}
+
+func TestStringFixedDistanceStringFilter(t *testing.T) {
+	filter := stringFixedDistanceStringFilter("abc", 2, 3)
+	if filter == nil {
+		t.Fatal("expected filter")
+	}
+
+	candidateByteIndex, ok := filter("é12abc", 0)
+	if !ok {
+		t.Fatal("expected candidate")
+	}
+	if got, want := candidateByteIndex, 2; got != want {
+		t.Fatalf("candidateByteIndex = %d, want %d", got, want)
+	}
+
+	if _, ok := filter("é12ab", 0); ok {
+		t.Fatal("unexpected candidate for missing literal")
+	}
+}
+
+func TestStringFixedDistanceStringFilterLongLiteral(t *testing.T) {
+	if filter := stringFixedDistanceStringFilter("aaaaaaaaa", 0, 9); filter != nil {
+		t.Fatal("expected nil filter for literal exceeding max length")
+	}
+}
+
+func TestStringLiteralAfterLoopFilter(t *testing.T) {
+	filter := stringLiteralAfterLoopFilter(&syntax.LiteralAfterLoop{
+		Char: '@',
+		LoopNode: &syntax.RegexNode{
+			Set: syntax.DigitClass(),
+		},
+	}, 4)
+	if filter == nil {
+		t.Fatal("expected filter")
+	}
+
+	candidateByteIndex, ok := filter("xx123@", 0)
+	if !ok {
+		t.Fatal("expected candidate")
+	}
+	if got, want := candidateByteIndex, 0; got != want {
+		t.Fatalf("candidateByteIndex = %d, want %d", got, want)
+	}
+
+	if _, ok := filter("xx123", 0); ok {
+		t.Fatal("unexpected candidate for missing literal")
+	}
+}
+
+func TestNewStringPrefixFilterFixedDistanceChar(t *testing.T) {
+	filter := newStringPrefixFilter(&syntax.Code{
+		FindOptimizations: &syntax.FindOptimizations{
+			FindMode:          syntax.FixedDistanceChar_LeftToRight,
+			MinRequiredLength: 2,
+			FixedDistanceLiteral: syntax.FixedDistanceLiteral{
+				C:        'a',
+				Distance: 1,
+			},
+		},
+	})
+	if filter == nil {
+		t.Fatal("expected filter")
+	}
+
+	candidateByteIndex, ok := filter("xa", 0)
+	if !ok {
+		t.Fatal("expected candidate")
+	}
+	if got, want := candidateByteIndex, 0; got != want {
+		t.Fatalf("candidateByteIndex = %d, want %d", got, want)
+	}
+
+	if _, ok := filter("xx", 0); ok {
+		t.Fatal("unexpected candidate for missing char")
 	}
 }
 

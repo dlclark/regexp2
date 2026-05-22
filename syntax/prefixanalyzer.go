@@ -1264,6 +1264,167 @@ func findLiteralFollowingLeadingLoop(node *RegexNode) *LiteralAfterLoop {
 	return nil
 }
 
+func findRequiredLandmarkChain(node *RegexNode) *RequiredLandmarkChain {
+	if (node.Options & RightToLeft) != 0 {
+		return nil
+	}
+
+	node = unwrapTransparentNodes(node)
+	if node.T != NtConcatenate || len(node.Children) < 4 {
+		return nil
+	}
+
+	firstChild := unwrapTransparentNodes(node.Children[0])
+	if !isUnboundedSetLoop(firstChild) {
+		return nil
+	}
+
+	// Collect landmarks that must appear in order later in the match. This is a
+	// conservative prefilter: if any child cannot be described as a detectable
+	// landmark, we skip that child rather than making it part of the chain.
+	landmarks := make([]RequiredLandmark, 0, 2)
+	for _, child := range node.Children[1:] {
+		if landmark, ok := extractRequiredLandmark(child); ok {
+			landmarks = append(landmarks, landmark)
+		}
+	}
+	if len(landmarks) < 2 {
+		return nil
+	}
+
+	return &RequiredLandmarkChain{
+		LeadingLoopSet: firstChild.Set,
+		Landmarks:      landmarks,
+	}
+}
+
+func unwrapTransparentNodes(node *RegexNode) *RegexNode {
+	for node != nil && (node.T == NtAtomic || node.T == NtCapture || node.T == NtGroup) && len(node.Children) == 1 {
+		node = node.Children[0]
+	}
+	return node
+}
+
+func isUnboundedSetLoop(node *RegexNode) bool {
+	return node != nil &&
+		(node.T == NtSetloop || node.T == NtSetloopatomic || node.T == NtSetlazy) &&
+		node.Set != nil &&
+		node.N == math.MaxInt32
+}
+
+func extractRequiredLandmark(node *RegexNode) (RequiredLandmark, bool) {
+	node = unwrapTransparentNodes(node)
+	if node == nil {
+		return RequiredLandmark{}, false
+	}
+
+	if node.T != NtAlternate {
+		alt, ok := extractRequiredLandmarkAlternative(node)
+		if !ok {
+			return RequiredLandmark{}, false
+		}
+		return RequiredLandmark{Alternatives: []RequiredLandmarkAlternative{alt}}, true
+	}
+
+	landmark := RequiredLandmark{Alternatives: make([]RequiredLandmarkAlternative, 0, len(node.Children))}
+	for _, child := range node.Children {
+		alt, ok := extractRequiredLandmarkAlternative(child)
+		if !ok {
+			return RequiredLandmark{}, false
+		}
+		landmark.Alternatives = append(landmark.Alternatives, alt)
+	}
+	return landmark, len(landmark.Alternatives) > 0
+}
+
+func extractRequiredLandmarkAlternative(node *RegexNode) (RequiredLandmarkAlternative, bool) {
+	node = unwrapTransparentNodes(node)
+	if node == nil {
+		return RequiredLandmarkAlternative{}, false
+	}
+
+	children := []*RegexNode{node}
+	if node.T == NtConcatenate {
+		children = node.Children
+	}
+
+	alt := RequiredLandmarkAlternative{}
+	i := 0
+	if i < len(children) {
+		if whitespaceSet, min, ok := whitespaceLoop(children[i]); ok {
+			alt.WhitespaceSet = whitespaceSet
+			alt.RequireWhitespaceBefore = min > 0
+			i++
+		}
+	}
+	if i >= len(children) {
+		return RequiredLandmarkAlternative{}, false
+	}
+
+	// The core of a landmark must be a literal or a bounded, enumerable set
+	// repetition. The VM still validates the full regex after this prefilter
+	// returns a candidate.
+	core := unwrapTransparentNodes(children[i])
+	switch core.T {
+	case NtOne:
+		alt.Literal = string(core.Ch)
+		alt.MinRepeat = 1
+		alt.MaxRepeat = 1
+	case NtMulti:
+		alt.Literal = string(core.Str)
+		alt.MinRepeat = 1
+		alt.MaxRepeat = 1
+	case NtSet, NtSetloop, NtSetloopatomic, NtSetlazy:
+		if core.Set == nil {
+			return RequiredLandmarkAlternative{}, false
+		}
+		if core.T == NtSet {
+			alt.MinRepeat = 1
+			alt.MaxRepeat = 1
+		} else if core.M > 0 && core.N != math.MaxInt32 {
+			alt.MinRepeat = core.M
+			alt.MaxRepeat = core.N
+		} else {
+			return RequiredLandmarkAlternative{}, false
+		}
+		chars := core.Set.GetSetChars(8)
+		if len(chars) == 0 || core.Set.IsNegated() {
+			return RequiredLandmarkAlternative{}, false
+		}
+		alt.Set = core.Set
+		alt.Chars = chars
+	default:
+		return RequiredLandmarkAlternative{}, false
+	}
+	i++
+
+	if i < len(children) {
+		if whitespaceSet, min, ok := whitespaceLoop(children[i]); ok {
+			if alt.WhitespaceSet == nil {
+				alt.WhitespaceSet = whitespaceSet
+			}
+			alt.RequireWhitespaceAfter = min > 0
+			i++
+		}
+	}
+	if i != len(children) {
+		return RequiredLandmarkAlternative{}, false
+	}
+	return alt, true
+}
+
+func whitespaceLoop(node *RegexNode) (*CharSet, int, bool) {
+	node = unwrapTransparentNodes(node)
+	if node != nil &&
+		(node.T == NtSetloop || node.T == NtSetloopatomic || node.T == NtSetlazy) &&
+		node.Set != nil &&
+		node.N == math.MaxInt32 &&
+		(node.Set.Equals(SpaceClass()) || node.Set.Equals(ECMASpaceClass()) || node.Set.Equals(RE2SpaceClass())) {
+		return node.Set, node.M, true
+	}
+	return nil, 0, false
+}
+
 // Returns a leading positive lookahead if found and whether to keep examining subsequent nodes in a concatenation.
 func findLeadingPositiveLookahead(node *RegexNode) (*RegexNode, bool) {
 	for {
