@@ -54,6 +54,8 @@ type Regexp struct {
 	// cache of machines for running regexp
 	runnerPool *sync.Pool
 
+	runeCache []rune // reused by cachedRunes to avoid per-call []rune allocation
+
 	replaceCache *replacerDataCache
 
 	// hook points to override runner functions
@@ -497,29 +499,39 @@ func (re *Regexp) matchStringAt(s string, startAt int) (bool, error) {
 func (re *Regexp) getRunesAndStart(s string, startAt int) ([]rune, int) {
 	if startAt < 0 {
 		if re.RightToLeft() {
-			r := getRunes(s)
+			r := re.cachedRunes(s)
 			return r, len(r)
 		}
-		return getRunes(s), 0
+		return re.cachedRunes(s), 0
 	}
-	ret := make([]rune, len(s))
+	if cap(re.runeCache) < len(s) {
+		re.runeCache = make([]rune, len(s))
+	}
 	i := 0
 	runeIdx := -1
 	for strIdx, r := range s {
 		if strIdx == startAt {
 			runeIdx = i
 		}
-		ret[i] = r
+		re.runeCache[i] = r
 		i++
 	}
 	if startAt == len(s) {
 		runeIdx = i
 	}
-	return ret[:i], runeIdx
+	return re.runeCache[:i], runeIdx
 }
 
-func getRunes(s string) []rune {
-	return []rune(s)
+func (re *Regexp) cachedRunes(s string) []rune {
+	if cap(re.runeCache) < len(s) {
+		re.runeCache = make([]rune, len(s))
+	}
+	i := 0
+	for _, r := range s {
+		re.runeCache[i] = r
+		i++
+	}
+	return re.runeCache[:i]
 }
 
 // MatchRunes return true if the runes matches the regex
