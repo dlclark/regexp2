@@ -11,7 +11,7 @@ jobs:
       resource_class:
         type: string
     docker:
-      - image: cimg/go:1.26
+      - image: cimg/go:1.25
     resource_class: << parameters.resource_class >>
     environment:
       CGO_ENABLED: "0"
@@ -39,7 +39,7 @@ jobs:
       - run:
           name: Install Go
           command: |
-            choco install golang --version=1.26.1 -y
+            choco install golang --version=1.25.8 -y
             $env:PATH = "C:\Program Files\Go\bin;$env:PATH"
             go version
       - run:
