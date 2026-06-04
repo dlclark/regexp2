@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -1832,5 +1833,33 @@ func TestAnythingSet(t *testing.T) {
 	re := MustCompile(`(?ism)<(.+?)`)
 	if m, _ := re.MatchString("<a"); !m {
 		t.Fail()
+	}
+}
+
+func TestRegexp_Minus(t *testing.T) {
+	var (
+		pattern = `(\d+)(-)?b.c`
+		source  = "1-b.c"
+		matched bool
+		err     error
+	)
+	matched, err = regexp.MatchString(pattern, source)
+	if err != nil {
+		t.Errorf("Unexpected regexp error: %v", err)
+	}
+	if !matched {
+		t.Errorf("Regexp did not match")
+	}
+	r, err := Compile(pattern)
+
+	if err != nil {
+		t.Errorf("unexpected compile err: %v", err)
+	}
+	m, err := r.FindStringMatch(source)
+	if err != nil {
+		t.Errorf("unexpected match err: %v", err)
+	}
+	if m == nil {
+		t.Error("Nil match, expected success")
 	}
 }
