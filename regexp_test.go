@@ -1834,3 +1834,24 @@ func TestAnythingSet(t *testing.T) {
 		t.Fail()
 	}
 }
+
+func TestRepeatPrefixNullableFixed(t *testing.T) {
+	// a bug where the prefix optimization wasn't handling
+	// the case where a repeated value followed by a nullable
+	// followed by a fixed value wasn't handled correctly
+	re := MustCompile(`(\d+)(-)?b.c`, OptionDebug())
+	if m, _ := re.FindStringMatch("1-b.c"); m == nil {
+		t.Fatal("Expected match")
+	} else {
+		g := m.Groups()
+		if want, got := "1-b.c", g[0].String(); want != got {
+			t.Fatalf("Group 0 Wanted %v, got %v", want, got)
+		}
+		if want, got := "1", g[1].String(); want != got {
+			t.Fatalf("Group 1 Wanted %v, got %v", want, got)
+		}
+		if want, got := "-", g[2].String(); want != got {
+			t.Fatalf("Group 2 Wanted %v, got %v", want, got)
+		}
+	}
+}
