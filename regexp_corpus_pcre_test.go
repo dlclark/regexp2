@@ -24,7 +24,7 @@ func TestPcre_Basics(t *testing.T) {
 	}()
 	// open our test patterns file and run through it
 	// validating results as we go
-	file, err := os.Open("testoutput1")
+	file, err := os.Open("testdata/corpus/pcre/testoutput1")
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -12,7 +12,7 @@ func TestIsInMask32_Basic(t *testing.T) {
 
 func TestIsInASCIIBitmap(t *testing.T) {
 	var lo, hi uint64
-	for _, ch := range []rune("Az9_") {
+	for _, ch := range "Az9_" {
 		if ch < 64 {
 			lo |= 1 << uint(ch)
 		} else {
@@ -20,12 +20,12 @@ func TestIsInASCIIBitmap(t *testing.T) {
 		}
 	}
 
-	for _, ch := range []rune("Az9_") {
+	for _, ch := range "Az9_" {
 		if !IsInASCIIBitmap(ch, lo, hi) {
 			t.Fatalf("expected %q to be in bitmap", ch)
 		}
 	}
-	for _, ch := range []rune("b:") {
+	for _, ch := range "b:" {
 		if IsInASCIIBitmap(ch, lo, hi) {
 			t.Fatalf("expected %q to be outside bitmap", ch)
 		}

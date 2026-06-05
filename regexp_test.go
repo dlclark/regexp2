@@ -768,6 +768,39 @@ func TestUnicodeScriptSets(t *testing.T) {
 	}
 }
 
+func TestUnicodePropertyAliases(t *testing.T) {
+	tests := []struct {
+		pattern string
+		input   string
+	}{
+		{`\p{Math}`, "⋿"},
+		{`\p{Emoji}`, "\u23E9"},
+		{`\p{emoji}`, "\U0001F21A"},
+		{`\p{EPres}`, "\u231A"},
+		{`\p{extendedpictographic}`, "\U0001FA6E"},
+		{`\p{ExtPict}`, "\U0001FA6E"},
+		{`\p{grapheme_cluster_break=prepend}`, "\U00011D46"},
+		{`\p{gcb=ri}`, "\U0001F1E7"},
+		{`\p{GCB=LVT}`, "\uC989"},
+		{`\p{regionalindicator}`, "\U0001F1FF"},
+		{`\p{word_break=Hebrew_Letter}`, "\uFB46"},
+		{`\p{wb=ExtendNumLet}`, "\uFF3F"},
+		{`\p{sentence_break=Lower}`, "\u0469"},
+		{`\p{sb=SContinue}`, "\uFF64"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.pattern, func(t *testing.T) {
+			re := MustCompile(tt.pattern)
+			if m, err := re.MatchString(tt.input); err != nil {
+				t.Fatalf("Unexpected err: %v", err)
+			} else if !m {
+				t.Fatalf("Expected %q to match %q", tt.input, tt.pattern)
+			}
+		})
+	}
+}
+
 func TestHexadecimalCurlyBraces(t *testing.T) {
 	re := MustCompile(`\x20`)
 	if m, err := re.MatchString(" "); err != nil {
