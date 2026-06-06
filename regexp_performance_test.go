@@ -278,6 +278,36 @@ func BenchmarkMatchHard1_32K(b *testing.B)  { benchmark(b, hard1, 32<<10) }
 func BenchmarkMatchHard1_1M(b *testing.B)   { benchmark(b, hard1, 1<<20) }
 func BenchmarkMatchHard1_32M(b *testing.B)  { benchmark(b, hard1, 32<<20) }
 
+func BenchmarkMatchLeadingPrefixesRunes_32K(b *testing.B) {
+	r := MustCompile("apple|tiger", OptionIsCodeGen())
+	t := []rune(strings.Repeat("zzzzzzzzzzzzzzzz", 2048))
+	b.ResetTimer()
+	b.SetBytes(int64(len(t)))
+	for i := 0; i < b.N; i++ {
+		if m, err := r.MatchRunes(t); m {
+			b.Fatal("match!")
+		} else if err != nil {
+			b.Fatalf("Err %v", err)
+		}
+	}
+}
+
+func BenchmarkFindLeadingStringsLeftToRight(b *testing.B) {
+	prefixRunes := [][]rune{[]rune("apple"), []rune("tiger")}
+	t := []rune(strings.Repeat("zzzzzzzzzzzzzzzz", 2048))
+
+	b.Run("precomputed_runes", func(b *testing.B) {
+		runner := &Runner{Runtext: t, Runtextend: len(t)}
+		b.SetBytes(int64(len(t)))
+		for i := 0; i < b.N; i++ {
+			runner.Runtextpos = 0
+			if findLeadingStringsLeftToRight(runner, prefixRunes, false) {
+				b.Fatal("match!")
+			}
+		}
+	})
+}
+
 // TestProgramTooLongForBacktrack tests that a regex which is too long
 // for the backtracker still executes properly.
 func TestProgramTooLongForBacktrack(t *testing.T) {

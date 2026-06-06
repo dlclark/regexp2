@@ -1429,9 +1429,9 @@ func findFirstCharOptimized(r *Runner) (handled bool, found bool) {
 	case syntax.LeadingString_OrdinalIgnoreCase_LeftToRight:
 		return true, findLeadingStringLeftToRight(r, []rune(opts.LeadingPrefix), true)
 	case syntax.LeadingStrings_LeftToRight:
-		return true, findLeadingStringsLeftToRight(r, opts.LeadingPrefixes, false)
+		return true, findLeadingStringsLeftToRight(r, opts.LeadingPrefixesRunes, false)
 	case syntax.LeadingStrings_OrdinalIgnoreCase_LeftToRight:
-		return true, findLeadingStringsLeftToRight(r, opts.LeadingPrefixes, true)
+		return true, findLeadingStringsLeftToRight(r, opts.LeadingPrefixesRunes, true)
 	case syntax.FixedDistanceSets_LeftToRight:
 		return true, findFixedDistanceSetsLeftToRight(r, opts.FixedDistanceSets)
 	case syntax.FixedDistanceChar_LeftToRight:
@@ -1487,20 +1487,19 @@ func findLeadingStringLeftToRight(r *Runner, prefix []rune, ignoreCase bool) boo
 	return true
 }
 
-func findLeadingStringsLeftToRight(r *Runner, prefixes []string, ignoreCase bool) bool {
+func findLeadingStringsLeftToRight(r *Runner, prefixes [][]rune, ignoreCase bool) bool {
 	if len(prefixes) == 0 {
 		return false
 	}
 
 	for start := r.Runtextpos; start <= latestPossibleStart(r); start++ {
 		for _, prefix := range prefixes {
-			prefixRunes := []rune(prefix)
 			if ignoreCase {
-				if helpers.StartsWithIgnoreCase(r.Runtext[start:], prefixRunes) {
+				if helpers.StartsWithIgnoreCase(r.Runtext[start:], prefix) {
 					r.Runtextpos = start
 					return true
 				}
-			} else if helpers.StartsWith(r.Runtext[start:], prefixRunes) {
+			} else if helpers.StartsWith(r.Runtext[start:], prefix) {
 				r.Runtextpos = start
 				return true
 			}

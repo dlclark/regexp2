@@ -11,13 +11,14 @@ type FindOptimizations struct {
 	rightToLeft  bool
 	asciiLookups [][]uint
 
-	FindMode          FindNextStartingPositionMode
-	LeadingAnchor     NodeType
-	TrailingAnchor    NodeType
-	MinRequiredLength int
-	MaxPossibleLength int
-	LeadingPrefix     string
-	LeadingPrefixes   []string
+	FindMode             FindNextStartingPositionMode
+	LeadingAnchor        NodeType
+	TrailingAnchor       NodeType
+	MinRequiredLength    int
+	MaxPossibleLength    int
+	LeadingPrefix        string
+	LeadingPrefixes      []string
+	LeadingPrefixesRunes [][]rune
 	//LeadingStrings    *helpers.StringSearchValues
 
 	FixedDistanceLiteral FixedDistanceLiteral
@@ -430,6 +431,7 @@ func newFindOptimizationsForNode(root *RegexNode, opt ParseOptions, isLeadingPar
 		ciPrefixes := findPrefixes(root, true)
 		if len(ciPrefixes) > 1 {
 			f.LeadingPrefixes = ciPrefixes
+			f.LeadingPrefixesRunes = toRunePrefixes(ciPrefixes)
 			f.FindMode = LeadingStrings_OrdinalIgnoreCase_LeftToRight
 			/*SYSTEM_TEXT_REGULAREXPRESSIONS
 			if usesRfoTryFind {
@@ -484,6 +486,7 @@ func newFindOptimizationsForNode(root *RegexNode, opt ParseOptions, isLeadingPar
 			caseSensitivePrefixes := findPrefixes(root, false)
 			if len(caseSensitivePrefixes) > 1 {
 				f.LeadingPrefixes = caseSensitivePrefixes
+				f.LeadingPrefixesRunes = toRunePrefixes(caseSensitivePrefixes)
 				f.FindMode = LeadingStrings_LeftToRight
 				return f
 			}
@@ -535,6 +538,17 @@ func newFindOptimizationsForNode(root *RegexNode, opt ParseOptions, isLeadingPar
 
 func (f *FindOptimizations) isUseful() bool {
 	return f.FindMode != NoSearch || f.LeadingAnchor == NtBol
+}
+
+func toRunePrefixes(prefixes []string) [][]rune {
+	if len(prefixes) == 0 {
+		return nil
+	}
+	runes := make([][]rune, len(prefixes))
+	for i, prefix := range prefixes {
+		runes[i] = []rune(prefix)
+	}
+	return runes
 }
 
 func getFindMode(rtl bool, t NodeType) FindNextStartingPositionMode {

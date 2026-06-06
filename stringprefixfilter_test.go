@@ -1,6 +1,7 @@
 package regexp2
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/dlclark/regexp2/v2/syntax"
@@ -305,4 +306,40 @@ func TestFindStringMatchStart(t *testing.T) {
 	if _, _, err := re.findStringMatchStart("aé", 2); err == nil {
 		t.Fatal("expected invalid rune boundary error")
 	}
+}
+
+func BenchmarkStringIndexPrefixesFilter(b *testing.B) {
+	prefixes := []string{
+		"value00", "value01", "value02", "value03",
+		"value04", "value05", "value06", "value07",
+		"value08", "value09", "value10", "value11",
+		"value12", "value13", "value14", "victor",
+	}
+	input := strings.Repeat("zzzzzzzzzzzzzzzz", 4096) + "victor"
+
+	b.Run("compiled_ascii", func(b *testing.B) {
+		filter := stringIndexPrefixesFilter(prefixes, false, 5)
+		if filter == nil {
+			b.Fatal("expected filter")
+		}
+		b.ReportAllocs()
+		b.SetBytes(int64(len(input)))
+		for i := 0; i < b.N; i++ {
+			idx, ok := filter(input, 0)
+			if !ok || idx != len(input)-len("victor") {
+				b.Fatalf("filter = (%d, %v)", idx, ok)
+			}
+		}
+	})
+
+	b.Run("old_fallback", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(input)))
+		for i := 0; i < b.N; i++ {
+			idx, ok := indexAnyPrefixFallback(input, 0, prefixes, false, 5)
+			if !ok || idx != len(input)-len("victor") {
+				b.Fatalf("filter = (%d, %v)", idx, ok)
+			}
+		}
+	})
 }
