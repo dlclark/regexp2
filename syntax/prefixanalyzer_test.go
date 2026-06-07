@@ -311,4 +311,20 @@ func TestFindOptimizationsRequiredLandmarkChain(t *testing.T) {
 	if got, want := len(opts.LandmarkChain.Landmarks[1].Alternatives), 3; got != want {
 		t.Fatalf("len(second alternatives) = %d, want %d", got, want)
 	}
+
+	firstAlt := opts.LandmarkChain.Landmarks[0].Alternatives[0]
+	if firstAlt.LeadingWhitespaceSet == nil || !firstAlt.RequireWhitespaceBefore {
+		t.Fatal("first separator alternative should require leading whitespace")
+	}
+	if firstAlt.TrailingWhitespaceSet == nil || !firstAlt.RequireWhitespaceAfter {
+		t.Fatal("first separator alternative should require trailing whitespace")
+	}
+
+	secondAlt := opts.LandmarkChain.Landmarks[0].Alternatives[1]
+	if secondAlt.LeadingWhitespaceSet == nil || secondAlt.RequireWhitespaceBefore {
+		t.Fatal("second separator alternative should allow optional leading whitespace")
+	}
+	if secondAlt.TrailingWhitespaceSet == nil || secondAlt.RequireWhitespaceAfter {
+		t.Fatal("second separator alternative should allow optional trailing whitespace")
+	}
 }

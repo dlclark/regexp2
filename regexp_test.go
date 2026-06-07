@@ -725,6 +725,26 @@ func TestFindAllStringIndexRequiredLandmarkChainEmail(t *testing.T) {
 	}
 }
 
+func TestRequiredLandmarkAlternativeMatchDoesNotRewindTrailingWhitespace(t *testing.T) {
+	input := []rune("  foo ")
+	alt := syntax.RequiredLandmarkAlternative{
+		Literal:                []rune("foo"),
+		TrailingWhitespaceSet:  syntax.SpaceClass(),
+		MinRepeat:              1,
+		MaxRepeat:              1,
+		RequireWhitespaceAfter: true,
+	}
+
+	got, ok := requiredLandmarkAlternativeMatch(input, 2, len(input), alt)
+	if !ok {
+		t.Fatal("requiredLandmarkAlternativeMatch failed")
+	}
+	want := requiredLandmarkMatch{Start: 2, CoreStart: 2, End: 5}
+	if got != want {
+		t.Fatalf("requiredLandmarkAlternativeMatch = %#v, want %#v", got, want)
+	}
+}
+
 func TestUnicodeSupplementaryCharSetMatch(t *testing.T) {
 	//0x2070E 0x20731 𠜱 0x20779 𠝹
 	re := MustCompile("[𠜎-𠝹]")
