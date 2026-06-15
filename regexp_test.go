@@ -538,6 +538,17 @@ func TestRunNegativeDigit(t *testing.T) {
 	}
 }
 
+func TestRunNegativeDigitIgnoreCaseRE2(t *testing.T) {
+	re := MustCompile(`\D`, IgnoreCase|RE2)
+	m, err := re.MatchString("test")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if !m {
+		t.Fatalf("Expected match")
+	}
+}
+
 func TestCancellingClasses(t *testing.T) {
 	// [\w\W\s] should become "." because it means "anything"
 	re := MustCompile(`[\w\W\s]`)
