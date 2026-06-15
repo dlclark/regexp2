@@ -31,3 +31,15 @@ func TestCanonicalize(t *testing.T) {
 		t.Fatalf("wanted: %s, got %s", want, got)
 	}
 }
+
+func TestAddLowercaseComplementRange(t *testing.T) {
+	set := NotECMADigitClass()
+	set.addLowercase()
+
+	if set.CharIn('1') {
+		t.Fatal("digit should remain excluded")
+	}
+	if !set.CharIn('t') {
+		t.Fatal("letter should remain included")
+	}
+}

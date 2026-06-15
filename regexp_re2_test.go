@@ -180,6 +180,16 @@ func TestRE2ExtendedZero(t *testing.T) {
 	}
 }
 
+func TestRE2NegativeDigitIgnoreCase(t *testing.T) {
+	r := MustCompile(`\D`, IgnoreCase|RE2)
+	if m, _ := r.MatchString("test"); !m {
+		t.Fatal("Expected match")
+	}
+	if m, _ := r.MatchString("1"); m {
+		t.Fatal("Expected no match")
+	}
+}
+
 func TestRegularExtendedZero(t *testing.T) {
 	notZero := "߀" // \u07c0
 
