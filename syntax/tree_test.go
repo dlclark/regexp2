@@ -250,6 +250,11 @@ func TestIdenticalTreePatterns(t *testing.T) {
 		{"(?:a*)+", "a*"},
 		{"(?:a+){4}", "a{4,}"},
 		{"(?:a{1,2}){4}", "a{4,8}"},
+		// Repeating a literal empty expression is still empty, regardless of count or greediness.
+		{"(?:){50000000}", ""},
+		{"(?:){50000000}?", ""},
+		{"a(?:){50000000}b", "ab"},
+		{"(?:){2147483647}", ""},
 		// Nested atomic
 		{"(?>(?>(?>(?>abc*))))", "(?>ab(?>c*))"},
 		{"(?>(?>(?>(?>))))", ""},

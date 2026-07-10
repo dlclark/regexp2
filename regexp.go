@@ -25,6 +25,8 @@ import (
 var (
 	// DefaultMatchTimeout used when running regexp matches -- "forever"
 	DefaultMatchTimeout = time.Duration(math.MaxInt64)
+	// ErrBacktrackingStackLimit is returned when a match exceeds its configured backtracking stack size.
+	ErrBacktrackingStackLimit = errors.New("regexp2: maximum backtracking stack size exceeded")
 )
 
 // Regexp is the representation of a compiled regular expression.

@@ -1,11 +1,108 @@
 package regexp2
 
 import (
+	"errors"
 	"strconv"
 	"testing"
 
 	"github.com/dlclark/regexp2/v2/syntax"
 )
+
+func TestBacktrackingStackLimit(t *testing.T) {
+	for _, pattern := range []string{`(?:^){100}`, `(?:^){100}?`} {
+		t.Run(pattern, func(t *testing.T) {
+			re := MustCompile(pattern, OptionMaxBacktrackingStackSize(32))
+			matched, err := re.MatchString("")
+			if matched {
+				t.Fatal("MatchString unexpectedly matched")
+			}
+			if !errors.Is(err, ErrBacktrackingStackLimit) {
+				t.Fatalf("MatchString error = %v, want ErrBacktrackingStackLimit", err)
+			}
+
+			runner := re.getRunner()
+			trackSize := len(runner.runtrack)
+			re.putRunner(runner)
+			if got, want := trackSize, 32; got != want {
+				t.Fatalf("allocated backtracking stack size = %d, want %d", got, want)
+			}
+		})
+	}
+}
+
+func TestDefaultBacktrackingStackLimit(t *testing.T) {
+	re := MustCompile(`(?:^){60000}`)
+	matched, err := re.MatchString("")
+	if matched {
+		t.Fatal("MatchString unexpectedly matched")
+	}
+	if !errors.Is(err, ErrBacktrackingStackLimit) {
+		t.Fatalf("MatchString error = %v, want ErrBacktrackingStackLimit", err)
+	}
+}
+
+func TestBacktrackingStackLimitOverride(t *testing.T) {
+	for _, limit := range []int{200000, -1} {
+		t.Run(strconv.Itoa(limit), func(t *testing.T) {
+			re := MustCompile(`(?:^){60000}`, OptionMaxBacktrackingStackSize(limit))
+			matched, err := re.MatchString("")
+			if err != nil {
+				t.Fatalf("MatchString failed: %v", err)
+			}
+			if !matched {
+				t.Fatal("MatchString did not match")
+			}
+		})
+	}
+}
+
+func TestRunnerReusableAfterBacktrackingStackLimit(t *testing.T) {
+	re := MustCompile(`x|(?:^){100}`, OptionMaxBacktrackingStackSize(64))
+	if matched, err := re.MatchString(""); matched || !errors.Is(err, ErrBacktrackingStackLimit) {
+		t.Fatalf("first MatchString = %v, %v; want false, ErrBacktrackingStackLimit", matched, err)
+	}
+	if matched, err := re.MatchString("x"); !matched || err != nil {
+		t.Fatalf("second MatchString = %v, %v; want true, nil", matched, err)
+	}
+}
+
+func TestLargeEmptyRepeatDoesNotUseBacktrackingStack(t *testing.T) {
+	for _, pattern := range []string{
+		`(?:){50000000}`,
+		`(?:){50000000}?`,
+		`a(?:){50000000}b`,
+		`(?:){2147483647}`,
+	} {
+		t.Run(pattern, func(t *testing.T) {
+			re := MustCompile(pattern, OptionMaxBacktrackingStackSize(16))
+			input := ""
+			if pattern[0] == 'a' {
+				input = "ab"
+			}
+			matched, err := re.MatchString(input)
+			if err != nil {
+				t.Fatalf("MatchString failed: %v", err)
+			}
+			if !matched {
+				t.Fatal("MatchString did not match")
+			}
+		})
+	}
+}
+
+func TestEmptyCaptureRepeatIsNotReduced(t *testing.T) {
+	re := MustCompile(`(){2}`)
+	match, err := re.FindStringMatch("")
+	if err != nil {
+		t.Fatalf("FindStringMatch failed: %v", err)
+	}
+	if match == nil {
+		t.Fatal("FindStringMatch did not match")
+	}
+	if got, want := len(match.GroupByNumber(1).Captures), 2; got != want {
+		t.Fatalf("capture count = %d, want %d", got, want)
+	}
+}
 
 func TestReplacerDataCacheBounded(t *testing.T) {
 	re := MustCompile(`a`, OptionMaxCachedReplacerDataEntries(2), OptionMaxCachedReplacerDataBytes(-1))

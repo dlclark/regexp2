@@ -208,7 +208,9 @@ func (r *Runner) scan(rt []rune, textInfo *matchText, textstart int, quick bool,
 
 func executeDefault(r *Runner) error {
 
-	r.goTo(0)
+	if err := r.goTo(0); err != nil {
+		return err
+	}
 
 	for {
 
@@ -230,7 +232,9 @@ func executeDefault(r *Runner) error {
 			//noop
 
 		case syntax.Goto:
-			r.goTo(r.operand(0))
+			if err := r.goTo(r.operand(0)); err != nil {
+				return err
+			}
 			continue
 
 		case syntax.Testref:
@@ -248,7 +252,9 @@ func executeDefault(r *Runner) error {
 		case syntax.Lazybranch | syntax.Back:
 			r.trackPop()
 			r.textto(r.trackPeek())
-			r.goTo(r.operand(0))
+			if err := r.goTo(r.operand(0)); err != nil {
+				return err
+			}
 			continue
 
 		case syntax.Setmark:
@@ -307,9 +313,11 @@ func executeDefault(r *Runner) error {
 			matched := r.textPos() - r.stackPeek()
 
 			if matched != 0 { // Nonempty match -> loop now
-				r.trackPush2(r.stackPeek(), r.textPos()) // Save old mark, textpos
-				r.stackPush(r.textPos())                 // Make new mark
-				r.goTo(r.operand(0))                     // Loop
+				r.trackPush2(r.stackPeek(), r.textPos())     // Save old mark, textpos
+				r.stackPush(r.textPos())                     // Make new mark
+				if err := r.goTo(r.operand(0)); err != nil { // Loop
+					return err
+				}
 			} else { // Empty match -> straight now
 				r.trackPushNeg1(r.stackPeek()) // Save old mark
 				r.advance(1)                   // Straight
@@ -364,10 +372,12 @@ func executeDefault(r *Runner) error {
 
 			r.trackPopN(2)
 			pos := r.trackPeekN(1)
-			r.trackPushNeg2(r.trackPeek(), 1) // Save old mark, note that we pushed a new mark
-			r.stackPush(pos)                  // Make new mark
-			r.textto(pos)                     // Recall position
-			r.goTo(r.operand(0))              // Loop
+			r.trackPushNeg2(r.trackPeek(), 1)            // Save old mark, note that we pushed a new mark
+			r.stackPush(pos)                             // Make new mark
+			r.textto(pos)                                // Recall position
+			if err := r.goTo(r.operand(0)); err != nil { // Loop
+				return err
+			}
 			continue
 
 		case syntax.Lazybranchmark | syntax.Back2:
@@ -413,9 +423,11 @@ func executeDefault(r *Runner) error {
 				r.trackPushNeg2(mark, count) // Save old mark, count
 				r.advance(2)                 // Straight
 			} else { // Nonempty match -> count+loop now
-				r.trackPush1(mark)                 // remember mark
-				r.stackPush2(r.textPos(), count+1) // Make new mark, incr count
-				r.goTo(r.operand(0))               // Loop
+				r.trackPush1(mark)                           // remember mark
+				r.stackPush2(r.textPos(), count+1)           // Make new mark, incr count
+				if err := r.goTo(r.operand(0)); err != nil { // Loop
+					return err
+				}
 			}
 			continue
 
@@ -452,9 +464,11 @@ func executeDefault(r *Runner) error {
 			count := r.stackPeekN(1)
 
 			if count < 0 { // Negative count -> loop now
-				r.trackPushNeg1(mark)              // Save old mark
-				r.stackPush2(r.textPos(), count+1) // Make new mark, incr count
-				r.goTo(r.operand(0))               // Loop
+				r.trackPushNeg1(mark)                        // Save old mark
+				r.stackPush2(r.textPos(), count+1)           // Make new mark, incr count
+				if err := r.goTo(r.operand(0)); err != nil { // Loop
+					return err
+				}
 			} else { // Nonneg count -> straight now
 				r.trackPush3(mark, count, r.textPos()) // Save mark, count, position
 				r.advance(2)                           // Straight
@@ -472,10 +486,12 @@ func executeDefault(r *Runner) error {
 			textpos := r.trackPeekN(2)
 
 			if r.trackPeekN(1) < r.operand(1) && textpos != mark { // Under limit and not empty match -> loop
-				r.textto(textpos)                        // Recall position
-				r.stackPush2(textpos, r.trackPeekN(1)+1) // Make new mark, incr count
-				r.trackPushNeg1(mark)                    // Save old mark
-				r.goTo(r.operand(0))                     // Loop
+				r.textto(textpos)                            // Recall position
+				r.stackPush2(textpos, r.trackPeekN(1)+1)     // Make new mark, incr count
+				r.trackPushNeg1(mark)                        // Save old mark
+				if err := r.goTo(r.operand(0)); err != nil { // Loop
+					return err
+				}
 				continue
 			} else { // Max loops or empty match -> backtrack
 				r.stackPush2(r.trackPeek(), r.trackPeekN(1)) // Recall old mark, count
@@ -935,18 +951,21 @@ func executeDefault(r *Runner) error {
 		;
 
 		// "break Backward" comes here:
-		r.backtrack()
+		if err := r.backtrack(); err != nil {
+			return err
+		}
 	}
 }
 
 // increase the size of stack and track storage
-func (r *Runner) ensureStorage() {
+func (r *Runner) ensureStorage() error {
 	if r.Runstackpos < r.runtrackcount*4 {
 		doubleIntSlice(&r.runstack, &r.Runstackpos)
 	}
-	if r.Runtrackpos < r.runtrackcount*4 {
-		doubleIntSlice(&r.runtrack, &r.Runtrackpos)
+	if r.Runtrackpos < r.runtrackcount*4 && !r.growTrack() {
+		return ErrBacktrackingStackLimit
 	}
+	return nil
 }
 
 func (r *Runner) ensureStack(plus int) {
@@ -990,14 +1009,17 @@ func (r *Runner) advance(i int) {
 	r.setOperator(r.code.Codes[r.codepos])
 }
 
-func (r *Runner) goTo(newpos int) {
+func (r *Runner) goTo(newpos int) error {
 	// when branching backward or in place, ensure storage
 	if newpos <= r.codepos {
-		r.ensureStorage()
+		if err := r.ensureStorage(); err != nil {
+			return err
+		}
 	}
 
 	r.setOperator(r.code.Codes[newpos])
 	r.codepos = newpos
+	return nil
 }
 
 func (r *Runner) textto(newpos int) {
@@ -1019,6 +1041,26 @@ func (r *Runner) textPos() int {
 // push onto the backtracking stack
 func (r *Runner) trackpos() int {
 	return len(r.runtrack) - r.Runtrackpos
+}
+
+func (r *Runner) growTrack() bool {
+	oldLen := len(r.runtrack)
+	newLen := oldLen * 2
+	if newLen == 0 {
+		newLen = 1
+	}
+	if limit := r.re.optimizations.MaxBacktrackingStackSize; limit >= 0 && newLen > limit {
+		newLen = limit
+	}
+	if newLen <= oldLen {
+		return false
+	}
+
+	newTrack := make([]int, newLen)
+	copy(newTrack[newLen-oldLen:], r.runtrack)
+	r.Runtrackpos += newLen - oldLen
+	r.runtrack = newTrack
+	return true
 }
 
 func (r *Runner) trackPush() {
@@ -1069,7 +1111,7 @@ func (r *Runner) trackPushNeg2(I1, I2 int) {
 	r.runtrack[r.Runtrackpos] = -r.codepos
 }
 
-func (r *Runner) backtrack() {
+func (r *Runner) backtrack() error {
 	newpos := r.runtrack[r.Runtrackpos]
 	r.Runtrackpos++
 
@@ -1090,10 +1132,13 @@ func (r *Runner) backtrack() {
 
 	// When branching backward, ensure storage
 	if newpos < r.codepos {
-		r.ensureStorage()
+		if err := r.ensureStorage(); err != nil {
+			return err
+		}
 	}
 
 	r.codepos = newpos
+	return nil
 }
 
 func (r *Runner) setOperator(op int) {
@@ -1849,6 +1894,9 @@ func (r *Runner) initMatch(textInfo *matchText) {
 
 	if tracksize < 64 {
 		tracksize = 64
+	}
+	if limit := r.re.optimizations.MaxBacktrackingStackSize; limit >= 0 && tracksize > limit {
+		tracksize = limit
 	}
 	if stacksize < 32 {
 		stacksize = 32
