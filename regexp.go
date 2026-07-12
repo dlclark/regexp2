@@ -62,6 +62,7 @@ type Regexp struct {
 	findFirstChar      func(r *Runner) bool
 	execute            func(r *Runner) error
 	stringPrefixFilter StringPrefixFilter
+	quickCode          *syntax.Code // bool-only program with unobservable captures removed
 }
 
 // Compile parses a regular expression and returns, if successful,
@@ -109,12 +110,23 @@ func compile(expr string, c compileConfig) (*Regexp, error) {
 		capslist:      tree.Caplist,
 		capsize:       code.Capsize,
 		code:          code,
+		quickCode:     makeQuickCode(code),
 		MatchTimeout:  DefaultMatchTimeout,
 		optimizations: c.optimizations,
 	}
 	re.stringPrefixFilter = newStringPrefixFilter(code)
 	re.initCaches()
 	return re, nil
+}
+
+func makeQuickCode(code *syntax.Code) *syntax.Code {
+	if code == nil || len(code.QuickCodes) == 0 {
+		return nil
+	}
+	quick := *code
+	quick.Codes = code.QuickCodes
+	quick.QuickCodes = nil
+	return &quick
 }
 
 // MustCompile is like Compile but panics if the expression cannot be parsed.
@@ -301,6 +313,9 @@ func (re *Regexp) FindAllStringIndex(s string, n int) ([][]int, error) {
 	}
 
 	byteOffsets := newStringByteMapper(s)
+	if re.quickCode != nil {
+		runner.code = re.quickCode
+	}
 	return re.findAllRunesIndex(runner, input, runeStart, n, func(runeIndex, runeLength int) (int, int) {
 		if byteOffsets == nil {
 			return runeIndex, runeIndex + runeLength
@@ -322,6 +337,9 @@ func (re *Regexp) FindAllRunesIndex(r []rune, n int) ([][]int, error) {
 	startAt := 0
 	if re.RightToLeft() {
 		startAt = len(r)
+	}
+	if re.quickCode != nil {
+		runner.code = re.quickCode
 	}
 	return re.findAllRunesIndex(runner, r, startAt, n, func(runeIndex, runeLength int) (int, int) {
 		return runeIndex, runeIndex + runeLength
@@ -488,6 +506,9 @@ func (re *Regexp) matchStringAt(s string, startAt int) (bool, error) {
 			pooledRuneBuffers.put(pooledInput)
 		}
 	}()
+	if re.quickCode != nil {
+		runner.code = re.quickCode
+	}
 
 	m, err := runner.scan(input, nil, runeStart, true, re.MatchTimeout)
 	if err != nil {

@@ -301,11 +301,47 @@ func BenchmarkFindLeadingStringsLeftToRight(b *testing.B) {
 		b.SetBytes(int64(len(t)))
 		for i := 0; i < b.N; i++ {
 			runner.Runtextpos = 0
-			if findLeadingStringsLeftToRight(runner, prefixRunes, false) {
+			if findLeadingStringsLeftToRight(runner, prefixRunes, []rune{'a', 't'}, false) {
 				b.Fatal("match!")
 			}
 		}
 	})
+}
+
+func BenchmarkQuickCaptureElision(b *testing.B) {
+	r := MustCompile(`^(z)*$`)
+	t := []rune(strings.Repeat("z", 4<<10))
+	b.SetBytes(int64(len(t)))
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if ok, err := r.MatchRunes(t); !ok || err != nil {
+			b.Fatal(ok, err)
+		}
+	}
+}
+
+func BenchmarkMatchStringLeadingSetMiss32K(b *testing.B) {
+	r := MustCompile(`[a-q]`)
+	input := strings.Repeat("z", 32<<10)
+	b.SetBytes(int64(len(input)))
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if ok, err := r.MatchString(input); ok || err != nil {
+			b.Fatal(ok, err)
+		}
+	}
+}
+
+func BenchmarkMatchRunesLeadingSetMiss32K(b *testing.B) {
+	r := MustCompile(`[a-q]`)
+	input := []rune(strings.Repeat("z", 32<<10))
+	b.SetBytes(int64(len(input)))
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if ok, err := r.MatchRunes(input); ok || err != nil {
+			b.Fatal(ok, err)
+		}
+	}
 }
 
 // TestProgramTooLongForBacktrack tests that a regex which is too long

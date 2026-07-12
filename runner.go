@@ -88,6 +88,9 @@ func (re *Regexp) run(quick bool, textstart int, input []rune, textInfo *matchTe
 			textstart = 0
 		}
 	}
+	if quick && textInfo == nil && re.quickCode != nil {
+		runner.code = re.quickCode
+	}
 
 	return runner.scan(input, textInfo, textstart, quick, re.MatchTimeout)
 }
@@ -115,6 +118,9 @@ func (r *Runner) scan(rt []rune, textInfo *matchText, textstart int, quick bool,
 	r.Runtextstart = textstart
 	r.Runtext = rt
 	r.Runtextend = len(rt)
+	// Some internal callers use quick match tidying while still consuming
+	// capture data (notably replacement). Capture elision is only safe when no
+	// match text metadata was requested.
 
 	stoppos := r.Runtextend
 	bump := 1
@@ -1442,7 +1448,8 @@ func shouldUseFindFirstCharOptimized(r *Runner) bool {
 		return false
 	}
 
-	switch r.code.FindOptimizations.FindMode {
+	opts := r.code.FindOptimizations
+	switch opts.FindMode {
 	case syntax.TrailingAnchor_FixedLength_LeftToRight_End,
 		syntax.LeadingString_OrdinalIgnoreCase_LeftToRight,
 		syntax.LeadingStrings_LeftToRight,
@@ -1453,6 +1460,13 @@ func shouldUseFindFirstCharOptimized(r *Runner) bool {
 		syntax.LiteralAfterLoop_LeftToRight,
 		syntax.RequiredLandmarkChain_LeftToRight:
 		return true
+	case syntax.LeadingSet_LeftToRight:
+		// General Unicode sets already have a direct fallback loop below.
+		// Large enumerated sets are also faster through the set's ASCII bitmap
+		// than through the linear IndexOfAny helper.
+		return len(opts.FixedDistanceSets) > 0 &&
+			((len(opts.FixedDistanceSets[0].Chars) > 0 && len(opts.FixedDistanceSets[0].Chars) <= 5) ||
+				opts.FixedDistanceSets[0].Range != nil)
 	default:
 		return false
 	}
@@ -1474,10 +1488,10 @@ func findFirstCharOptimized(r *Runner) (handled bool, found bool) {
 	case syntax.LeadingString_OrdinalIgnoreCase_LeftToRight:
 		return true, findLeadingStringLeftToRight(r, []rune(opts.LeadingPrefix), true)
 	case syntax.LeadingStrings_LeftToRight:
-		return true, findLeadingStringsLeftToRight(r, opts.LeadingPrefixesRunes, false)
+		return true, findLeadingStringsLeftToRight(r, opts.LeadingPrefixesRunes, opts.LeadingPrefixFirstRunes, false)
 	case syntax.LeadingStrings_OrdinalIgnoreCase_LeftToRight:
-		return true, findLeadingStringsLeftToRight(r, opts.LeadingPrefixesRunes, true)
-	case syntax.FixedDistanceSets_LeftToRight:
+		return true, findLeadingStringsLeftToRight(r, opts.LeadingPrefixesRunes, opts.LeadingPrefixFirstRunes, true)
+	case syntax.LeadingSet_LeftToRight, syntax.FixedDistanceSets_LeftToRight:
 		return true, findFixedDistanceSetsLeftToRight(r, opts.FixedDistanceSets)
 	case syntax.FixedDistanceChar_LeftToRight:
 		return true, findFixedDistanceCharLeftToRight(r, opts.FixedDistanceLiteral.C, opts.FixedDistanceLiteral.Distance)
@@ -1532,27 +1546,67 @@ func findLeadingStringLeftToRight(r *Runner, prefix []rune, ignoreCase bool) boo
 	return true
 }
 
-func findLeadingStringsLeftToRight(r *Runner, prefixes [][]rune, ignoreCase bool) bool {
+func findLeadingStringsLeftToRight(r *Runner, prefixes [][]rune, firstRunes []rune, ignoreCase bool) bool {
 	if len(prefixes) == 0 {
 		return false
 	}
 
-	for start := r.Runtextpos; start <= latestPossibleStart(r); start++ {
-		for _, prefix := range prefixes {
-			if ignoreCase {
-				if helpers.StartsWithIgnoreCase(r.Runtext[start:], prefix) {
+	// Unicode ordinal-ignore-case matching has more possible first-rune folds
+	// than a small precomputed set can safely represent. Keep its conservative
+	// position-by-position scan; the common case-sensitive path skips directly
+	// between possible first runes.
+	if ignoreCase || len(firstRunes) == 0 {
+		for start := r.Runtextpos; start <= latestPossibleStart(r); start++ {
+			for _, prefix := range prefixes {
+				if ignoreCase {
+					if helpers.StartsWithIgnoreCase(r.Runtext[start:], prefix) {
+						r.Runtextpos = start
+						return true
+					}
+				} else if helpers.StartsWith(r.Runtext[start:], prefix) {
 					r.Runtextpos = start
 					return true
 				}
-			} else if helpers.StartsWith(r.Runtext[start:], prefix) {
+			}
+		}
+		r.Runtextpos = r.Runtextend
+		return false
+	}
+
+	latest := min(latestPossibleStart(r), r.Runtextend-1)
+	for searchAt := r.Runtextpos; searchAt <= latest; {
+		offset := indexOfAnyRunes(r.Runtext[searchAt:latest+1], firstRunes)
+		if offset < 0 {
+			break
+		}
+		start := searchAt + offset
+		first := r.Runtext[start]
+		for _, prefix := range prefixes {
+			if len(prefix) > 0 && prefix[0] == first && helpers.StartsWith(r.Runtext[start:], prefix) {
 				r.Runtextpos = start
 				return true
 			}
 		}
+		searchAt = start + 1
 	}
 
 	r.Runtextpos = r.Runtextend
 	return false
+}
+
+func indexOfAnyRunes(input, find []rune) int {
+	switch len(find) {
+	case 0:
+		return -1
+	case 1:
+		return helpers.IndexOfAny1(input, find[0])
+	case 2:
+		return helpers.IndexOfAny2(input, find[0], find[1])
+	case 3:
+		return helpers.IndexOfAny3(input, find[0], find[1], find[2])
+	default:
+		return helpers.IndexOfAny(input, find)
+	}
 }
 
 func findFixedDistanceCharLeftToRight(r *Runner, ch rune, distance int) bool {
@@ -2145,6 +2199,7 @@ func (re *Regexp) getRunner() *Runner {
 // putRunner returns a runner to the re's pool cache.
 func (re *Regexp) putRunner(r *Runner) {
 	r.Runtext = nil
+	r.code = re.code
 	if r.runmatch != nil {
 		r.runmatch.text = nil
 	}

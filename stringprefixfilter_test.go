@@ -229,6 +229,67 @@ func TestNewStringPrefixFilterFixedDistanceChar(t *testing.T) {
 	}
 }
 
+func TestStringFixedDistanceSetFilter(t *testing.T) {
+	filter := stringFixedDistanceSetFilter(syntax.FixedDistanceSet{
+		Range:    &syntax.SingleRange{First: 'a', Last: 'c'},
+		Distance: 2,
+	}, 3)
+	if filter == nil {
+		t.Fatal("expected filter")
+	}
+
+	candidateByteIndex, ok := filter("é12b", 0)
+	if !ok {
+		t.Fatal("expected candidate")
+	}
+	if got, want := candidateByteIndex, 2; got != want {
+		t.Fatalf("candidateByteIndex = %d, want %d", got, want)
+	}
+	if _, ok := filter("é12z", 0); ok {
+		t.Fatal("unexpected candidate")
+	}
+}
+
+func TestStringFixedDistanceSetFilterSmallSet(t *testing.T) {
+	filter := stringFixedDistanceSetFilter(syntax.FixedDistanceSet{
+		Chars: []rune{'a', 'c'},
+	}, 1)
+	if filter == nil {
+		t.Fatal("expected filter")
+	}
+	if got, ok := filter("zzc", 0); !ok || got != 2 {
+		t.Fatalf("filter = %d, %v; want 2, true", got, ok)
+	}
+}
+
+func TestStringFixedDistanceSetFilterRejectsUnsupportedSets(t *testing.T) {
+	for _, set := range []syntax.FixedDistanceSet{
+		{Chars: []rune{'é'}},
+		{Chars: []rune{'a'}, Negated: true},
+		{Range: &syntax.SingleRange{First: 'a', Last: 'é'}},
+	} {
+		if filter := stringFixedDistanceSetFilter(set, 1); filter != nil {
+			t.Fatalf("expected nil filter for %+v", set)
+		}
+	}
+}
+
+func TestNewStringPrefixFilterLeadingSet(t *testing.T) {
+	re := MustCompile(`[a-c]`)
+	if got, want := re.code.FindOptimizations.FindMode, syntax.LeadingSet_LeftToRight; got != want {
+		t.Fatalf("FindMode = %v, want %v", got, want)
+	}
+	if re.stringPrefixFilter == nil {
+		t.Fatal("expected filter")
+	}
+	if got, ok := re.stringPrefixFilter("zzb", 0); !ok || got != 2 {
+		t.Fatalf("filter = %d, %v; want 2, true", got, ok)
+	}
+	if _, ok := re.stringPrefixFilter("zzz", 0); ok {
+		t.Fatal("unexpected candidate")
+	}
+}
+
 func TestFindStringPrefixCandidateFallbacks(t *testing.T) {
 	re := &Regexp{
 		stringPrefixFilter: func(input string, startAt int) (candidateByteIndex int, ok bool) {

@@ -2,6 +2,7 @@ package regexp2
 
 import (
 	"errors"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -150,6 +151,87 @@ func TestFindOptimizationsCarriedToCode(t *testing.T) {
 	}
 }
 
+func TestLeadingSetUsesOptimizedScanner(t *testing.T) {
+	re := MustCompile(`[a-q]`)
+	if got, want := re.code.FindOptimizations.FindMode, syntax.LeadingSet_LeftToRight; got != want {
+		t.Fatalf("FindMode = %v, want %v", got, want)
+	}
+	runner := &Runner{
+		re:         re,
+		code:       re.code,
+		Runtext:    []rune("zzb"),
+		Runtextend: 3,
+	}
+	if !shouldUseFindFirstCharOptimized(runner) {
+		t.Fatal("LeadingSet_LeftToRight was not routed to the optimized scanner")
+	}
+	if handled, found := findFirstCharOptimized(runner); !handled || !found {
+		t.Fatalf("findFirstCharOptimized = %v, %v; want true, true", handled, found)
+	}
+	if got, want := runner.Runtextpos, 2; got != want {
+		t.Fatalf("Runtextpos = %d, want %d", got, want)
+	}
+}
+
+func TestFindLeadingStringsSkipsToFirstRune(t *testing.T) {
+	prefixes := [][]rune{[]rune("apple"), []rune("apricot"), []rune("tiger")}
+	runner := &Runner{Runtext: []rune("zzapricot"), Runtextend: 9}
+	if !findLeadingStringsLeftToRight(runner, prefixes, []rune{'a', 't'}, false) {
+		t.Fatal("expected prefix")
+	}
+	if got, want := runner.Runtextpos, 2; got != want {
+		t.Fatalf("Runtextpos = %d, want %d", got, want)
+	}
+}
+
+func TestQuickMatchCaptureLiveness(t *testing.T) {
+	re := MustCompile(`^(a)(b)\1$`)
+	if got, want := re.code.CaptureSlotInUse, []bool{true, true, false}; !slices.Equal(got, want) {
+		t.Fatalf("CaptureSlotInUse = %v, want %v", got, want)
+	}
+	if len(re.code.QuickCodes) == 0 || len(re.code.QuickCodes) >= len(re.code.Codes) {
+		t.Fatalf("quick code size = %d, full code size = %d; want smaller quick code", len(re.code.QuickCodes), len(re.code.Codes))
+	}
+
+	runner := re.getRunner()
+	defer re.putRunner(runner)
+	runner.code = re.quickCode
+	input := []rune("aba")
+	m, err := runner.scan(input, nil, 0, true, re.MatchTimeout)
+	if err != nil || m == nil {
+		t.Fatalf("scan = %v, %v; want match", m, err)
+	}
+	if got := runner.runmatch.matchcount[1]; got != 1 {
+		t.Fatalf("live capture count = %d, want 1", got)
+	}
+	if got := runner.runmatch.matchcount[2]; got != 0 {
+		t.Fatalf("dead capture count = %d, want 0", got)
+	}
+
+	// A subsequent full match must still return every capture.
+	full, err := re.run(false, 0, input, newMatchText(input))
+	if err != nil || full == nil {
+		t.Fatalf("full match = %v, %v", full, err)
+	}
+	if got, want := full.GroupByNumber(2).String(), "b"; got != want {
+		t.Fatalf("group 2 = %q, want %q", got, want)
+	}
+}
+
+func TestQuickMatchRetainsBalancingCaptures(t *testing.T) {
+	re := MustCompile(`^\((?>[^()]+|\((?<depth>)|\)(?<-depth>))*(?(depth)(?!))\)$`)
+	for i, input := range []string{"((a(b))c)", "((a(b))c"} {
+		got, err := re.MatchString(input)
+		if err != nil {
+			t.Fatalf("MatchString(%q): %v", input, err)
+		}
+		want := i == 0
+		if got != want {
+			t.Fatalf("MatchString(%q) = %v, want %v", input, got, want)
+		}
+	}
+}
+
 func TestFixedDistanceStringFindFirstChar(t *testing.T) {
 	re := MustCompile(`..abc`)
 	m, err := re.FindStringMatch("zzxxabc")
@@ -235,6 +317,19 @@ func TestStringPrefixFilterMatchesUnoptimizedResults(t *testing.T) {
 		inputs   []string
 		startAts []int
 	}{
+		{
+			name:     "leading set",
+			pattern:  `[a-c]`,
+			wantMode: syntax.LeadingSet_LeftToRight,
+			inputs: []string{
+				"a",
+				"zzc",
+				"ééb",
+				"zzz",
+				"",
+			},
+			startAts: []int{0, 1, 2, 4},
+		},
 		{
 			name:     "leading string",
 			pattern:  `abc\d+`,
