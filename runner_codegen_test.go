@@ -10,11 +10,17 @@ func TestRunnerFixedStackPushHelpers(t *testing.T) {
 	}
 
 	r.StackPush4(1, 2, 3, 4)
+	if got := r.StackDepth(); got != 4 {
+		t.Fatalf("StackDepth after StackPush4 = %d, want 4", got)
+	}
 	if got := popN(r, 4); !equalInts(got, []int{4, 3, 2, 1}) {
 		t.Fatalf("StackPush4 pop order = %v", got)
 	}
 
 	r.StackPush5(1, 2, 3, 4, 5)
+	if got := r.StackDepth(); got != 5 {
+		t.Fatalf("StackDepth after StackPush5 = %d, want 5", got)
+	}
 	if got := popN(r, 5); !equalInts(got, []int{5, 4, 3, 2, 1}) {
 		t.Fatalf("StackPush5 pop order = %v", got)
 	}

@@ -61,6 +61,7 @@ type Regexp struct {
 	// hook points to override runner functions
 	findFirstChar      func(r *Runner) bool
 	execute            func(r *Runner) error
+	executeQuick       func(r *Runner) error
 	stringPrefixFilter StringPrefixFilter
 	quickCode          *syntax.Code // bool-only program with unobservable captures removed
 }

@@ -52,6 +52,77 @@ func TestRegisterEngine_CacheHit(t *testing.T) {
 	}
 }
 
+func TestRegisterEngine_QuickExecute(t *testing.T) {
+	const pattern = "quick-execute"
+	fullCalls := 0
+	quickCalls := 0
+	RegisterEngine(pattern, RuntimeEngineData{
+		CapSize: 1,
+		FindFirstChar: func(r *Runner) bool {
+			return r.Runtextpos == 0
+		},
+		Execute: func(r *Runner) error {
+			fullCalls++
+			r.Capture(0, 0, 1)
+			return nil
+		},
+		ExecuteQuick: func(r *Runner) error {
+			quickCalls++
+			r.Capture(0, 0, 1)
+			return nil
+		},
+	})
+
+	re := MustCompile(pattern)
+	if matched, err := re.MatchString("x"); err != nil || !matched {
+		t.Fatalf("MatchString = %v, %v; want true, nil", matched, err)
+	}
+	if fullCalls != 0 || quickCalls != 1 {
+		t.Fatalf("after MatchString: full calls = %d, quick calls = %d; want 0, 1", fullCalls, quickCalls)
+	}
+	if match, err := re.FindStringMatch("x"); err != nil || match == nil {
+		t.Fatalf("FindStringMatch = %v, %v; want match, nil", match, err)
+	}
+	if fullCalls != 1 || quickCalls != 1 {
+		t.Fatalf("after FindStringMatch: full calls = %d, quick calls = %d; want 1, 1", fullCalls, quickCalls)
+	}
+}
+
+func TestRegisterEngine_CacheKeyIncludesBacktrackingStackLimit(t *testing.T) {
+	const pattern = "stack-limit-cache-key"
+	register := func(limit, marker int) {
+		RegisterEngine(pattern, RuntimeEngineData{
+			CapSize: 1,
+			FindFirstChar: func(r *Runner) bool {
+				return r.Runtextpos == 0
+			},
+			Execute: func(r *Runner) error {
+				r.Runtextpos = marker
+				r.Capture(0, 0, marker)
+				return nil
+			},
+		}, OptionMaxBacktrackingStackSize(limit))
+	}
+	register(10, 1)
+	register(20, 2)
+
+	for _, tt := range []struct {
+		limit, wantLength int
+	}{
+		{limit: 10, wantLength: 1},
+		{limit: 20, wantLength: 2},
+	} {
+		re := MustCompile(pattern, OptionMaxBacktrackingStackSize(tt.limit))
+		match, err := re.FindStringMatch("xx")
+		if err != nil || match == nil {
+			t.Fatalf("limit %d: FindStringMatch = %v, %v; want match, nil", tt.limit, match, err)
+		}
+		if match.RuneLength != tt.wantLength {
+			t.Fatalf("limit %d: match length = %d, want %d", tt.limit, match.RuneLength, tt.wantLength)
+		}
+	}
+}
+
 func TestRegisterEngine_CacheMiss(t *testing.T) {
 	didFindFirst := false
 	didExecute := false

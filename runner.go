@@ -136,6 +136,9 @@ func (r *Runner) scan(rt []rune, textInfo *matchText, textstart int, quick bool,
 	// setup our scanner functions
 	findFirstChar := r.re.findFirstChar
 	execute := r.re.execute
+	if quick && textInfo == nil && r.re.executeQuick != nil {
+		execute = r.re.executeQuick
+	}
 	if findFirstChar == nil {
 		findFirstChar = findFirstCharDefault
 	}
@@ -2229,6 +2232,12 @@ func (r *Runner) StackPop() int {
 	r.Runstackpos++
 	// return it
 	return val
+}
+
+// StackDepth returns the number of integer slots currently used by the
+// generated engine's backtracking stack.
+func (r *Runner) StackDepth() int {
+	return len(r.runstack) - r.Runstackpos
 }
 
 func (r *Runner) StackPush(val int) {
