@@ -289,6 +289,23 @@ func TestFindOptimizationsPreferPrefixesForHighFrequencyFirstSet(t *testing.T) {
 	}
 }
 
+func TestFindOptimizationsDoesNotMutateRegexTree(t *testing.T) {
+	const pattern = `(?i:'s|'t|'re)`
+
+	interpreterTree, err := Parse(pattern, ParseOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codeGenTree, err := Parse(pattern, ParseOptions{CodeGen: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want, got := interpreterTree.Dump(), codeGenTree.Dump(); got != want {
+		t.Fatalf("code-generation find optimizations mutated the regex tree:\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
 func TestFindOptimizationsRequiredLandmarkChain(t *testing.T) {
 	tree, err := Parse(`(?P<name>[-\w\d\.]+?)(?:\s+at\s+|\s*@\s*|\s*(?:[\[\]@]){3}\s*)(?P<host>[-\w\d\.]*?)\s*(?:dot|\.|(?:[\[\]dot\.]){3,5})\s*(?P<domain>\w+)`, ParseOptions{RegexOptions: RE2})
 	if err != nil {
