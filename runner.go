@@ -74,8 +74,10 @@ type Runner struct {
 //
 // quick is usually false, but can be true to not return matches, just put it in caches.
 // textstart is -1 to start at the "beginning" (depending on Right-To-Left), otherwise an index in input.
+// previousMatchLength is -1 for an initial scan. A zero value advances the current scan position while
+// preserving textstart for anchors such as \G.
 // textInfo is nil for quick scans that do not need returned capture text metadata.
-func (re *Regexp) run(quick bool, textstart int, input []rune, textInfo *matchText) (*Match, error) {
+func (re *Regexp) run(quick bool, textstart, previousMatchLength int, input []rune, textInfo *matchText) (*Match, error) {
 
 	// get a cached runner
 	runner := re.getRunner()
@@ -92,7 +94,7 @@ func (re *Regexp) run(quick bool, textstart int, input []rune, textInfo *matchTe
 		runner.code = re.quickCode
 	}
 
-	return runner.scan(input, textInfo, textstart, quick, re.MatchTimeout)
+	return runner.scan(input, textInfo, textstart, previousMatchLength, quick, re.MatchTimeout)
 }
 
 // Scans the string to find the first match. Uses the Match object
@@ -111,7 +113,7 @@ func (re *Regexp) run(quick bool, textstart int, input []rune, textInfo *matchTe
 // used as a boolean result and capture text is intentionally unavailable. If
 // we collapsed down to just textInfo it would "escape" and hit the GC for fast
 // scans without captures.
-func (r *Runner) scan(rt []rune, textInfo *matchText, textstart int, quick bool, timeout time.Duration) (*Match, error) {
+func (r *Runner) scan(rt []rune, textInfo *matchText, textstart, previousMatchLength int, quick bool, timeout time.Duration) (*Match, error) {
 	r.timeout = timeout
 	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
 	r.debug = r.re.Debug()
@@ -152,6 +154,16 @@ func (r *Runner) scan(rt []rune, textInfo *matchText, textstart int, quick bool,
 	}
 
 	r.initMatch(textInfo)
+
+	// An empty previous match must not be returned again. Keep Runtextstart at
+	// the previous match position for \G, but move the candidate scan position.
+	if previousMatchLength == 0 {
+		if r.Runtextpos == stoppos {
+			r.tidyMatch(true)
+			return nil, nil
+		}
+		r.Runtextpos += bump
+	}
 
 	r.startTimeoutWatch()
 	for {

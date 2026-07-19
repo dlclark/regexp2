@@ -661,6 +661,31 @@ func TestFindNextMatch_Basic(t *testing.T) {
 	}
 }
 
+func TestFindNextMatch_ZeroWidthAfterScanAdvance(t *testing.T) {
+	re := MustCompile(`(?=[A-Z])`)
+	m, err := re.FindRunesMatch([]rune("userName"))
+	if err != nil {
+		t.Fatalf("FindRunesMatch failed: %v", err)
+	}
+	if m == nil {
+		t.Fatal("FindRunesMatch did not match")
+	}
+	if got, want := m.RuneIndex, 4; got != want {
+		t.Fatalf("match RuneIndex = %d, want %d", got, want)
+	}
+	if got := m.RuneLength; got != 0 {
+		t.Fatalf("match RuneLength = %d, want 0", got)
+	}
+
+	m, err = re.FindNextMatch(m)
+	if err != nil {
+		t.Fatalf("FindNextMatch failed: %v", err)
+	}
+	if m != nil {
+		t.Fatalf("FindNextMatch = (%d, %d), want nil", m.RuneIndex, m.RuneLength)
+	}
+}
+
 func TestFindAllStringIndex(t *testing.T) {
 	re := MustCompile(`é(.)`, RE2)
 	got, err := re.FindAllStringIndex("éxéy", -1)

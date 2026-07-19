@@ -197,7 +197,7 @@ func TestQuickMatchCaptureLiveness(t *testing.T) {
 	defer re.putRunner(runner)
 	runner.code = re.quickCode
 	input := []rune("aba")
-	m, err := runner.scan(input, nil, 0, true, re.MatchTimeout)
+	m, err := runner.scan(input, nil, 0, -1, true, re.MatchTimeout)
 	if err != nil || m == nil {
 		t.Fatalf("scan = %v, %v; want match", m, err)
 	}
@@ -209,7 +209,7 @@ func TestQuickMatchCaptureLiveness(t *testing.T) {
 	}
 
 	// A subsequent full match must still return every capture.
-	full, err := re.run(false, 0, input, newMatchText(input))
+	full, err := re.run(false, 0, -1, input, newMatchText(input))
 	if err != nil || full == nil {
 		t.Fatalf("full match = %v, %v", full, err)
 	}
