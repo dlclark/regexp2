@@ -79,6 +79,7 @@ const (
 	ErrMissingBrace               = "missing closing }"
 	ErrInvalidRepeatOp            = "invalid nested repetition operator"
 	ErrMissingRepeatArgument      = "missing argument to repetition operator"
+	ErrQuantifiedAssertion        = "assertion cannot be quantified"
 	ErrConditionalExpression      = "illegal conditional (?(...)) expression"
 	ErrTooManyAlternates          = "too many | in (?()|)"
 	ErrUnrecognizedGrouping       = "unrecognized grouping construct: (%v"
@@ -700,6 +701,10 @@ func (p *parser) scanRegex() (*RegexNode, error) {
 			//maintain odd C# assignment order -- not sure if required, could clean up?
 			p.addConcatenate()
 			goto ContinueOuterScan
+		}
+
+		if p.useOptionE() && p.unit != nil && !p.isECMAQuantifiable(p.unit) {
+			return nil, p.getErr(ErrQuantifiedAssertion)
 		}
 
 		ch = p.moveRightGetChar()
@@ -2631,6 +2636,17 @@ func isStopperX(ch rune) bool {
 // Returns true for those characters that begin a quantifier.
 func isQuantifier(ch rune) bool {
 	return (ch <= '{' && _category[ch] >= Q)
+}
+
+// Returns false for assertions, which cannot be quantified in ECMAScript except for lookaheads without the Unicode option.
+func (p *parser) isECMAQuantifiable(n *RegexNode) bool {
+	switch n.T {
+	case NtBol, NtEol, NtBeginning, NtEndZ, NtEnd, NtBoundary, NtNonboundary, NtECMABoundary, NtNonECMABoundary:
+		return false
+	case NtPosLook, NtNegLook:
+		return n.Options&RightToLeft == 0 && !p.useOptionU()
+	}
+	return true
 }
 
 func (p *parser) isTrueQuantifier() bool {

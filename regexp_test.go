@@ -1592,6 +1592,22 @@ func TestECMAGroupNameUnicode(t *testing.T) {
 	})
 }
 
+func TestECMAQuantifiedAssertion(t *testing.T) {
+	for _, expr := range []string{`^*`, `a$+`, `\b{2}`, `\B?`, `(?=a)*`, `(?!a){1,}`} {
+		if _, err := Compile(expr, ECMAScript|Unicode); err == nil {
+			t.Fatalf("%s: expected error", expr)
+		}
+	}
+	for _, expr := range []string{`^*`, `a$+`, `\b{2}`, `\B?`} {
+		if _, err := Compile(expr, ECMAScript); err == nil {
+			t.Fatalf("%s: expected error", expr)
+		}
+	}
+	for _, expr := range []string{`(?=a)*`, `(?!a)?`, `(?:^)*`, `^{`, `\b{a}`} {
+		MustCompile(expr, ECMAScript)
+	}
+}
+
 func TestECMAGroupNameIdentifierChars(t *testing.T) {
 	for _, tc := range []struct {
 		expr string
