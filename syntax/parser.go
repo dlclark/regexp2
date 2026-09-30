@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf16"
 )
 
 type RegexOptions int32
@@ -1714,13 +1715,19 @@ func (p *parser) scanECMACapname() (string, error) {
 			escaped = true
 			p.moveRight(1)
 			if p.charsRight() > 0 && p.rightChar(0) == '{' {
-				if !p.useOptionU() {
-					return "", p.getErr(ErrInvalidECMAGroupName)
-				}
 				p.moveRight(1)
 				ch, err = p.scanHexUntilBrace()
 			} else {
 				ch, err = p.scanHex(4)
+				if err == nil && ch >= 0xD800 && ch <= 0xDBFF && p.charsRight() >= 6 && p.rightChar(0) == '\\' && p.rightChar(1) == 'u' {
+					pos := p.textpos()
+					p.moveRight(2)
+					if lo, err := p.scanHex(4); err == nil && lo >= 0xDC00 && lo <= 0xDFFF {
+						ch = utf16.DecodeRune(ch, lo)
+					} else {
+						p.textto(pos)
+					}
+				}
 			}
 			if err != nil {
 				return "", err
