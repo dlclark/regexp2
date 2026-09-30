@@ -1561,9 +1561,27 @@ func TestECMAGroupNameUnicode(t *testing.T) {
 		}
 	})
 
-	t.Run("extended-unicode-escape-requires-unicode-option", func(t *testing.T) {
-		if _, err := Compile(`(?<\u{03C0}>a)`, ECMAScript); err == nil {
-			t.Fatal("Expected error without Unicode option")
+	t.Run("extended-unicode-escape-without-unicode-option", func(t *testing.T) {
+		re := MustCompile(`(?<\u{1D49C}>a)`, ECMAScript)
+		if want, got := []string{"", "\U0001D49C"}, re.GetGroupNames(); !stringSlicesEqual(want, got) {
+			t.Fatalf("Group names = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("surrogate-pair-escape", func(t *testing.T) {
+		for _, opt := range []RegexOptions{ECMAScript, ECMAScript | Unicode} {
+			re := MustCompile(`(?<a\uD835\uDC9C>a)`, opt)
+			if want, got := []string{"", "a\U0001D49C"}, re.GetGroupNames(); !stringSlicesEqual(want, got) {
+				t.Fatalf("Group names = %v, want %v", got, want)
+			}
+		}
+	})
+
+	t.Run("lone-surrogate-escape", func(t *testing.T) {
+		for _, expr := range []string{`(?<\uD835>a)`, `(?<\uD835\u0041>a)`, `(?<\uDC9C>a)`} {
+			if _, err := Compile(expr, ECMAScript); err == nil {
+				t.Fatalf("Expected error: %s", expr)
+			}
 		}
 	})
 
