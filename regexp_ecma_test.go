@@ -246,6 +246,10 @@ func TestECMA_Test262CompileErrors(t *testing.T) {
 		{source: "S15.10.1_A1_T16.js", expr: `x{0,1}{1,}`},
 		{source: "S15.10.4.1_A9_T2.js", expr: `[{-z]`},
 		{source: "S15.10.4.1_A9_T3.js", expr: `[a--z]`},
+		{source: "invalid-optional-lookbehind.js", expr: `.(?<=.)?`},
+		{source: "invalid-optional-negative-lookbehind.js", expr: `.(?<!.)?`},
+		{source: "invalid-range-lookbehind.js", expr: `.(?<=.){2,3}`},
+		{source: "invalid-range-negative-lookbehind.js", expr: `.(?<!.){2,3}`},
 	}
 
 	for _, tt := range tests {
