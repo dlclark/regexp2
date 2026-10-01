@@ -75,6 +75,66 @@ func TestSetInCode(t *testing.T) {
 	}
 }
 
+func TestRegexp_QuantifiedStartAnchor(t *testing.T) {
+	r, err := Compile(`^*`)
+	if err != nil {
+		t.Fatalf("Compile(^*): %v", err)
+	}
+	r.MatchTimeout = time.Second
+
+	for _, input := range []string{"", "abc"} {
+		t.Run(fmt.Sprintf("input=%q", input), func(t *testing.T) {
+			m, err := r.FindStringMatch(input)
+			if err != nil {
+				t.Fatalf("FindStringMatch(%q): %v", input, err)
+			}
+			if m == nil {
+				t.Fatal("expected an empty match at the start of the input")
+			}
+			if m.RuneIndex != 0 || m.RuneLength != 0 {
+				t.Fatalf("match at %d with length %d, want index 0 and length 0", m.RuneIndex, m.RuneLength)
+			}
+		})
+	}
+}
+
+func TestRegexp_QuantifiedWordBoundary(t *testing.T) {
+	r, err := Compile(`\b{2}`)
+	if err != nil {
+		t.Fatalf("Compile(\\b{2}): %v", err)
+	}
+	r.MatchTimeout = time.Second
+
+	for _, tc := range []struct {
+		input string
+		index int // -1 means no match.
+	}{
+		{"", -1},
+		{"   ", -1},
+		{"abc", 0},
+		{" abc", 1},
+	} {
+		t.Run(fmt.Sprintf("input=%q", tc.input), func(t *testing.T) {
+			m, err := r.FindStringMatch(tc.input)
+			if err != nil {
+				t.Fatalf("FindStringMatch(%q): %v", tc.input, err)
+			}
+			if tc.index == -1 {
+				if m != nil {
+					t.Fatalf("expected no match, got a match at %d", m.RuneIndex)
+				}
+				return
+			}
+			if m == nil {
+				t.Fatalf("expected an empty match at index %d", tc.index)
+			}
+			if m.RuneIndex != tc.index || m.RuneLength != 0 {
+				t.Fatalf("match at %d with length %d, want index %d and length 0", m.RuneIndex, m.RuneLength, tc.index)
+			}
+		})
+	}
+}
+
 func TestRegexp_Basic(t *testing.T) {
 	r, err := Compile("test(?<named>ing)?")
 	//t.Logf("code dump: %v", r.code.Dump())

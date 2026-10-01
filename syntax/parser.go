@@ -1384,7 +1384,7 @@ func (p *parser) scanBackslash(scanOnly bool) (*RegexNode, error) {
 			return nil, err
 		}
 		cc := &CharSet{}
-		cc.addCategory(prop, (ch != 'p'), p.useOptionI())
+		p.addProperty(cc, prop, (ch != 'p'), p.useOptionI())
 		if p.useOptionI() {
 			cc.addLowercase()
 		}
@@ -1609,7 +1609,11 @@ func (p *parser) parseProperty() (string, error) {
 		return "", p.getErr(ErrIncompleteSlashP)
 	}
 
-	canonical, ok := canonicalUnicodeCatName(capname)
+	resolve := canonicalUnicodeCatName
+	if p.useOptionE() && p.useOptionU() {
+		resolve = canonicalECMAProperty
+	}
+	canonical, ok := resolve(capname)
 	if !ok {
 		return "", p.getErr(ErrUnknownSlashP, capname)
 	}
@@ -1908,11 +1912,16 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					if inRange {
 						return nil, p.getErr(ErrShorthandClassInCharRange, string(ch))
 					}
-					cc.addCategory(prop, (ch != 'p'), caseInsensitive)
+					p.addProperty(cc, prop, (ch != 'p'), caseInsensitive)
 				} else {
 					if _, err := p.parseProperty(); err != nil {
 						return nil, err
 					}
+				}
+				if p.useOptionE() && p.useOptionU() && p.charsRight() >= 2 && p.rightChar(0) == '-' && p.rightChar(1) != ']' {
+					// A property escape denotes a set, so it cannot start a range.
+					// https://tc39.es/ecma262/#sec-patterns-static-semantics-early-errors
+					return nil, p.getErr(ErrShorthandClassInCharRange, string(ch))
 				}
 
 				continue
