@@ -1,11 +1,15 @@
 package regexp2
 
 import (
+	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode"
+
+	"github.com/dlclark/regexp2/v2/syntax"
 )
 
 // Test262 has hundreds of RegExp tests under test/built-ins/RegExp. These
@@ -20,9 +24,9 @@ import (
 //   - RegExp.escape, because regexp2 does not expose the ECMAScript built-in.
 //   - Unicode sets and Unicode-string properties requiring /v. Property escapes
 //     in /u mode are covered below.
-//   - S15.10.2.5_A1_T4.js style capture reset semantics inside quantified
-//     groups, where ECMAScript reports captures from unmatched final iterations
-//     as undefined.
+//   - S15.10.2.5_A1_T4.js style capture reset semantics for previously accepted
+//     patterns: v2 preserves their capture histories. Newly supported duplicate
+//     names follow RepeatMatcher's reset semantics.
 
 type test262ExecCase struct {
 	source    string
@@ -718,6 +722,406 @@ func BenchmarkECMAUnicodeProperties(b *testing.B) {
 					}
 				}
 			})
+		})
+	}
+}
+
+func TestECMADuplicateNamesInAlternatives(t *testing.T) {
+	// Matching and numeric captures adapt Test262's duplicate-names-exec.js:
+	// https://github.com/tc39/test262/blob/main/test/built-ins/RegExp/named-groups/duplicate-names-exec.js
+	// GroupNumberFromName assertions cover regexp2's static API policy.
+	re, err := Compile(`(?<x>b)|(?<x>a)`, ECMAScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := re.GetGroupNumbers(); !slices.Equal(got, []int{0, 1, 2}) {
+		t.Fatalf("group numbers = %v, want [0 1 2]", got)
+	}
+	if got := re.GetGroupNames(); !slices.Equal(got, []string{"", "x", "x"}) {
+		t.Fatalf("group names = %q, want [\"\" \"x\" \"x\"]", got)
+	}
+	if got := re.GroupNumberFromName("x"); got != 1 {
+		t.Fatalf("GroupNumberFromName(x) = %d, want 1", got)
+	}
+	for _, tc := range []struct {
+		input string
+		slot  int
+	}{
+		{"bab", 1},
+		{"a", 2},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			m, err := re.FindStringMatch(tc.input)
+			if err != nil || m == nil {
+				t.Fatalf("FindStringMatch = %v, %v; want match", m, err)
+			}
+			if m.GroupByName("x") != m.GroupByNumber(tc.slot) {
+				t.Fatalf("GroupByName(x) does not select group %d", tc.slot)
+			}
+			groups := m.Groups()
+			if len(groups) != 3 {
+				t.Fatalf("group count = %d, want 3", len(groups))
+			}
+			for i := 1; i <= 2; i++ {
+				if groups[i].Name != "x" || re.GroupNameFromNumber(i) != "x" {
+					t.Fatalf("group %d should be named x", i)
+				}
+				if got := len(groups[i].Captures); (got != 0) != (i == tc.slot) {
+					t.Fatalf("group %d capture count = %d", i, got)
+				}
+			}
+		})
+	}
+}
+
+func TestECMADuplicateNamesValidation(t *testing.T) {
+	// The same-alternative case comes from Test262:
+	// https://github.com/tc39/test262/blob/main/test/built-ins/RegExp/duplicate-named-capturing-groups-syntax.js
+	// Remaining cases exercise ECMAScript 2025 §22.2.1.4 MightBothParticipate
+	// across nesting, sequential disjunctions, and normalized group names.
+	for _, options := range []RegexOptions{ECMAScript, ECMAScript | Unicode} {
+		for _, pattern := range []string{
+			`(?<x>a)(?<x>b)`,
+			`(?<x>(?<x>a))`,
+			`(?<x>a)|(?<x>b)(?<x>c)`,
+			`(?:(?<x>a)|b)(?:c|(?<x>d))`,
+			`(?=(?<x>a))(?<x>a)`,
+			`(?<x>a){0}(?<x>b)`,
+			`(?<x>a)(?<\u0078>b)`,
+		} {
+			t.Run(pattern+"/"+strconv.Itoa(int(options)), func(t *testing.T) {
+				_, err := Compile(pattern, options)
+				var parseErr *syntax.Error
+				if !errors.As(err, &parseErr) || parseErr.Code != syntax.ErrDuplicateGroupName {
+					t.Fatalf("Compile = %v, want duplicate group name error", err)
+				}
+			})
+		}
+	}
+}
+
+func TestECMADuplicateNamesMatching(t *testing.T) {
+	// Basic named backreferences adapt these Test262 cases:
+	// https://github.com/tc39/test262/blob/main/test/built-ins/RegExp/named-groups/duplicate-names-exec.js
+	// https://github.com/tc39/test262/blob/main/test/built-ins/RegExp/named-groups/duplicate-names-test.js
+	// Additional rows cover numeric references, lookarounds, and RepeatMatcher
+	// capture resets (ECMAScript 2025 §22.2.2.3.1, step 4).
+	for _, options := range []RegexOptions{ECMAScript, ECMAScript | Unicode} {
+		for _, tc := range []struct {
+			pattern string
+			input   string
+			want    []string
+			slot    int
+		}{
+			// Exact backreference sample from issue #116 (also in Test262's
+			// duplicate-names-exec.js linked above).
+			// https://github.com/dlclark/regexp2/issues/116
+			{`(?:(?<x>a)|(?<x>b))\k<x>`, "bb", []string{"bb", "", "b"}, 2},
+			{`^(?:(?<x>a)|(?<x>b))\k<x>$`, "bb", []string{"bb", "", "b"}, 2},
+			{`^(?:(?<x>a)|(?<x>b))\k<x>$`, "aa", []string{"aa", "a", ""}, 1},
+			{`^(?:(?<x>a)|(?<x>b))\k<x>$`, "ab", nil, 0},
+			{`^(?:(?<x>a)|(?<x>b))\1$`, "b", []string{"b", "", "b"}, 2},
+			{`^(?:(?<x>a)|(?<x>b))\2$`, "a", []string{"a", "a", ""}, 1},
+			{`^(?:(?<x>a)|(?<x>b))\k<x>+$`, "bbb", []string{"bbb", "", "b"}, 2},
+			{`^\k<x>(?:(?<x>a)|(?<x>b))$`, "b", []string{"b", "", "b"}, 2},
+			{`^(?:(?<x>)a|(?<x>b))$`, "a", []string{"a", "", ""}, 1},
+			{`^(?:(?<x>a)|(?<x>b)|c)$`, "c", []string{"c", "", ""}, 0},
+			{`^(?:(?<x>a)|(?:(?<x>b)|(?<x>c)))\k<x>$`, "cc", []string{"cc", "", "", "c"}, 3},
+			{`^(?:(?<x>a)|(?<\u0078>b))\k<\u{78}>$`, "bb", []string{"bb", "", "b"}, 2},
+			{`^(?=(?<x>a)|(?<x>b))\k<x>$`, "b", []string{"b", "", "b"}, 2},
+			{`(?<=(?<x>a)|(?<x>b))\k<x>`, "bb", []string{"b", "", "b"}, 2},
+			{`^(?:(?<x>a)|(?<x>b))+\k<x>$`, "abb", []string{"abb", "", "b"}, 2},
+			{`^(?:(?<x>a)|(?<x>b))+?\k<x>$`, "baa", []string{"baa", "a", ""}, 1},
+			{`^(?:(?<x>a)|(?<x>b)|c)+$`, "abc", []string{"abc", "", ""}, 0},
+			{`^(?:(?<x>a)|(?<x>b)){2}\k<x>$`, "baa", []string{"baa", "a", ""}, 1},
+			{`^(?:(?<x>a)|(?<x>b)){1,3}\k<x>$`, "abb", []string{"abb", "", "b"}, 2},
+			{`^(?:(?<x>a*)|(?<x>b*)){1,3}\k<x>$`, "baaaa", []string{"baaaa", "aa", ""}, 1},
+			{`^(?:(?<x>a)|(?<x>b)?|c)+$`, "abc", []string{"abc", "", ""}, 0},
+			{`^(?:(?<x>a)|(?<x>b)?)+\k<x>$`, "bb", []string{"bb", "", "b"}, 2},
+			{`^(?:(?<x>a)|(?<x>b)?)*?\k<x>$`, "bb", []string{"bb", "", "b"}, 2},
+			{`^(?:(?<x>a*)|(?<x>b*)){2,4}$`, "", []string{"", "", ""}, 1},
+			{`^(?:(?<x>a)|(?<x>b))+b\k<x>$`, "aba", []string{"aba", "a", ""}, 1},
+			{`^(?:(?<x>a)|(?<x>b))+b\k<x>$`, "abb", nil, 0},
+			{`^(?:(?:(?<x>a)|(?<x>b))+|c)+\k<x>$`, "abc", []string{"abc", "", ""}, 0},
+			{`^(?:(?<x>a)|(?<x>b)|(?<y>c))*\k<x>$`, "abc", []string{"abc", "", "", "c"}, 0},
+			{`^(a)(?:(?<x>b)|(?<x>c))(d)\k<x>\4$`, "acdcd", []string{"acdcd", "a", "", "c", "d"}, 3},
+		} {
+			t.Run(tc.pattern+"/"+tc.input+"/"+strconv.Itoa(int(options)), func(t *testing.T) {
+				re, err := Compile(tc.pattern, options)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, runes := range []bool{false, true} {
+					var m *Match
+					if runes {
+						m, err = re.FindRunesMatch([]rune(tc.input))
+					} else {
+						m, err = re.FindStringMatch(tc.input)
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					if tc.want == nil {
+						if m != nil {
+							t.Fatalf("unexpected match %q", m.String())
+						}
+						continue
+					}
+					if m == nil {
+						t.Fatal("expected match")
+					}
+					groups := m.Groups()
+					if len(groups) != len(tc.want) {
+						t.Fatalf("group count = %d, want %d", len(groups), len(tc.want))
+					}
+					for i := range groups {
+						if got := groups[i].String(); got != tc.want[i] {
+							t.Fatalf("group %d = %q, want %q", i, got, tc.want[i])
+						}
+						if i > 0 && groups[i].Name == "x" {
+							if (len(groups[i].Captures) > 0) != (i == tc.slot) {
+								t.Fatalf("group %d has %d captures, active slot = %d", i, len(groups[i].Captures), tc.slot)
+							}
+						}
+					}
+					selected := tc.slot
+					if selected == 0 {
+						selected = re.GroupNumberFromName("x")
+					}
+					if m.GroupByName("x") != m.GroupByNumber(selected) {
+						t.Fatalf("GroupByName(x) does not select group %d", selected)
+					}
+				}
+				matched, err := re.MatchString(tc.input)
+				if err != nil || matched != (tc.want != nil) {
+					t.Fatalf("MatchString = %v, %v", matched, err)
+				}
+				matched, err = re.MatchRunes([]rune(tc.input))
+				if err != nil || matched != (tc.want != nil) {
+					t.Fatalf("MatchRunes = %v, %v", matched, err)
+				}
+			})
+		}
+	}
+}
+
+func TestECMADuplicateNamesReplacement(t *testing.T) {
+	// Named versus numbered replacements adapt Test262, using regexp2's
+	// ${name} replacement syntax in place of ECMAScript's $<name>:
+	// https://github.com/tc39/test262/blob/main/test/built-ins/RegExp/named-groups/duplicate-names-replace.js
+	for _, options := range []RegexOptions{ECMAScript, ECMAScript | RightToLeft} {
+		re := MustCompile(`(?<x>a)|(?<x>b)|c`, options)
+		for _, tc := range []struct{ replacement, want string }{
+			{`${x}`, "ab"},
+			{`${1}:${2}:${x}`, "a::a:b:b::"},
+			{`$1/$2/${x}`, "a//a/b/b//"},
+			{`$${x}`, "${x}${x}${x}"},
+			{`${missing}`, "${missing}${missing}${missing}"},
+		} {
+			for i := 0; i < 2; i++ {
+				got, err := re.Replace("abc", tc.replacement, -1, -1)
+				if err != nil || got != tc.want {
+					t.Fatalf("Replace(%q) = %q, %v; want %q", tc.replacement, got, err, tc.want)
+				}
+			}
+		}
+		got, err := re.ReplaceFunc("abc", func(m Match) string { return m.GroupByName("x").String() }, -1, -1)
+		if err != nil || got != "ab" {
+			t.Fatalf("ReplaceFunc = %q, %v; want ab", got, err)
+		}
+	}
+	re := MustCompile(`^(?:(?<x>a)|(?<x>b))+\k<x>$`, ECMAScript)
+	got, err := re.Replace("abb", `${1}:${2}:${x}`, -1, -1)
+	if err != nil || got != ":b:b" {
+		t.Fatalf("Replace repeated alternatives = %q, %v; want :b:b", got, err)
+	}
+}
+
+func TestECMADuplicateNamesEmptyIterations(t *testing.T) {
+	// regexp2 regression for ECMAScript 2025 §22.2.2.3.1 RepeatMatcher,
+	// step 2.2: a failed optional empty iteration must preserve the captures
+	// from the previous successful iteration.
+	re := MustCompile(`^(?:(?<x>a)|(?<x>b)?)+$`, ECMAScript)
+	m, err := re.FindStringMatch("b")
+	if err != nil || m == nil {
+		t.Fatalf("FindStringMatch = %v, %v; want match", m, err)
+	}
+	if got := m.GroupByName("x").String(); got != "b" {
+		t.Fatalf("GroupByName(x) = %q, want b from the last nonempty iteration", got)
+	}
+}
+
+func TestDuplicateNamesDefaultModeUnchanged(t *testing.T) {
+	// Compatibility regression: existing v2 patterns retain capture history,
+	// including the single-name ECMAScript case below. RepeatMatcher resets
+	// currently apply only to newly supported duplicate-name patterns.
+	for _, options := range []CompileOption{None, OptionMaintainCaptureOrder()} {
+		// The default-mode results in issue #116 keep one shared group.
+		// https://github.com/dlclark/regexp2/issues/116
+		for _, tc := range []struct {
+			pattern, input, match, value string
+			captures                     int
+		}{
+			{`(?<x>b)|(?<x>a)`, "bab", "b", "b", 1},
+			{`(?<x>b)|(?<x>a)`, "a", "a", "a", 1},
+			{`(?:(?<x>a)|(?<x>b))\k<x>`, "bb", "bb", "b", 1},
+			{`(?<x>a)(?<x>b)`, "ab", "ab", "b", 2},
+		} {
+			re := MustCompile(tc.pattern, options)
+			m, err := re.FindStringMatch(tc.input)
+			if err != nil || m == nil {
+				t.Fatalf("%s: FindStringMatch = %v, %v", tc.pattern, m, err)
+			}
+			group := m.GroupByName("x")
+			if m.String() != tc.match || m.GroupCount() != 2 || group.String() != tc.value || len(group.Captures) != tc.captures {
+				t.Fatalf("%s: default mode duplicate capture behavior changed", tc.pattern)
+			}
+		}
+	}
+	re := MustCompile(`^(?:(?<x>a)|b)+$`, ECMAScript)
+	m, err := re.FindStringMatch("ab")
+	if err != nil || m == nil || m.GroupByName("x").String() != "a" {
+		t.Fatal("existing ECMAScript capture history changed")
+	}
+}
+
+func TestECMADuplicateNamesNextMatch(t *testing.T) {
+	// Related Test262 iteration coverage:
+	// https://github.com/tc39/test262/blob/main/test/built-ins/RegExp/named-groups/duplicate-names-matchall.js
+	// ByteRange assertions also exercise regexp2's UTF-8 API.
+	re := MustCompile(`(?<x>é)|(?<x>β)`, ECMAScript)
+	m, err := re.FindStringMatch("éβ")
+	for i, want := range []string{"é", "β"} {
+		if err != nil || m == nil {
+			t.Fatalf("match %d = %v, %v", i, m, err)
+		}
+		group := m.GroupByName("x")
+		if group != m.GroupByNumber(i+1) || group.String() != want {
+			t.Fatalf("match %d selected the wrong group", i)
+		}
+		if index, length := group.ByteRange(); index != i*2 || length != 2 {
+			t.Fatalf("match %d byte range = (%d, %d)", i, index, length)
+		}
+		m, err = re.FindNextMatch(m)
+	}
+	if err != nil || m != nil {
+		t.Fatalf("extra match = %v, %v", m, err)
+	}
+}
+
+func TestECMADuplicateNamesWithRE2Syntax(t *testing.T) {
+	re := MustCompile(`^(?:(?P<x>a)|(?P<x>b))(?P=x)$`, ECMAScript|RE2)
+	m, err := re.FindStringMatch("bb")
+	if err != nil || m == nil || m.GroupByName("x") != m.GroupByNumber(2) {
+		t.Fatalf("FindStringMatch = %v, %v; want second x group", m, err)
+	}
+}
+
+func TestRegisterEngineDuplicateCaptureNames(t *testing.T) {
+	// Model a generated engine through the public registration adapter. The
+	// same existing metadata fields identify both slots without a new contract.
+	const pattern = `^(?:(?<registered>a)|(?<registered>b)|c)$`
+	RegisterEngine(pattern, RuntimeEngineData{
+		CapNames:      map[string]int{"registered": 1},
+		CapsList:      []string{"", "registered", "registered"},
+		CapSize:       3,
+		FindFirstChar: func(r *Runner) bool { return r.Runtextpos == 0 },
+		Execute: func(r *Runner) error {
+			if r.Runtextend != 1 || r.Runtextpos != 0 {
+				return nil
+			}
+			switch r.Runtext[0] {
+			case 'a':
+				r.Capture(1, 0, 1)
+			case 'b':
+				r.Capture(2, 0, 1)
+			case 'c':
+			default:
+				return nil
+			}
+			r.Capture(0, 0, 1)
+			r.Runtextpos = 1
+			return nil
+		},
+	}, ECMAScript)
+	re := MustCompile(pattern, ECMAScript)
+	for _, tc := range []struct {
+		input       string
+		slot        int
+		replacement string
+	}{
+		{"a", 1, "a:a:"},
+		{"b", 2, "b::b"},
+		{"c", 1, "::"},
+	} {
+		m, err := re.FindStringMatch(tc.input)
+		if err != nil || m == nil {
+			t.Fatalf("FindStringMatch(%q) = %v, %v", tc.input, m, err)
+		}
+		if m.GroupByName("registered") != m.GroupByNumber(tc.slot) || re.GroupNumberFromName("registered") != 1 {
+			t.Fatalf("registered group resolution failed for %q", tc.input)
+		}
+		got, err := re.Replace(tc.input, `${registered}:${1}:${2}`, -1, -1)
+		if err != nil || got != tc.replacement {
+			t.Fatalf("Replace(%q) = %q, %v; want %q", tc.input, got, err, tc.replacement)
+		}
+	}
+}
+
+func TestRegisterEngineDuplicateCaptureNamesSparseNumbers(t *testing.T) {
+	const pattern = `(?<sparse>a)|(?<sparse>b)`
+	RegisterEngine(pattern, RuntimeEngineData{
+		Caps:          map[int]int{0: 0, 5: 1, 9: 2},
+		CapNames:      map[string]int{"sparse": 5},
+		CapsList:      []string{"", "sparse", "sparse"},
+		CapSize:       3,
+		FindFirstChar: func(r *Runner) bool { return r.Runtextpos == 0 },
+		Execute: func(r *Runner) error {
+			if r.Runtextend == 1 && r.Runtextpos == 0 && r.Runtext[0] == 'b' {
+				r.Capture(2, 0, 1)
+				r.Capture(0, 0, 1)
+				r.Runtextpos = 1
+			}
+			return nil
+		},
+	}, ECMAScript)
+	re := MustCompile(pattern, ECMAScript, OptionMaxCachedReplacerDataEntries(0))
+	m, err := re.FindStringMatch("b")
+	if err != nil || m == nil {
+		t.Fatalf("FindStringMatch = %v, %v", m, err)
+	}
+	if re.GroupNumberFromName("sparse") != 5 || m.GroupByName("sparse") != m.GroupByNumber(9) {
+		t.Fatal("sparse group numbers were confused with dense capture slots")
+	}
+	got, err := re.Replace("b", `${sparse}:${5}:${9}`, -1, -1)
+	if err != nil || got != "b::b" {
+		t.Fatalf("Replace = %q, %v; want b::b", got, err)
+	}
+}
+
+func TestECMADuplicateCaptureUse(t *testing.T) {
+	for _, tc := range []struct {
+		pattern string
+		inUse   []bool
+	}{
+		{`^(?:(?<x>a)|(?<x>b))+$`, []bool{true, false, false}},
+		{`^(?:(?<x>a)|(?<x>b))+\k<x>$`, []bool{true, true, true}},
+		{`^(?:(?<x>a)|(?<x>b))+\2$`, []bool{true, false, true}},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			tree, err := syntax.Parse(tc.pattern, syntax.ParseOptions{RegexOptions: syntax.ECMAScript})
+			if err != nil {
+				t.Fatal(err)
+			}
+			code, err := syntax.Write(tree)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for slot, want := range tc.inUse {
+				if got := code.CaptureSlotInUse[slot]; got != want {
+					t.Errorf("capture slot %d in use = %v, want %v", slot, got, want)
+				}
+			}
 		})
 	}
 }

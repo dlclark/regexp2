@@ -1711,13 +1711,29 @@ func TestECMAGroupNameIdentifierChars(t *testing.T) {
 func TestECMADuplicateGroupNames(t *testing.T) {
 	for _, expr := range []string{
 		`(?<a>a)(?<a>a)`,
-		`(?<a>a)|(?<a>a)`,
 	} {
 		if _, err := Compile(expr, ECMAScript); err == nil {
 			t.Fatalf("%s: expected duplicate group name error", expr)
 		}
 		if _, err := Compile(expr); err != nil {
 			t.Fatalf("%s: non-ECMAScript behavior changed: %v", expr, err)
+		}
+	}
+	// Issue #116 identified this formerly rejected pattern. Identical branch
+	// text is allowed by ECMAScript 2025 §22.2.1.4 MightBothParticipate and
+	// must retain distinct group numbers; the first alternative wins.
+	// https://github.com/dlclark/regexp2/issues/116
+	for _, options := range []RegexOptions{ECMAScript, ECMAScript | Unicode} {
+		re := MustCompile(`(?<a>a)|(?<a>a)`, options)
+		m, err := re.FindStringMatch("a")
+		if err != nil || m == nil {
+			t.Fatalf("identical alternatives: FindStringMatch = %v, %v", m, err)
+		}
+		if m.GroupCount() != 3 || m.GroupByName("a") != m.GroupByNumber(1) || m.GroupByNumber(1).String() != "a" {
+			t.Fatal("identical alternatives did not retain distinct groups and select the first")
+		}
+		if group := m.GroupByNumber(2); group.Name != "a" || len(group.Captures) != 0 {
+			t.Fatal("second identical alternative should be an unmatched group named a")
 		}
 	}
 }

@@ -530,3 +530,28 @@ func BenchmarkShortSearch(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkECMADuplicateBooleanMatch(b *testing.B) {
+	for _, pattern := range []string{`^(?:(?<x>a)|(?<x>b))+$`, `^(?:(?<x>a)|(?<y>b))+$`} {
+		b.Run(pattern, func(b *testing.B) {
+			re := MustCompile(pattern, ECMAScript)
+			input := strings.Repeat("ab", 512)
+			b.ReportAllocs()
+			for b.Loop() {
+				if ok, err := re.MatchString(input); err != nil || !ok {
+					b.Fatalf("MatchString = %v, %v", ok, err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkECMADuplicateReplacement(b *testing.B) {
+	re := MustCompile(`(?<x>a)|(?<x>b)`, ECMAScript, OptionMaxCachedReplacerDataEntries(0))
+	b.ReportAllocs()
+	for b.Loop() {
+		if got, err := re.Replace("b", `${x}:${1}:${2}`, -1, -1); err != nil || got != "b::b" {
+			b.Fatalf("Replace = %q, %v", got, err)
+		}
+	}
+}
