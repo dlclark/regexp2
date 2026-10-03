@@ -1373,7 +1373,7 @@ func (r *Runner) runematch(str []rune) bool {
 		for c != 0 {
 			c--
 			pos--
-			if str[c] != unicode.ToLower(r.Runtext[pos]) {
+			if str[c] != syntax.InvariantToLower(r.Runtext[pos]) {
 				return false
 			}
 		}
@@ -1424,7 +1424,7 @@ func (r *Runner) refmatch(index, len int) bool {
 			cmpos--
 			pos--
 
-			if unicode.ToLower(r.Runtext[cmpos]) != unicode.ToLower(r.Runtext[pos]) {
+			if syntax.InvariantToLower(r.Runtext[cmpos]) != syntax.InvariantToLower(r.Runtext[pos]) {
 				return false
 			}
 		}
