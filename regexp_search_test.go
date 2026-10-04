@@ -5,6 +5,63 @@ import (
 	"testing"
 )
 
+func TestAlternationWithNegatedStartingCharacter(t *testing.T) {
+	// Issue #119: combining a literal start with a negated start must not
+	// exclude the literal from the possible match positions.
+	for _, tc := range []struct {
+		pattern, input, want string
+		index                int // -1 means no match.
+	}{
+		{`a.|.b`, "ab", "ab", 0},
+		{`a.|.b`, "ac", "ac", 0},
+		{`a.|.b`, "cb", "cb", 0},
+		{`a.|.b`, "界aé", "aé", 1},
+		{`a.|.b`, "a\n", "", -1},
+		{`a.|.b`, "\nb", "", -1},
+		{`.b|a.`, "ac", "ac", 0},
+		{`a[^x]|[^x]b`, "ab", "ab", 0},
+		{`a[^x]|[^x]b`, "xb", "", -1},
+		{`x[^x]|[^x]b`, "xb", "xb", 0},
+		{`\d.|.b`, "1c", "1c", 0},
+		{`a[^\x00]|[^\x00]b`, "ab", "ab", 0},
+		{`a[^\x{10fffe}]|[^\x{10fffe}]b`, "a\U0010ffff", "a\U0010ffff", 0},
+		{`a[^\x{10ffff}]|[^\x{10ffff}]b`, "ab", "ab", 0},
+		{`a[^\x{10ffff}]|[^\x{10ffff}]b`, "\U0010ffffb", "", -1},
+		{`a.|.+b`, "ac", "ac", 0},
+		{`a.|.+?b`, "ac", "ac", 0},
+		{`a.|(?>.+)b`, "ac", "ac", 0},
+		{`.b`, "cb", "cb", 0},
+		{`[^x]b`, "ab", "ab", 0},
+	} {
+		t.Run(tc.pattern+"/"+tc.input, func(t *testing.T) {
+			re := MustCompile(tc.pattern)
+			wantMatched := tc.index >= 0
+			if got, err := re.MatchString(tc.input); err != nil || got != wantMatched {
+				t.Errorf("MatchString(%q) = %v, %v; want %v, nil", tc.input, got, err, wantMatched)
+			}
+			if got, err := re.MatchRunes([]rune(tc.input)); err != nil || got != wantMatched {
+				t.Errorf("MatchRunes(%q) = %v, %v; want %v, nil", tc.input, got, err, wantMatched)
+			}
+			for _, find := range []struct {
+				name string
+				find func() (*Match, error)
+			}{
+				{"FindStringMatch", func() (*Match, error) { return re.FindStringMatch(tc.input) }},
+				{"FindRunesMatch", func() (*Match, error) { return re.FindRunesMatch([]rune(tc.input)) }},
+			} {
+				m, err := find.find()
+				if err != nil {
+					t.Errorf("%s(%q): %v", find.name, tc.input, err)
+				} else if (m != nil) != wantMatched {
+					t.Errorf("%s(%q) = %v; want matched=%v", find.name, tc.input, m, wantMatched)
+				} else if m != nil && (m.String() != tc.want || m.RuneIndex != tc.index) {
+					t.Errorf("%s(%q) = %q at %d; want %q at %d", find.name, tc.input, m.String(), m.RuneIndex, tc.want, tc.index)
+				}
+			}
+		})
+	}
+}
+
 // Retain the original interpreter finder as an independent reference for
 // optimizations that skip possible starting positions. Disable it on both
 // programs because index and boolean APIs use the capture-elided program.
