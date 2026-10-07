@@ -259,7 +259,7 @@ func testOpcodeSize(op syntax.InstOp) int {
 		return 1
 	case syntax.One, syntax.Notone, syntax.Multi, syntax.Ref, syntax.Testref,
 		syntax.Goto, syntax.Nullcount, syntax.Setcount, syntax.Lazybranch,
-		syntax.Branchmark, syntax.Lazybranchmark, syntax.Prune, syntax.Set, syntax.Dispatch:
+		syntax.Branchmark, syntax.Lazybranchmark, syntax.Prune, syntax.Set, syntax.Dispatch, syntax.ResetCapture:
 		return 2
 	default:
 		return 3

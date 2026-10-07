@@ -555,3 +555,51 @@ func BenchmarkECMADuplicateReplacement(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkECMAQuantifiedCaptures(b *testing.B) {
+	// Default-mode controls isolate the cost of ECMAScript capture resets.
+	// Match exercises capture elision, Find retains captures, and Compile
+	// measures instruction generation.
+	cases := []struct{ name, pattern, input string }{
+		{"Literal", `^a+$`, strings.Repeat("a", 256)},
+		{"NoncapturingLoop", `^(?:ab)+$`, strings.Repeat("ab", 128)},
+		{"RepeatedCapture", `^(a)+$`, strings.Repeat("a", 256)},
+		{"NestedCaptures", `^(a(b)?)+$`, strings.Repeat("ab", 128)},
+		{"Backreference", `^(a(b)?)+\2$`, strings.Repeat("ab", 128) + "b"},
+		{"DuplicateNames", `^(?:(?<x>a)|(?<x>b))+$`, strings.Repeat("ab", 128)},
+	}
+	for _, c := range cases {
+		for _, mode := range []struct {
+			name    string
+			options RegexOptions
+		}{{"Default", None}, {"ECMA", ECMAScript | Unicode}} {
+			b.Run(c.name+"/"+mode.name, func(b *testing.B) {
+				re := MustCompile(c.pattern, mode.options)
+				b.Run("Match", func(b *testing.B) {
+					b.ReportAllocs()
+					for b.Loop() {
+						if ok, err := re.MatchString(c.input); !ok || err != nil {
+							b.Fatal(ok, err)
+						}
+					}
+				})
+				b.Run("Find", func(b *testing.B) {
+					b.ReportAllocs()
+					for b.Loop() {
+						if m, err := re.FindStringMatch(c.input); m == nil || err != nil {
+							b.Fatal(m, err)
+						}
+					}
+				})
+				b.Run("Compile", func(b *testing.B) {
+					b.ReportAllocs()
+					for b.Loop() {
+						if _, err := Compile(c.pattern, mode.options); err != nil {
+							b.Fatal(err)
+						}
+					}
+				})
+			})
+		}
+	}
+}

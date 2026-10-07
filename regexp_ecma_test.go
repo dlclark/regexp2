@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"unicode"
 
 	"github.com/dlclark/regexp2/v2/syntax"
@@ -24,9 +25,6 @@ import (
 //   - RegExp.escape, because regexp2 does not expose the ECMAScript built-in.
 //   - Unicode sets and Unicode-string properties requiring /v. Property escapes
 //     in /u mode are covered below.
-//   - S15.10.2.5_A1_T4.js style capture reset semantics for previously accepted
-//     patterns: v2 preserves their capture histories. Newly supported duplicate
-//     names follow RepeatMatcher's reset semantics.
 
 type test262ExecCase struct {
 	source    string
@@ -39,6 +37,12 @@ type test262ExecCase struct {
 }
 
 func TestECMA_Test262ExecScenarios(t *testing.T) {
+	// RepeatMatcher cases include the specification's capture-clearing and
+	// empty-backreference examples, plus these Test262 regressions:
+	// https://github.com/tc39/test262/blob/main/test/built-ins/RegExp/S15.10.2.5_A1_T4.js
+	// https://github.com/tc39/test262/blob/main/test/built-ins/RegExp/S15.10.2.5_A1_T5.js
+	// https://github.com/tc39/test262/blob/main/test/built-ins/RegExp/nullable-quantifier.js
+	// https://github.com/tc39/test262/blob/main/test/built-ins/RegExp/lookahead-quantifier-match-groups.js
 	tests := []test262ExecCase{
 		{
 			source:    "S15.10.2.3_A1_T15.js",
@@ -59,6 +63,51 @@ func TestECMA_Test262ExecScenarios(t *testing.T) {
 			expr:   `(aa|aabaac|ba|b|c)*`,
 			input:  "aabaac",
 			want:   []string{"aaba", "ba"},
+		},
+		{
+			source:    "S15.10.2.5_A1_T4.js",
+			expr:      `(z)((a+)?(b+)?(c))*`,
+			input:     "zaacbbbcac",
+			want:      []string{"zaacbbbcac", "z", "ac", "a", "", "c"},
+			undefined: []int{4},
+		},
+		{
+			source: "S15.10.2.5_A1_T5.js",
+			expr:   `(a*)b\1+`,
+			input:  "baaaac",
+			want:   []string{"b", ""},
+		},
+		{
+			source: "nullable-quantifier.js",
+			expr:   `(a?b??)*`,
+			input:  "ab",
+			want:   []string{"ab", "b"},
+		},
+		{
+			source: "lookahead-quantifier-match-groups.js/unquantified",
+			expr:   `(?:(?=(abc)))a`,
+			input:  "abc",
+			want:   []string{"a", "abc"},
+		},
+		{
+			source:    "lookahead-quantifier-match-groups.js/optional",
+			expr:      `(?:(?=(abc)))?a`,
+			input:     "abc",
+			want:      []string{"a", ""},
+			undefined: []int{1},
+		},
+		{
+			source: "lookahead-quantifier-match-groups.js/required",
+			expr:   `(?:(?=(abc))){1,1}a`,
+			input:  "abc",
+			want:   []string{"a", "abc"},
+		},
+		{
+			source:    "lookahead-quantifier-match-groups.js/bounded-optional",
+			expr:      `(?:(?=(abc))){0,1}a`,
+			input:     "abc",
+			want:      []string{"a", ""},
+			undefined: []int{1},
 		},
 		{
 			source: "S15.10.2.6_A1_T2.js",
@@ -199,44 +248,46 @@ func TestECMA_Test262ExecScenarios(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.source, func(t *testing.T) {
-			re := MustCompile(tt.expr, ECMAScript|tt.opt)
-			match, err := re.FindStringMatch(tt.input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if match == nil {
-				t.Fatal("expected match, got none")
-			}
-			if match.RuneIndex != tt.index {
-				t.Fatalf("expected index %d, got %d", tt.index, match.RuneIndex)
-			}
+	for _, options := range []RegexOptions{ECMAScript, ECMAScript | Unicode} {
+		for _, tt := range tests {
+			t.Run(tt.source+"/"+strconv.Itoa(int(options)), func(t *testing.T) {
+				re := MustCompile(tt.expr, options|tt.opt)
+				match, err := re.FindStringMatch(tt.input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if match == nil {
+					t.Fatal("expected match, got none")
+				}
+				if match.RuneIndex != tt.index {
+					t.Fatalf("expected index %d, got %d", tt.index, match.RuneIndex)
+				}
 
-			groups := match.Groups()
-			if len(groups) != len(tt.want) {
-				t.Fatalf("expected %d groups, got %d", len(tt.want), len(groups))
-			}
+				groups := match.Groups()
+				if len(groups) != len(tt.want) {
+					t.Fatalf("expected %d groups, got %d", len(tt.want), len(groups))
+				}
 
-			undefined := map[int]bool{}
-			for _, group := range tt.undefined {
-				undefined[group] = true
-			}
-			for i, want := range tt.want {
-				if undefined[i] {
-					if len(groups[i].Captures) != 0 {
-						t.Fatalf("group %d expected undefined, got %q", i, groups[i].String())
+				undefined := map[int]bool{}
+				for _, group := range tt.undefined {
+					undefined[group] = true
+				}
+				for i, want := range tt.want {
+					if undefined[i] {
+						if len(groups[i].Captures) != 0 {
+							t.Fatalf("group %d expected undefined, got %q", i, groups[i].String())
+						}
+						continue
 					}
-					continue
+					if len(groups[i].Captures) == 0 {
+						t.Fatalf("group %d expected %q, got undefined", i, want)
+					}
+					if got := groups[i].String(); got != want {
+						t.Fatalf("group %d expected %q, got %q", i, want, got)
+					}
 				}
-				if len(groups[i].Captures) == 0 {
-					t.Fatalf("group %d expected %q, got undefined", i, want)
-				}
-				if got := groups[i].String(); got != want {
-					t.Fatalf("group %d expected %q, got %q", i, want, got)
-				}
-			}
-		})
+			})
+		}
 	}
 }
 
@@ -951,10 +1002,124 @@ func TestECMADuplicateNamesEmptyIterations(t *testing.T) {
 	}
 }
 
+func TestECMAQuantifiedCaptureBackreference(t *testing.T) {
+	re, err := Compile(`^(a(b)?)+\2$`, ECMAScript|Unicode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	re.MatchTimeout = time.Second
+	matched, err := re.MatchString("aba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !matched {
+		t.Fatal(`MatchString("aba") = false, want true: the final repetition clears group 2`)
+	}
+}
+
+func TestECMAQuantifiedCaptures(t *testing.T) {
+	// ECMAScript RepeatMatcher clears the atom's captures before each
+	// repetition, restores them on backtracking, and rejects optional empty
+	// iterations. An undefined capture differs from a captured empty string.
+	// https://tc39.es/ecma262/2025/multipage/text-processing.html#sec-repeatmatcher
+	tests := []struct {
+		name, pattern, input string
+		want                 []string
+		undefined            []int
+	}{
+		{"cleared backreference", `^(a(b)?)+\2$`, "aba", []string{"aba", "a", ""}, []int{2}},
+		{"stale backreference rejected", `^(a(b)?)+\2$`, "abab", nil, nil},
+		{"optional capture", `^(a(b)?)+$`, "aba", []string{"aba", "a", ""}, []int{2}},
+		{"backtracking restores captures", `^(a(b)?)+a\2$`, "abab", []string{"abab", "ab", "b"}, nil},
+		{"lookahead restores captures", `^(?:(?=(a(b)?))\1)+a\2$`, "abab", []string{"abab", "ab", "b"}, nil},
+		{"atomic group restores captures", `^(?:(?>(a(b)?))|c)+a\2$`, "abab", []string{"abab", "ab", "b"}, nil},
+		{"greedy empty iteration rejected", `^(a?)*$`, "a", []string{"a", "a"}, nil},
+		{"zero repetitions", `^(a?)*$`, "", []string{"", ""}, []int{1}},
+		{"lazy repetition", `^(a?)+?$`, "a", []string{"a", "a"}, nil},
+		{"required empty repetition", `^(a?)+?$`, "", []string{"", ""}, nil},
+		{"bounded required empty repetition", `^(a?){2,3}$`, "a", []string{"a", ""}, nil},
+		{"single named capture", `^(?:(?<x>a)|b)+$`, "ab", []string{"ab", ""}, []int{1}},
+	}
+	for _, options := range []RegexOptions{ECMAScript, ECMAScript | Unicode} {
+		for _, codegen := range []bool{false, true} {
+			for _, tc := range tests {
+				t.Run(fmt.Sprintf("%s/options=%d/codegen=%v", tc.name, options, codegen), func(t *testing.T) {
+					compileOptions := []CompileOption{options}
+					if codegen {
+						compileOptions = append(compileOptions, OptionIsCodeGen())
+					}
+					re, err := Compile(tc.pattern, compileOptions...)
+					if err != nil {
+						t.Fatal(err)
+					}
+					re.MatchTimeout = time.Second
+					matched, err := re.MatchString(tc.input)
+					if err != nil || matched != (tc.want != nil) {
+						t.Errorf("MatchString = %v, %v; want %v", matched, err, tc.want != nil)
+					}
+					m, err := re.FindStringMatch(tc.input)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if tc.want == nil {
+						if m != nil {
+							t.Errorf("FindStringMatch = %q, want nil", m.String())
+						}
+						return
+					}
+					if m == nil {
+						t.Fatal("FindStringMatch = nil, want match")
+					}
+					for i, want := range tc.want {
+						g := m.GroupByNumber(i)
+						if got := g.String(); got != want {
+							t.Errorf("group %d = %q, want %q", i, got, want)
+						}
+						wantCaptures := 1
+						if slices.Contains(tc.undefined, i) {
+							wantCaptures = 0
+						}
+						if got := len(g.Captures); got != wantCaptures {
+							t.Errorf("group %d has %d captures, want %d", i, got, wantCaptures)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestQuantifiedCapturesNonECMAUnchanged(t *testing.T) {
+	for _, options := range []RegexOptions{None, Unicode, RE2, RE2 | Unicode} {
+		t.Run(fmt.Sprint(options), func(t *testing.T) {
+			re := MustCompile(`^(a(b)?)+\2$`, options)
+			matched, err := re.MatchString("aba")
+			if err != nil || matched {
+				t.Errorf("MatchString(aba) = %v, %v; want false", matched, err)
+			}
+			matched, err = re.MatchString("abab")
+			if err != nil || !matched {
+				t.Errorf("MatchString(abab) = %v, %v; want true", matched, err)
+			}
+			re = MustCompile(`^(a(b)?)+$`, options)
+			m, err := re.FindStringMatch("aba")
+			if err != nil || m == nil {
+				t.Fatalf("FindStringMatch = %v, %v; want match", m, err)
+			}
+			g := m.GroupByNumber(1)
+			if len(g.Captures) != 2 || g.Captures[0].String() != "ab" || g.Captures[1].String() != "a" {
+				t.Errorf("group 1 capture history = %v, want [ab a]", g.Captures)
+			}
+			g = m.GroupByNumber(2)
+			if len(g.Captures) != 1 || g.String() != "b" {
+				t.Errorf("group 2 capture history = %v, want [b]", g.Captures)
+			}
+		})
+	}
+}
+
 func TestDuplicateNamesDefaultModeUnchanged(t *testing.T) {
-	// Compatibility regression: existing v2 patterns retain capture history,
-	// including the single-name ECMAScript case below. RepeatMatcher resets
-	// currently apply only to newly supported duplicate-name patterns.
+	// Non-ECMAScript patterns retain capture history and shared group numbers.
 	for _, options := range []CompileOption{None, OptionMaintainCaptureOrder()} {
 		// The default-mode results in issue #116 keep one shared group.
 		// https://github.com/dlclark/regexp2/issues/116
@@ -978,10 +1143,10 @@ func TestDuplicateNamesDefaultModeUnchanged(t *testing.T) {
 			}
 		}
 	}
-	re := MustCompile(`^(?:(?<x>a)|b)+$`, ECMAScript)
+	re := MustCompile(`^(?:(?<x>a)|b)+$`, None)
 	m, err := re.FindStringMatch("ab")
 	if err != nil || m == nil || m.GroupByName("x").String() != "a" {
-		t.Fatal("existing ECMAScript capture history changed")
+		t.Fatal("non-ECMAScript capture history changed")
 	}
 }
 
