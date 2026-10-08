@@ -1713,7 +1713,7 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*RegexNode, error) {
 	}
 
 	if p.useOptionI() {
-		ch = unicode.ToLower(ch)
+		ch = InvariantToLower(ch)
 	}
 
 	return newRegexNodeCh(NtOne, p.options, ch), nil
