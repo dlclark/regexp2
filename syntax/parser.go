@@ -173,7 +173,21 @@ func Parse(re string, op ParseOptions) (*RegexTree, error) {
 		maintainCaptureOrder: op.MaintainCaptureOrder || (op.RegexOptions&ECMAScript) != 0,
 	}
 	p.setPattern(re)
+	return p.parse(op)
+}
 
+// ParseRunes converts a regex rune slice into a parse tree
+func ParseRunes(re []rune, op ParseOptions) (*RegexTree, error) {
+	p := parser{
+		options:              op.RegexOptions,
+		caps:                 make(map[int]int),
+		maintainCaptureOrder: op.MaintainCaptureOrder || (op.RegexOptions&ECMAScript) != 0,
+	}
+	p.setPatternRunes(re)
+	return p.parse(op)
+}
+
+func (p *parser) parse(op ParseOptions) (*RegexTree, error) {
 	if err := p.countCaptures(); err != nil {
 		return nil, err
 	}
@@ -206,6 +220,12 @@ func (p *parser) setPattern(pattern string) {
 	for _, r := range pattern {
 		p.pattern = append(p.pattern, r)
 	}
+}
+
+func (p *parser) setPatternRunes(pattern []rune) {
+	p.patternRaw = string(pattern)
+	p.pattern = make([]rune, len(pattern))
+	copy(p.pattern, pattern)
 }
 func (p *parser) getErr(code ErrorCode, args ...interface{}) error {
 	return &Error{Code: code, Expr: p.patternRaw, Args: args}

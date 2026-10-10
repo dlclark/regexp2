@@ -2553,3 +2553,266 @@ func TestRepeatPrefixNullableFixed(t *testing.T) {
 		}
 	}
 }
+
+func TestCompileRunesIdenticalToCompile(t *testing.T) {
+	testCases := []struct {
+		pattern string
+		options RegexOptions
+		input   string
+	}{
+		{
+			pattern: `abc`,
+			options: None,
+			input:   "123 abc 456",
+		},
+		{
+			pattern: `(?i)hello`,
+			options: None,
+			input:   "say HeLLo world",
+		},
+		{
+			pattern: `(\d+)-([a-z]+)`,
+			options: None,
+			input:   "item 123-abc rest 456-def",
+		},
+		{
+			pattern: `(?<first>\w+)\s+(?<last>\w+)`,
+			options: None,
+			input:   "John Doe and Jane Smith",
+		},
+		{
+			pattern: `^foo.*bar$`,
+			options: Singleline,
+			input:   "foo\nmiddle\nbar",
+		},
+		{
+			pattern: `[0-9]+`,
+			options: None,
+			input:   "a1b22c333",
+		},
+		{
+			pattern: `a{2,4}?`,
+			options: None,
+			input:   "aaaaa",
+		},
+		{
+			pattern: `(?m)^line\d+`,
+			options: Multiline,
+			input:   "line1\nline2\nother",
+		},
+		{
+			pattern: `(?<grp>abc)+`,
+			options: ECMAScript,
+			input:   "abcabc",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.pattern, func(t *testing.T) {
+			reStr, err := Compile(tc.pattern, tc.options)
+			if err != nil {
+				t.Fatalf("Compile(%q) error: %v", tc.pattern, err)
+			}
+
+			reRune, err := CompileRunes([]rune(tc.pattern), tc.options)
+			if err != nil {
+				t.Fatalf("CompileRunes(%q) error: %v", tc.pattern, err)
+			}
+
+			// String()
+			if reStr.String() != reRune.String() {
+				t.Fatalf("String() mismatch: want %q, got %q", reStr.String(), reRune.String())
+			}
+
+			// MatchString
+			matchStr1, err1 := reStr.MatchString(tc.input)
+			matchStr2, err2 := reRune.MatchString(tc.input)
+			if err1 != nil || err2 != nil || matchStr1 != matchStr2 {
+				t.Fatalf("MatchString mismatch: str=(%v, %v), rune=(%v, %v)", matchStr1, err1, matchStr2, err2)
+			}
+
+			// MatchRunes
+			inputRunes := []rune(tc.input)
+			matchRune1, err1 := reStr.MatchRunes(inputRunes)
+			matchRune2, err2 := reRune.MatchRunes(inputRunes)
+			if err1 != nil || err2 != nil || matchRune1 != matchRune2 {
+				t.Fatalf("MatchRunes mismatch: str=(%v, %v), rune=(%v, %v)", matchRune1, err1, matchRune2, err2)
+			}
+
+			// FindStringMatch
+			mStr, err1 := reStr.FindStringMatch(tc.input)
+			mRune, err2 := reRune.FindStringMatch(tc.input)
+			if err1 != nil || err2 != nil {
+				t.Fatalf("FindStringMatch error: str=%v, rune=%v", err1, err2)
+			}
+			if (mStr == nil) != (mRune == nil) {
+				t.Fatalf("FindStringMatch nil mismatch: str=%v, rune=%v", mStr, mRune)
+			}
+			if mStr != nil {
+				if mStr.String() != mRune.String() || mStr.Index != mRune.Index || mStr.Length != mRune.Length {
+					t.Fatalf("FindStringMatch mismatch: str=(%q, %d, %d), rune=(%q, %d, %d)",
+						mStr.String(), mStr.Index, mStr.Length, mRune.String(), mRune.Index, mRune.Length)
+				}
+				if len(mStr.Groups()) != len(mRune.Groups()) {
+					t.Fatalf("group count mismatch: str=%d, rune=%d", len(mStr.Groups()), len(mRune.Groups()))
+				}
+				for i := range mStr.Groups() {
+					if mStr.Groups()[i].String() != mRune.Groups()[i].String() {
+						t.Fatalf("group %d mismatch: str=%q, rune=%q", i, mStr.Groups()[i].String(), mRune.Groups()[i].String())
+					}
+				}
+			}
+
+			// FindRunesMatch
+			mRuneMatch1, err1 := reStr.FindRunesMatch(inputRunes)
+			mRuneMatch2, err2 := reRune.FindRunesMatch(inputRunes)
+			if err1 != nil || err2 != nil {
+				t.Fatalf("FindRunesMatch error: str=%v, rune=%v", err1, err2)
+			}
+			if (mRuneMatch1 == nil) != (mRuneMatch2 == nil) {
+				t.Fatalf("FindRunesMatch nil mismatch: str=%v, rune=%v", mRuneMatch1, mRuneMatch2)
+			}
+			if mRuneMatch1 != nil {
+				if mRuneMatch1.String() != mRuneMatch2.String() || mRuneMatch1.Index != mRuneMatch2.Index || mRuneMatch1.RuneLength != mRuneMatch2.RuneLength {
+					t.Fatalf("FindRunesMatch mismatch: str=(%q, %d, %d), rune=(%q, %d, %d)",
+						mRuneMatch1.String(), mRuneMatch1.Index, mRuneMatch1.RuneLength, mRuneMatch2.String(), mRuneMatch2.Index, mRuneMatch2.RuneLength)
+				}
+			}
+
+			// FindAllStringIndex
+			idxStr1, err1 := reStr.FindAllStringIndex(tc.input, -1)
+			idxStr2, err2 := reRune.FindAllStringIndex(tc.input, -1)
+			if err1 != nil || err2 != nil {
+				t.Fatalf("FindAllStringIndex error: str=%v, rune=%v", err1, err2)
+			}
+			if !slices.EqualFunc(idxStr1, idxStr2, slices.Equal) {
+				t.Fatalf("FindAllStringIndex mismatch: str=%v, rune=%v", idxStr1, idxStr2)
+			}
+
+			// FindAllRunesIndex
+			idxRune1, err1 := reStr.FindAllRunesIndex(inputRunes, -1)
+			idxRune2, err2 := reRune.FindAllRunesIndex(inputRunes, -1)
+			if err1 != nil || err2 != nil {
+				t.Fatalf("FindAllRunesIndex error: str=%v, rune=%v", err1, err2)
+			}
+			if !slices.EqualFunc(idxRune1, idxRune2, slices.Equal) {
+				t.Fatalf("FindAllRunesIndex mismatch: str=%v, rune=%v", idxRune1, idxRune2)
+			}
+
+			// Replace
+			rep1, err1 := reStr.Replace(tc.input, "REPLACED", 0, -1)
+			rep2, err2 := reRune.Replace(tc.input, "REPLACED", 0, -1)
+			if err1 != nil || err2 != nil || rep1 != rep2 {
+				t.Fatalf("Replace mismatch: str=(%q, %v), rune=(%q, %v)", rep1, err1, rep2, err2)
+			}
+
+			// Split
+			sp1, err1 := reStr.Split(tc.input, -1)
+			sp2, err2 := reRune.Split(tc.input, -1)
+			if err1 != nil || err2 != nil || !slices.Equal(sp1, sp2) {
+				t.Fatalf("Split mismatch: str=(%v, %v), rune=(%v, %v)", sp1, err1, sp2, err2)
+			}
+		})
+	}
+}
+
+func TestMustCompileRunes(t *testing.T) {
+	t.Run("valid pattern succeeds", func(t *testing.T) {
+		re := MustCompileRunes([]rune(`\d+`), None)
+		if re == nil {
+			t.Fatal("expected non-nil Regexp")
+		}
+		ok, err := re.MatchString("123")
+		if err != nil || !ok {
+			t.Fatalf("expected match, got ok=%v, err=%v", ok, err)
+		}
+	})
+
+	t.Run("invalid pattern panics", func(t *testing.T) {
+		defer func() {
+			r := recover()
+			if r == nil {
+				t.Fatal("expected panic, got none")
+			}
+			msg, ok := r.(string)
+			if !ok {
+				t.Fatalf("expected string panic value, got: %T (%v)", r, r)
+			}
+			expectedPrefix := "regexp2: CompileRunes(`(unclosed`):"
+			if !strings.HasPrefix(msg, expectedPrefix) {
+				t.Fatalf("expected panic prefix %q, got %q", expectedPrefix, msg)
+			}
+		}()
+
+		MustCompileRunes([]rune(`(unclosed`), None)
+	})
+}
+
+func TestCompileRunesECMAScriptSurrogates(t *testing.T) {
+	// Issue #100: For ECMAScript compatibility without Unicode option,
+	// astral ranges in UCS-2 code units like /[💩-💫]/ are actually
+	// /[\uD83D\uDCA9-\uD83D\uDCAB]/ where 0xDCA9 > 0xD83D, which is an out-of-order range.
+	t.Run("astral emoji range out of order error", func(t *testing.T) {
+		pattern := []rune{'[', 0xD83D, 0xDCA9, '-', 0xD83D, 0xDCAB, ']'}
+		_, err := CompileRunes(pattern, ECMAScript)
+		if err == nil {
+			t.Fatal("expected out of order range error, got nil")
+		}
+		if !strings.Contains(err.Error(), "range in reverse order") {
+			t.Fatalf("expected 'range in reverse order' error, got: %v", err)
+		}
+	})
+
+	t.Run("valid in-order surrogate code unit range", func(t *testing.T) {
+		// Range 0xDCA9 to 0xDCAB is in order (56489 to 56491)
+		pattern := []rune{'[', 0xDCA9, '-', 0xDCAB, ']'}
+		re, err := CompileRunes(pattern, ECMAScript)
+		if err != nil {
+			t.Fatalf("CompileRunes failed: %v", err)
+		}
+
+		matched, err := re.MatchRunes([]rune{0xDCAA})
+		if err != nil || !matched {
+			t.Fatalf("expected match for 0xDCAA in [0xDCA9-0xDCAB], got: %v, err=%v", matched, err)
+		}
+
+		notMatched, err := re.MatchRunes([]rune{0xDCA8})
+		if err != nil || notMatched {
+			t.Fatalf("expected no match for 0xDCA8 in [0xDCA9-0xDCAB], got: %v, err=%v", notMatched, err)
+		}
+	})
+
+	t.Run("direct surrogate pair matching", func(t *testing.T) {
+		// Match literal 💩 (0xD83D 0xDCA9)
+		pattern := []rune{0xD83D, 0xDCA9}
+		re := MustCompileRunes(pattern, ECMAScript)
+
+		input := []rune{'h', 'e', 'l', 'l', 'o', ' ', 0xD83D, 0xDCA9, '!'}
+		m, err := re.FindRunesMatch(input)
+		if err != nil {
+			t.Fatalf("FindRunesMatch failed: %v", err)
+		}
+		if m == nil {
+			t.Fatal("expected match, got nil")
+		}
+		if m.Index != 6 || m.RuneLength != 2 {
+			t.Fatalf("expected match at index 6 length 2, got index %d length %d", m.Index, m.RuneLength)
+		}
+	})
+}
+
+func TestCompileRunesWithOptions(t *testing.T) {
+	// Verify CompileRunes works with various CompileOption implementations
+	re, err := CompileRunes([]rune(`\w+`), OptionDebug(), OptionMaxBacktrackingStackSize(500), IgnoreCase)
+	if err != nil {
+		t.Fatalf("CompileRunes with options failed: %v", err)
+	}
+	if !re.Debug() {
+		t.Fatal("expected Debug() to be true")
+	}
+	matched, err := re.MatchString("HELLO")
+	if err != nil || !matched {
+		t.Fatalf("expected match, got: %v, err=%v", matched, err)
+	}
+}
+
