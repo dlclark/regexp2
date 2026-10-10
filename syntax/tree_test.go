@@ -532,3 +532,49 @@ func TestNonMatchingTreePatterns(t *testing.T) {
 		})
 	}
 }
+
+func TestParseRunes(t *testing.T) {
+	patterns := []string{
+		"abc.*def",
+		"(?i)foo[a-z]+",
+		"(?<name>\\w+)-(?<id>\\d+)",
+		"^(\\d{3})-(\\d{4})$",
+	}
+
+	for _, p := range patterns {
+		t.Run(p, func(t *testing.T) {
+			stringTree, err := Parse(p, ParseOptions{})
+			if err != nil {
+				t.Fatalf("Parse(%q) failed: %v", p, err)
+			}
+			runeTree, err := ParseRunes([]rune(p), ParseOptions{})
+			if err != nil {
+				t.Fatalf("ParseRunes(%q) failed: %v", p, err)
+			}
+			if stringTree.Dump() != runeTree.Dump() {
+				t.Fatalf("tree dump mismatch for pattern %q:\nstring:\n%s\nrunes:\n%s", p, stringTree.Dump(), runeTree.Dump())
+			}
+		})
+	}
+
+	t.Run("invalid syntax error", func(t *testing.T) {
+		_, err := ParseRunes([]rune("(unclosed"), ParseOptions{})
+		if err == nil {
+			t.Fatal("expected error for unclosed parenthesis, got nil")
+		}
+	})
+
+	t.Run("ecmascript surrogate pair out of order", func(t *testing.T) {
+		// [💩-💫] in UCS-2 / UTF-16 code units: 0xDCA9 > 0xD83D -> out of order
+		runes := []rune{'[', 0xD83D, 0xDCA9, '-', 0xD83D, 0xDCAB, ']'}
+		_, err := ParseRunes(runes, ParseOptions{RegexOptions: ECMAScript})
+		if err == nil {
+			t.Fatal("expected reversed char range error for UCS-2 astral range, got nil")
+		}
+		syntaxErr, ok := err.(*Error)
+		if !ok || syntaxErr.Code != ErrReversedCharRange {
+			t.Fatalf("expected ErrReversedCharRange, got: %v", err)
+		}
+	})
+}
+
