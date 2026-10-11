@@ -514,6 +514,7 @@ func TestFindStringMatchStart(t *testing.T) {
 func TestFindPrefixMatches(t *testing.T) {
 	for _, tc := range []struct{ pattern, input string }{
 		{`\d*(?:a[bc]){2}d`, "abacd"},
+		{`\d*((abc)|(ade)|(abf))`, "ade"},
 	} {
 		t.Run(tc.pattern, func(t *testing.T) {
 			re := MustCompile(tc.pattern)

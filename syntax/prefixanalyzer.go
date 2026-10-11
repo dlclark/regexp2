@@ -290,7 +290,7 @@ func tryFindPrefix(node *RegexNode, vsb *bytes.Buffer) bool {
 				// Find how much overlap there is between this branch's prefix
 				// and the smallest amount of prefix that overlapped with all
 				// the previously seen branches.
-				addedLength = commonPrefixLen(vsbSlice, alternateSb.Bytes())
+				addedLength = commonPrefixLen(vsbSlice[:addedLength], alternateSb.Bytes())
 			}
 
 			// Then cull back on what was added based on the other branches.
