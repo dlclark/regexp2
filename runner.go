@@ -1944,7 +1944,13 @@ func requiredLandmarkAlternativeMatch(input []rune, start, endAt int, alt syntax
 		if maxRepeat <= 0 {
 			maxRepeat = alt.MinRepeat
 		}
+		// Stop at the shortest core that the alternative accepts. The VM can
+		// backtrack a longer one, so a greedy end could pass the whitespace
+		// required after the core or the start of the next landmark.
 		for end < endAt && end-start < maxRepeat && alt.Set.Contains(input[end]) {
+			if end-start >= alt.MinRepeat && (!alt.RequireWhitespaceAfter || alt.TrailingWhitespaceSet.Contains(input[end])) {
+				break
+			}
 			end++
 		}
 		if end-start < alt.MinRepeat {

@@ -239,3 +239,21 @@ func TestLargeFixedDistanceSetSearchEquivalent(t *testing.T) {
 		}
 	}
 }
+
+func TestRequiredLandmarkChainSearch(t *testing.T) {
+	for _, tc := range []struct {
+		pattern, input, want string
+	}{
+		// The repetition must stop before the next landmark.
+		{`\S*([ac]{1,3})[a-c]\1`, "aaa", "aaa"},
+		// The repetition must stop before the whitespace that \s+ needs.
+		{`\S*([a ]{1,3}\s+|x)a()`, " a a", " a a"},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			m, err := MustCompile(tc.pattern).FindStringMatch(tc.input)
+			if err != nil || m == nil || m.String() != tc.want || m.RuneIndex != 0 {
+				t.Fatalf("FindStringMatch(%q) = %s, %v; want %q at 0", tc.input, matchSummary(m), err, tc.want)
+			}
+		})
+	}
+}
