@@ -124,6 +124,12 @@ func TestReductionsPreserveMatches(t *testing.T) {
 	}{
 		// [ab]* must give back the b that ([bc]*) captures for \1.
 		{`^[ab]*([bc]*)c\1$`, "bcb", "bcb", 0},
+		// Matching right to left, a* must give back the a that ends the next "ba",
+		{`(?<=(?:a*(ba)){2})$`, "baba", "", 4},
+		// or every a, so that the next end anchor holds.
+		{`(?<=(?:a*\z){2})$`, "a", "", 1},
+		{`(?<=(?:a*$){2})$`, "a", "", 1},
+		{`(?m)(?<=(?:a*$){2})$`, "a", "", 1},
 	} {
 		m, err := MustCompile(tc.pattern).FindStringMatch(tc.input)
 		if err != nil {

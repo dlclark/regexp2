@@ -995,6 +995,12 @@ func (n *RegexNode) canBeMadeAtomic(subsequent *RegexNode, iterateNullableSubseq
 			return false
 		}
 
+		// The Multi and end anchor checks below assume left-to-right matching.
+		if n.Options&RightToLeft != 0 &&
+			(subsequent.T == NtMulti || subsequent.T == NtEnd || subsequent.T == NtEndZ || subsequent.T == NtEol) {
+			return false
+		}
+
 		// If the successor is an alternation, all of its children need to be evaluated, since any of them
 		// could come after this node.  If any of them fail the optimization, then the whole node fails.
 		// This applies to expression conditionals as well, as long as they have both a yes and a no branch (if there's
