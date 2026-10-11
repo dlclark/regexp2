@@ -117,6 +117,24 @@ func TestEmptyCaptureRepeatIsNotReduced(t *testing.T) {
 	}
 }
 
+func TestReductionsPreserveMatches(t *testing.T) {
+	for _, tc := range []struct {
+		pattern, input, want string
+		index                int
+	}{
+		// [ab]* must give back the b that ([bc]*) captures for \1.
+		{`^[ab]*([bc]*)c\1$`, "bcb", "bcb", 0},
+	} {
+		m, err := MustCompile(tc.pattern).FindStringMatch(tc.input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m == nil || m.String() != tc.want || m.RuneIndex != tc.index {
+			t.Errorf("%q on %q: match = %s, want %q at %d", tc.pattern, tc.input, matchSummary(m), tc.want, tc.index)
+		}
+	}
+}
+
 func TestReplacerDataCacheBounded(t *testing.T) {
 	re := MustCompile(`a`, OptionMaxCachedReplacerDataEntries(2), OptionMaxCachedReplacerDataBytes(-1))
 	for _, replacement := range []string{"one", "two", "three"} {
