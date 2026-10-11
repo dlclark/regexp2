@@ -67,3 +67,24 @@ func TestAddLowercaseComplementRange(t *testing.T) {
 		t.Fatal("letter should remain included")
 	}
 }
+
+func TestCharSetMayOverlap(t *testing.T) {
+	scenarios := []struct {
+		a, b *CharSet
+		want bool
+	}{
+		// Both cursors must advance before the ranges meet at an endpoint.
+		{&CharSet{ranges: []SingleRange{{'a', 'c'}, {'g', 'i'}}}, &CharSet{ranges: []SingleRange{{'d', 'f'}, {'i', 'j'}}}, true},
+		{&CharSet{ranges: []SingleRange{{'\n', '\n'}, {'\r', '\r'}}}, ECMAAnyClass(), false},
+		// Sets with categories or subtraction keep the existing path.
+		{DigitClass(), ECMADigitClass(), true},
+		{&CharSet{ranges: []SingleRange{{'0', '9'}}, sub: ECMADigitClass()}, ECMADigitClass(), false},
+	}
+	for _, s := range scenarios {
+		for _, pair := range [][2]*CharSet{{s.a, s.b}, {s.b, s.a}} {
+			if got := pair[0].MayOverlap(pair[1]); got != s.want {
+				t.Errorf("MayOverlap(%s, %s) = %v, want %v", pair[0], pair[1], got, s.want)
+			}
+		}
+	}
+}
