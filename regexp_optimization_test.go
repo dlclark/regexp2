@@ -130,6 +130,8 @@ func TestReductionsPreserveMatches(t *testing.T) {
 		{`(?<=(?:a*\z){2})$`, "a", "", 1},
 		{`(?<=(?:a*$){2})$`, "a", "", 1},
 		{`(?m)(?<=(?:a*$){2})$`, "a", "", 1},
+		// Matching right to left, a* meets the b of "ab", not its a.
+		{`(?<=aba*)`, "ab", "", 2},
 	} {
 		m, err := MustCompile(tc.pattern).FindStringMatch(tc.input)
 		if err != nil {

@@ -1640,7 +1640,9 @@ func (n *RegexNode) reduceConcatenationWithAdjacentLoops() {
 					next++
 					continue
 				}
-			} else if (currentNode.T == NtOneloop || currentNode.T == NtOnelazy) && nextNode.T == NtMulti && currentNode.Ch == nextNode.Str[0] {
+			} else if (currentNode.T == NtOneloop || currentNode.T == NtOnelazy) && nextNode.T == NtMulti &&
+				nextNode.Options&RightToLeft == 0 && // RTL multi nodes don't have their text reversed
+				currentNode.Ch == nextNode.Str[0] {
 				// Coalescing a loop with a subsequent string
 				// Determine how many of the multi's characters can be combined.
 				// We already checked for the first, so we know it's at least one.
