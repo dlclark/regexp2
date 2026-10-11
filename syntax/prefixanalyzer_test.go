@@ -180,6 +180,27 @@ func TestPrefixCharSets(t *testing.T) {
 	}
 }
 
+func TestFindPrefix(t *testing.T) {
+	scenarios := []struct {
+		p, expected string
+	}{
+		{`(?:ab){2}`, "abab"},
+		{`(?:a[bc]){2}d`, "a"},
+	}
+
+	for _, s := range scenarios {
+		t.Run(s.p, func(t *testing.T) {
+			tree, err := Parse(s.p, ParseOptions{})
+			if err != nil {
+				t.Fatalf("failed to parse %s: %v", s.p, err)
+			}
+			if got := findPrefix(tree.Root); got != s.expected {
+				t.Fatalf("wanted %q got %q for pattern %s", s.expected, got, s.p)
+			}
+		})
+	}
+}
+
 func TestFindPrefixes(t *testing.T) {
 	// case-sensitive
 	scenarios := []struct {

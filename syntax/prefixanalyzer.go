@@ -337,7 +337,7 @@ func tryFindPrefix(node *RegexNode, vsb *bytes.Buffer) bool {
 			limit = node.M
 		}
 		for i := 0; i < limit; i++ {
-			if tryFindPrefix(node.Children[0], vsb) {
+			if !tryFindPrefix(node.Children[0], vsb) {
 				return false
 			}
 		}
