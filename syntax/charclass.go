@@ -1206,6 +1206,11 @@ func (set1 *CharSet) MayOverlap(set2 *CharSet) bool {
 	// If set2 can be easily enumerated (e.g. no unicode categories), then enumerate it and
 	// check if any of its members are in set1.  Otherwise, the same for set1.
 	if !set2.HasSubtraction() && len(set2.categories) == 0 {
+		if !set1.HasSubtraction() && len(set1.categories) == 0 {
+			// Both sets are just ranges, so compare those. Enumerating a large
+			// set such as ECMAScript's "." would visit about 1.1M runes.
+			return rangesOverlap(set1.ranges, set2.ranges)
+		}
 		return mayOverlapByEnumeration(set1, set2)
 	} else if !set1.HasSubtraction() && len(set1.categories) == 0 {
 		return mayOverlapByEnumeration(set2, set1)
@@ -1222,6 +1227,22 @@ func knownDistinctSets(set1, set2 *CharSet) bool {
 		(set2.Equals(DigitClass()) || set2.Equals(WordClass()) ||
 			set2.Equals(ECMADigitClass()) || set2.Equals(ECMAWordClass()))
 
+}
+
+// rangesOverlap reports whether two range lists, each sorted by First as
+// Contains also requires, share a rune.
+func rangesOverlap(ranges1, ranges2 []SingleRange) bool {
+	for i, j := 0, 0; i < len(ranges1) && j < len(ranges2); {
+		switch {
+		case ranges1[i].Last < ranges2[j].First:
+			i++
+		case ranges2[j].Last < ranges1[i].First:
+			j++
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 func mayOverlapByEnumeration(set1, set2 *CharSet) bool {
