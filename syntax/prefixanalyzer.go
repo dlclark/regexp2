@@ -293,7 +293,11 @@ func tryFindPrefix(node *RegexNode, vsb *bytes.Buffer) bool {
 				addedLength = commonPrefixLen(vsbSlice[:addedLength], alternateSb.Bytes())
 			}
 
-			// Then cull back on what was added based on the other branches.
+			// Then cull back on what was added based on the other branches,
+			// without ending partway through a UTF-8 encoded rune.
+			for addedLength < len(vsbSlice) && !utf8.RuneStart(vsbSlice[addedLength]) {
+				addedLength--
+			}
 			vsb.Truncate(initialLength + addedLength)
 		}
 

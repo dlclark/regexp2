@@ -188,6 +188,8 @@ func TestFindPrefix(t *testing.T) {
 		{`(?:a[bc]){2}d`, "a"},
 		// The captures keep the parser from factoring out the leading "a".
 		{`(abc)|(ade)|(abf)`, "a"},
+		// 😀 and 😁 share their first three UTF-8 bytes.
+		{`(a😀x)|(a😁y)`, "a"},
 	}
 
 	for _, s := range scenarios {
