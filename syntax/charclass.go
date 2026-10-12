@@ -248,8 +248,8 @@ func (c CharSet) mapHashFill(buf *bytes.Buffer) {
 	_ = binary.Write(buf, binary.LittleEndian, int32(len(c.ranges)))
 	_ = binary.Write(buf, binary.LittleEndian, int32(len(c.categories)))
 	for _, r := range c.ranges {
-		buf.WriteRune(r.First)
-		buf.WriteRune(r.Last)
+		_ = binary.Write(buf, binary.LittleEndian, int32(r.First))
+		_ = binary.Write(buf, binary.LittleEndian, int32(r.Last))
 	}
 	for _, ct := range c.categories {
 		// write the length of the cat and indicate if it's negated
@@ -280,8 +280,11 @@ func NewCharSetRuntime(buf string) CharSet {
 	retVal.ranges = make([]SingleRange, lenRanges)
 	for i := 0; i < int(lenRanges); i++ {
 		r := SingleRange{}
-		r.First, _, _ = b.ReadRune()
-		r.Last, _, _ = b.ReadRune()
+		var first, last int32
+		_ = binary.Read(b, binary.LittleEndian, &first)
+		_ = binary.Read(b, binary.LittleEndian, &last)
+		r.First = rune(first)
+		r.Last = rune(last)
 		retVal.ranges[i] = r
 	}
 

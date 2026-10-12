@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"fmt"
 	"slices"
+	"unicode/utf8"
 )
 
 type FindOptimizations struct {
@@ -17,6 +18,7 @@ type FindOptimizations struct {
 	MinRequiredLength    int
 	MaxPossibleLength    int
 	LeadingPrefix        string
+	LeadingPrefixRunes   []rune
 	LeadingPrefixes      []string
 	LeadingPrefixesRunes [][]rune
 	//LeadingStrings    *helpers.StringSearchValues
@@ -30,6 +32,7 @@ type FindOptimizations struct {
 
 type LiteralAfterLoop struct {
 	String           string
+	Runes            []rune
 	StringIgnoreCase bool
 	Char             rune
 	Chars            []rune
@@ -47,6 +50,7 @@ type FixedDistanceSet struct {
 
 type FixedDistanceLiteral struct {
 	S        string
+	Runes    []rune
 	C        rune
 	Distance int
 }
@@ -404,7 +408,8 @@ func newFindOptimizationsForNode(root *RegexNode, opt ParseOptions, isLeadingPar
 	// If there's a leading substring, just use IndexOf and inherit all of its optimizations.
 	prefix := findPrefix(root)
 	if len(prefix) > 1 {
-		f.LeadingPrefix = prefix
+		f.LeadingPrefixRunes = prefix
+		f.LeadingPrefix = safeString(prefix)
 		if f.rightToLeft {
 			f.FindMode = LeadingString_RightToLeft
 		} else {
@@ -458,9 +463,10 @@ func newFindOptimizationsForNode(root *RegexNode, opt ParseOptions, isLeadingPar
 
 	// We're now left-to-right only.
 
-	prefix = findPrefixOrdinalCaseInsensitive(root)
-	if len(prefix) > 1 {
-		f.LeadingPrefix = prefix
+	ciPrefix := findPrefixOrdinalCaseInsensitive(root)
+	if len(ciPrefix) > 1 {
+		f.LeadingPrefixRunes = ciPrefix
+		f.LeadingPrefix = safeString(ciPrefix)
 		f.FindMode = LeadingString_OrdinalIgnoreCase_LeftToRight
 		return f
 	}
@@ -471,8 +477,8 @@ func newFindOptimizationsForNode(root *RegexNode, opt ParseOptions, isLeadingPar
 	// Case-sensitive prefixes are cheap to collect and help the interpreter.
 	// Case-insensitive prefix explosion is still limited to code generation.
 	if prefixes := findPrefixes(root, false); len(prefixes) > 1 {
-		f.LeadingPrefixes = prefixes
-		f.LeadingPrefixesRunes = toRunePrefixes(prefixes)
+		f.LeadingPrefixesRunes = prefixes
+		f.LeadingPrefixes = toSafeStringPrefixes(prefixes)
 		f.LeadingPrefixFirstRunes = leadingPrefixFirstRunes(f.LeadingPrefixesRunes)
 		f.FindMode = LeadingStrings_LeftToRight
 		return f
@@ -480,8 +486,8 @@ func newFindOptimizationsForNode(root *RegexNode, opt ParseOptions, isLeadingPar
 	if !interpreter {
 		ciPrefixes := findPrefixes(root, true)
 		if len(ciPrefixes) > 1 {
-			f.LeadingPrefixes = ciPrefixes
-			f.LeadingPrefixesRunes = toRunePrefixes(ciPrefixes)
+			f.LeadingPrefixesRunes = ciPrefixes
+			f.LeadingPrefixes = toSafeStringPrefixes(ciPrefixes)
 			f.LeadingPrefixFirstRunes = leadingPrefixFirstRunes(f.LeadingPrefixesRunes)
 			f.FindMode = LeadingStrings_OrdinalIgnoreCase_LeftToRight
 			return f
@@ -574,15 +580,24 @@ func (f *FindOptimizations) isUseful() bool {
 	return f.FindMode != NoSearch || f.LeadingAnchor == NtBol
 }
 
-func toRunePrefixes(prefixes []string) [][]rune {
+func safeString(runes []rune) string {
+	for _, r := range runes {
+		if !utf8.ValidRune(r) {
+			return ""
+		}
+	}
+	return string(runes)
+}
+
+func toSafeStringPrefixes(prefixes [][]rune) []string {
 	if len(prefixes) == 0 {
 		return nil
 	}
-	runes := make([][]rune, len(prefixes))
-	for i, prefix := range prefixes {
-		runes[i] = []rune(prefix)
+	res := make([]string, len(prefixes))
+	for i, p := range prefixes {
+		res[i] = safeString(p)
 	}
-	return runes
+	return res
 }
 
 func leadingPrefixFirstRunes(prefixes [][]rune) []rune {
@@ -634,7 +649,7 @@ func findFixedDistanceString(fixedDistanceSets []FixedDistanceSet) *FixedDistanc
 			return cmp.Compare(s1.Distance, s2.Distance)
 		})
 
-		vsb := &bytes.Buffer{}
+		var vsb []rune
 
 		// Looking for strings of length >= 2
 		start := -1
@@ -652,16 +667,18 @@ func findFixedDistanceString(fixedDistanceSets []FixedDistanceSet) *FixedDistanc
 			if invalidChars || (i > 0 && fixedDistanceSets[i].Distance != fixedDistanceSets[i-1].Distance+1) {
 				bestLen := 2
 				if best != nil {
-					bestLen = len(best.S)
+					bestLen = len(best.Runes)
 				}
 				if start != -1 && i-start >= bestLen {
+					runes := slices.Clone(vsb)
 					best = &FixedDistanceLiteral{
-						S:        vsb.String(),
+						Runes:    runes,
+						S:        safeString(runes),
 						Distance: fixedDistanceSets[start].Distance,
 					}
 				}
 
-				vsb.Reset()
+				vsb = vsb[:0]
 				start = -1
 				if invalidChars {
 					continue
@@ -672,7 +689,7 @@ func findFixedDistanceString(fixedDistanceSets []FixedDistanceSet) *FixedDistanc
 				start = i
 			}
 
-			vsb.WriteRune(chars[0])
+			vsb = append(vsb, chars[0])
 		}
 	}
 
