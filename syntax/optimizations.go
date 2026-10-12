@@ -59,16 +59,22 @@ type RequiredLandmarkChain struct {
 	LeadingLoopSet *CharSet
 
 	// Landmarks must all be found, in slice order, for the chain prefilter to
-	// produce a candidate. Each landmark is satisfied by exactly one matching
-	// alternative; alternatives are tried independently by the runner.
+	// produce a candidate. Alternatives can overlap, so the runner uses bounds
+	// that hold for whichever alternative the VM uses.
 	Landmarks []RequiredLandmark
 }
 
 type RequiredLandmark struct {
-	// Alternatives describes the mutually exclusive shapes that can satisfy
-	// this single required landmark. A landmark matches when any one alternative
-	// matches at a position in the input.
+	// Alternatives describes the shapes that can satisfy this single required
+	// landmark. A landmark matches when any one alternative matches at a
+	// position in the input.
 	Alternatives []RequiredLandmarkAlternative
+
+	// LeadingWhitespaceSet is the union of the alternatives' leading
+	// whitespace sets, or nil if none has one. When the first landmark is
+	// found, the runner rewinds over contiguous runes from this set before
+	// rewinding over LeadingLoopSet.
+	LeadingWhitespaceSet *CharSet
 }
 
 type RequiredLandmarkAlternative struct {
@@ -85,9 +91,7 @@ type RequiredLandmarkAlternative struct {
 
 	// LeadingWhitespaceSet is the optional or required whitespace immediately
 	// before the core token. If RequireWhitespaceBefore is true, at least one
-	// rune from this set must precede the core. When this alternative is the
-	// first matched landmark, the runner may rewind over additional contiguous
-	// leading whitespace from this set before rewinding over LeadingLoopSet.
+	// rune from this set must precede the core.
 	LeadingWhitespaceSet *CharSet
 
 	// TrailingWhitespaceSet is the optional or required whitespace immediately

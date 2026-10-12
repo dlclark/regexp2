@@ -248,6 +248,11 @@ func TestRequiredLandmarkChainSearch(t *testing.T) {
 		{`\S*([ac]{1,3})[a-c]\1`, "aaa", "aaa"},
 		// The repetition must stop before the whitespace that \s+ needs.
 		{`\S*([a ]{1,3}\s+|x)a()`, " a a", " a a"},
+		// A later alternative can end before the first one found.
+		{`\S*(abc|b)c()`, "abc", "abc"},
+		{`\S*(ab|[ac])b()`, "ab", "ab"},
+		// Another alternative's leading whitespace can start the match.
+		{`\S*(\t|\s*b)c()`, " \tbc", " \tbc"},
 	} {
 		t.Run(tc.pattern, func(t *testing.T) {
 			m, err := MustCompile(tc.pattern).FindStringMatch(tc.input)

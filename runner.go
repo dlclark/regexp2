@@ -1917,13 +1917,41 @@ type requiredLandmarkMatch struct {
 
 func findNextRequiredLandmarkRunes(input []rune, startAt, endAt int, landmark syntax.RequiredLandmark) (requiredLandmarkMatch, bool) {
 	for i := startAt; i < endAt; i++ {
-		for _, alt := range landmark.Alternatives {
+		for j, alt := range landmark.Alternatives {
 			if match, ok := requiredLandmarkAlternativeMatch(input, i, endAt, alt); ok {
-				return match, true
+				return boundRequiredLandmarkMatch(input, landmark, j, match), true
 			}
 		}
 	}
 	return requiredLandmarkMatch{}, false
+}
+
+// boundRequiredLandmarkMatch makes the bounds of the first alternative found
+// hold for whichever alternative the VM uses, at this core or a later one.
+// Start rewinds over any alternative's leading whitespace. Another
+// alternative can end before End only if its core starts before End, so End
+// drops to the earliest end that such a start allows. Each other alternative
+// tests at most one rune per rune of the found core.
+func boundRequiredLandmarkMatch(input []rune, landmark syntax.RequiredLandmark, found int, match requiredLandmarkMatch) requiredLandmarkMatch {
+	for match.Start > 0 && landmark.LeadingWhitespaceSet != nil && landmark.LeadingWhitespaceSet.Contains(input[match.Start-1]) {
+		match.Start--
+	}
+	for j, alt := range landmark.Alternatives {
+		if j == found {
+			continue
+		}
+		minLength := alt.MinRepeat
+		if len(alt.Literal) > 0 {
+			minLength = len(alt.Literal)
+		}
+		for c := match.CoreStart; c+minLength < match.End; c++ {
+			if (len(alt.Literal) > 0 && input[c] == alt.Literal[0]) || (alt.Set != nil && alt.Set.Contains(input[c])) {
+				match.End = c + minLength
+				break
+			}
+		}
+	}
+	return match
 }
 
 func requiredLandmarkAlternativeMatch(input []rune, start, endAt int, alt syntax.RequiredLandmarkAlternative) (requiredLandmarkMatch, bool) {
