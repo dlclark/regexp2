@@ -190,6 +190,10 @@ func TestFindPrefix(t *testing.T) {
 		{`(abc)|(ade)|(abf)`, "a"},
 		// 😀 and 😁 share their first three UTF-8 bytes.
 		{`(a😀x)|(a😁y)`, "a"},
+		// Copying stops before the prefix would pass maxLoopPrefixLength, and skips the z.
+		{`((((é😀){4}){4}){4}){4}z`, strings.Repeat("é😀", 32)},
+		// Processing each iteration's body again would take 4^30 steps.
+		{strings.Repeat("(", 30) + `\b` + strings.Repeat("){4}", 30) + "ab", "ab"},
 	}
 
 	for _, s := range scenarios {

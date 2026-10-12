@@ -243,6 +243,9 @@ func findPrefix(node *RegexNode) string {
 	return vsb.String()
 }
 
+// tryFindPrefix stops copying a loop body once another copy would make the prefix longer than this.
+const maxLoopPrefixLength = 256
+
 // Processes the node, adding any prefix text to the builder.
 // Returns whether processing should continue with subsequent nodes.
 func tryFindPrefix(node *RegexNode, vsb *bytes.Buffer) bool {
@@ -340,9 +343,21 @@ func tryFindPrefix(node *RegexNode, vsb *bytes.Buffer) bool {
 		if node.M < limit {
 			limit = node.M
 		}
-		for i := 0; i < limit; i++ {
-			if !tryFindPrefix(node.Children[0], vsb) {
-				return false
+
+		// Once the body is fully processed, further iterations add the same text, so
+		// copy it rather than processing the body again, which can be exponential in
+		// the nesting depth.
+		start := vsb.Len()
+		if !tryFindPrefix(node.Children[0], vsb) {
+			return false
+		}
+		if limit > 1 {
+			body := bytes.Clone(vsb.Bytes()[start:])
+			for i := 1; i < limit; i++ {
+				if vsb.Len()+len(body) > maxLoopPrefixLength {
+					return false
+				}
+				vsb.Write(body)
 			}
 		}
 		return limit == node.N && !rtl
