@@ -1,14 +1,10 @@
 package syntax
 
 import (
-	"bytes"
 	"cmp"
 	"math"
 	"slices"
-	"strings"
 	"unicode"
-	"unicode/utf8"
-	"unsafe"
 )
 
 // Computes a character class for the first character in tree.  This uses a more robust algorithm
@@ -211,15 +207,64 @@ func tryFindFirstCharClass(node *RegexNode, ccIn **CharSet) int {
 	return 0
 }
 
+type runeBuffer struct {
+	runes []rune
+}
+
+func (b *runeBuffer) Len() int {
+	if b == nil {
+		return 0
+	}
+	return len(b.runes)
+}
+
+func (b *runeBuffer) WriteRune(r rune) {
+	b.runes = append(b.runes, r)
+}
+
+func (b *runeBuffer) WriteRunes(r []rune) {
+	b.runes = append(b.runes, r...)
+}
+
+func (b *runeBuffer) WriteRepeatedRune(r rune, count int) {
+	for i := 0; i < count; i++ {
+		b.runes = append(b.runes, r)
+	}
+}
+
+func (b *runeBuffer) Reset() {
+	b.runes = b.runes[:0]
+}
+
+func (b *runeBuffer) Truncate(n int) {
+	if n < len(b.runes) {
+		b.runes = b.runes[:n]
+	}
+}
+
+func (b *runeBuffer) Runes() []rune {
+	if b == nil {
+		return nil
+	}
+	return b.runes
+}
+
+func (b *runeBuffer) Clone() *runeBuffer {
+	if b == nil {
+		return &runeBuffer{}
+	}
+	return &runeBuffer{runes: slices.Clone(b.runes)}
+}
+
 // Computes the leading ordinal case-insensitive substring in node
-func findPrefixOrdinalCaseInsensitive(node *RegexNode) string {
+func findPrefixOrdinalCaseInsensitive(node *RegexNode) []rune {
 	for {
 		// Search down the left side of the tree looking for a concatenation.  If we find one,
 		// ask it for any ordinal case-insensitive prefix it has.
 		switch node.T {
 		case NtLoop, NtLazyloop:
 			if node.M <= 0 {
-				return ""
+				return nil
 			}
 			fallthrough
 		case NtAtomic, NtCapture:
@@ -228,19 +273,22 @@ func findPrefixOrdinalCaseInsensitive(node *RegexNode) string {
 
 		case NtConcatenate:
 			_, _, caseInsensitiveString := node.TryGetOrdinalCaseInsensitiveString(0, len(node.Children), true)
-			return caseInsensitiveString
+			if len(caseInsensitiveString) == 0 {
+				return nil
+			}
+			return []rune(caseInsensitiveString)
 
 		default:
-			return ""
+			return nil
 		}
 	}
 }
 
 // Computes the leading substring in node may be empty.
-func findPrefix(node *RegexNode) string {
-	vsb := &bytes.Buffer{}
+func findPrefix(node *RegexNode) []rune {
+	vsb := &runeBuffer{}
 	tryFindPrefix(node, vsb)
-	return vsb.String()
+	return vsb.Runes()
 }
 
 // tryFindPrefix stops copying a loop body once another copy would make the prefix longer than this.
@@ -248,7 +296,7 @@ const maxLoopPrefixLength = 256
 
 // Processes the node, adding any prefix text to the builder.
 // Returns whether processing should continue with subsequent nodes.
-func tryFindPrefix(node *RegexNode, vsb *bytes.Buffer) bool {
+func tryFindPrefix(node *RegexNode, vsb *runeBuffer) bool {
 	// We don't bother to handle reversed input, so process at most one node
 	// when handling RightToLeft.
 	rtl := (node.Options & RightToLeft) != 0
@@ -279,8 +327,8 @@ func tryFindPrefix(node *RegexNode, vsb *bytes.Buffer) bool {
 		// Then explore the rest of the branches, finding the length
 		// of prefix they all share in common with the initial branch.
 		if addedLength != 0 {
-			alternateSb := &bytes.Buffer{}
-			vsbSlice := vsb.Bytes()[initialLength : initialLength+addedLength]
+			alternateSb := &runeBuffer{}
+			vsbSlice := vsb.Runes()[initialLength : initialLength+addedLength]
 
 			// Process each branch.  If we reach a point where we've proven there's
 			// no overlap, we can bail early.
@@ -293,14 +341,10 @@ func tryFindPrefix(node *RegexNode, vsb *bytes.Buffer) bool {
 				// Find how much overlap there is between this branch's prefix
 				// and the smallest amount of prefix that overlapped with all
 				// the previously seen branches.
-				addedLength = commonPrefixLen(vsbSlice[:addedLength], alternateSb.Bytes())
+				addedLength = commonPrefixRuneLen(vsbSlice[:addedLength], alternateSb.Runes())
 			}
 
-			// Then cull back on what was added based on the other branches,
-			// without ending partway through a UTF-8 encoded rune.
-			for addedLength < len(vsbSlice) && !utf8.RuneStart(vsbSlice[addedLength]) {
-				addedLength--
-			}
+			// Then cull back on what was added based on the other branches.
 			vsb.Truncate(initialLength + addedLength)
 		}
 
@@ -316,7 +360,7 @@ func tryFindPrefix(node *RegexNode, vsb *bytes.Buffer) bool {
 
 	// Multiple characters
 	case NtMulti:
-		vsb.WriteString(string(node.Str))
+		vsb.WriteRunes(node.Str)
 		return !rtl
 
 	// Loop of one character
@@ -329,7 +373,7 @@ func tryFindPrefix(node *RegexNode, vsb *bytes.Buffer) bool {
 		if node.M < count {
 			count = node.M
 		}
-		vsb.WriteString(strings.Repeat(string(node.Ch), count))
+		vsb.WriteRepeatedRune(node.Ch, count)
 		return count == node.N && !rtl
 
 	// Loop of a node
@@ -352,12 +396,12 @@ func tryFindPrefix(node *RegexNode, vsb *bytes.Buffer) bool {
 			return false
 		}
 		if limit > 1 {
-			body := bytes.Clone(vsb.Bytes()[start:])
+			body := slices.Clone(vsb.Runes()[start:])
 			for i := 1; i < limit; i++ {
 				if vsb.Len()+len(body) > maxLoopPrefixLength {
 					return false
 				}
-				vsb.Write(body)
+				vsb.WriteRunes(body)
 			}
 		}
 		return limit == node.N && !rtl
@@ -375,47 +419,15 @@ func tryFindPrefix(node *RegexNode, vsb *bytes.Buffer) bool {
 	return false
 }
 
-// commonPrefixLen returns the length of the common prefix of two strings.
-func commonPrefixLen(a, b []byte) int {
+// commonPrefixRuneLen returns the length of the common prefix of two rune slices.
+func commonPrefixRuneLen(a, b []rune) int {
 	commonLen := min(len(a), len(b))
-	i := 0
-	// Optimization: load and compare word-sized chunks at a time.
-	// This is about 6x faster than the naive approach when len > 64.
-	//
-	// TODO(adonovan): further optimizations are possible,
-	// at the cost of portability, for example by:
-	// - better elimination of bounds checks;
-	// - use of uint64 instead of an array may result in better
-	//   registerization, and allows computing the final portion
-	//   from the bitmask:
-	//
-	// 	cmp := load64le(a, i) ^ load64le(b, i)
-	// 	if cmp != 0 {
-	// 		return i + bits.LeadingZeros64(cmp)/8
-	// 	}
-	//
-	// - use of vector instructions in the manner of
-	//   runtime.cmpstring, which is expected to achieve 3x
-	//   further improvement when len > 32.
-	//
-	const wordsize = int(unsafe.Sizeof(uint(0)))
-	var aword, bword [wordsize]byte
-	for i+wordsize <= commonLen {
-		copy(aword[:], a[i:i+wordsize])
-		copy(bword[:], b[i:i+wordsize])
-		if aword != bword {
-			break
-		}
-		i += wordsize
-	}
-	// naive implementation
-	for i < commonLen {
+	for i := 0; i < commonLen; i++ {
 		if a[i] != b[i] {
 			return i
 		}
-		i++
 	}
-	return i
+	return commonLen
 }
 func min(x, y int) int {
 	if x < y {
@@ -445,46 +457,41 @@ const maxPrefixes = 16
 // Finds an array of multiple prefixes that a node can begin with.
 // If a fixed set of prefixes is found, such that a match for this node is guaranteed to begin
 // with one of those prefixes, an array of those prefixes is returned.  Otherwise, null.
-func findPrefixes(node *RegexNode, ignoreCase bool) []string {
+func findPrefixes(node *RegexNode, ignoreCase bool) [][]rune {
 
 	// Analyze the node to find prefixes.
-	results := []*bytes.Buffer{{}}
+	results := []*runeBuffer{{}}
 	findPrefixesCore(node, &results, ignoreCase)
 
 	// If we found too many prefixes or if any found is too short, fail.
-	if len(results) > maxPrefixes || slices.ContainsFunc(results, func(sb *bytes.Buffer) bool { return sb.Len() < minPrefixLength }) {
+	if len(results) > maxPrefixes || slices.ContainsFunc(results, func(sb *runeBuffer) bool { return sb.Len() < minPrefixLength }) {
 		return nil
 	}
 
 	// Return the prefixes.
-	resultStrings := make([]string, len(results))
+	resultRunes := make([][]rune, len(results))
 	for i := 0; i < len(results); i++ {
-		resultStrings[i] = results[i].String()
+		resultRunes[i] = results[i].Runes()
 	}
-	return resultStrings
+	return resultRunes
 }
 
 // Updates the results list with found prefixes. All existing strings in the list are treated as existing
 // discovered prefixes prior to the node being processed. The method returns true if subsequent nodes after
 // this one should be examined, or returns false if they shouldn't be because the node wasn't guaranteed
 // to be fully processed.
-func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bool {
+func findPrefixesCore(node *RegexNode, res *[]*runeBuffer, ignoreCase bool) bool {
 	results := *res
 	// If we're too deep to analyze further, we can't trust what we've already computed, so stop iterating.
 	// Also bail if any of our results is already hitting the threshold, or if this node is RTL, which is
 	// not worth the complexity of handling.
 	// Or if we've already discovered more than the allowed number of prefixes.
 
-	if slices.ContainsFunc(results, func(sb *bytes.Buffer) bool { return sb.Len() >= maxPrefixLength }) ||
+	if slices.ContainsFunc(results, func(sb *runeBuffer) bool { return sb.Len() >= maxPrefixLength }) ||
 		(node.Options&RightToLeft) != 0 ||
 		len(results) > maxPrefixes {
 		return false
 	}
-
-	// These limits are approximations. We'll stop trying to make strings longer once we exceed the max length,
-	// and if we exceed the max number of prefixes by a non-trivial amount, we'll fail the operation.
-	// limit how many chars we get from a set based on the max prefixes we care about
-	//setChars := make([]rune, 0, maxPrefixes)
 
 	// Loop down the left side of the tree, looking for a starting node we can handle. We only loop through
 	// atomic and capture nodes, as the child is guaranteed to execute once, as well as loops with a positive
@@ -523,7 +530,7 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 					}
 				} else {
 					for _, sb := range results {
-						sb.WriteString(strings.Repeat(string(node.Ch), reps))
+						sb.WriteRepeatedRune(node.Ch, reps)
 					}
 				}
 				return node.T == NtOne || reps == node.N
@@ -534,7 +541,7 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 		case NtMulti:
 			if !ignoreCase {
 				for _, sb := range results {
-					sb.WriteString(string(node.Str))
+					sb.WriteRunes(node.Str)
 				}
 			} else {
 				// If we're ignoring case, then only append up through characters that don't participate in case conversion.
@@ -583,7 +590,7 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 					// Duplicate all of the existing strings for all of the new suffixes, other than the first.
 					for _, suffix := range setChars[1:] {
 						for existing := 0; existing < existingCount; existing++ {
-							newSb := bytes.NewBuffer(slices.Clone(results[existing].Bytes()))
+							newSb := results[existing].Clone()
 							newSb.WriteRune(suffix)
 							results = append(results, newSb)
 						}
@@ -605,7 +612,7 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 
 				// Append it to each.
 				for _, sb := range results {
-					sb.WriteString(strings.Repeat(string(setChars[1]), reps))
+					sb.WriteRepeatedRune(setChars[1], reps)
 				}
 			}
 
@@ -649,8 +656,8 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 			}
 
 			// Build up the list of all prefixes across all branches.
-			var allBranchResults []*bytes.Buffer
-			alternateBranchResults := []*bytes.Buffer{{}}
+			var allBranchResults []*runeBuffer
+			alternateBranchResults := []*runeBuffer{{}}
 			for i := 0; i < len(node.Children); i++ {
 				findPrefixesCore(node.Children[i], &alternateBranchResults, ignoreCase)
 
@@ -671,10 +678,10 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 
 				if allBranchResults == nil {
 					allBranchResults = alternateBranchResults
-					alternateBranchResults = []*bytes.Buffer{{}}
+					alternateBranchResults = []*runeBuffer{{}}
 				} else {
 					allBranchResults = append(allBranchResults, alternateBranchResults...)
-					alternateBranchResults = []*bytes.Buffer{{}}
+					alternateBranchResults = []*runeBuffer{{}}
 				}
 			}
 
@@ -694,16 +701,15 @@ func findPrefixesCore(node *RegexNode, res *[]*bytes.Buffer, ignoreCase bool) bo
 				for i := 1; i < len(allBranchResults); i++ {
 					suffix := allBranchResults[i]
 					for existing := 0; existing < existingCount; existing++ {
-						newSb := &bytes.Buffer{}
-						newSb.Write(results[existing].Bytes())
-						newSb.Write(suffix.Bytes())
+						newSb := results[existing].Clone()
+						newSb.WriteRunes(suffix.Runes())
 						results = append(results, newSb)
 					}
 				}
 
 				// Then append the first suffix to all of the existing strings.
 				for existing := 0; existing < existingCount; existing++ {
-					results[existing].Write(allBranchResults[0].Bytes())
+					results[existing].WriteRunes(allBranchResults[0].Runes())
 				}
 			}
 			*res = results
@@ -1179,17 +1185,18 @@ func findLiteralFollowingLeadingLoop(node *RegexNode) *LiteralAfterLoop {
 		// The literal can be searched for as either a single char or as a string.
 		// But we need to make sure that its starting character isn't part of the preceding
 		// set, as then we can't know for certain where the set loop ends.
-		if firstChild.Set.CharIn(rune(prefix[0])) {
+		if firstChild.Set.CharIn(prefix[0]) {
 			return nil
 		} else if len(prefix) == 1 {
 			return &LiteralAfterLoop{
 				LoopNode: firstChild,
-				Char:     rune(prefix[0]),
+				Char:     prefix[0],
 			}
 		}
 		return &LiteralAfterLoop{
 			LoopNode: firstChild,
-			String:   prefix,
+			Runes:    prefix,
+			String:   safeString(prefix),
 		}
 	}
 
@@ -1202,7 +1209,7 @@ func findLiteralFollowingLeadingLoop(node *RegexNode) *LiteralAfterLoop {
 		// If that starting character participates in case conversion, then we need to test out
 		// both casings (FindPrefixOrdinalCaseInsensitive will only return strings composed of
 		// characters that either are ASCII or that don't participate in case conversion).
-		ch, _ := utf8.DecodeRuneInString(ordinalCaseInsensitivePrefix)
+		ch := ordinalCaseInsensitivePrefix[0]
 		if participatesInCaseConversion(ch) {
 			if firstChild.Set.CharIn(ch|0x20) ||
 				firstChild.Set.CharIn(ch&^0x20) {
@@ -1214,7 +1221,8 @@ func findLiteralFollowingLeadingLoop(node *RegexNode) *LiteralAfterLoop {
 
 		return &LiteralAfterLoop{
 			LoopNode:         firstChild,
-			String:           ordinalCaseInsensitivePrefix,
+			Runes:            ordinalCaseInsensitivePrefix,
+			String:           safeString(ordinalCaseInsensitivePrefix),
 			StringIgnoreCase: true,
 		}
 	}
