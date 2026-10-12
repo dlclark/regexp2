@@ -2655,9 +2655,9 @@ func TestCompileRunesIdenticalToCompile(t *testing.T) {
 				t.Fatalf("FindStringMatch nil mismatch: str=%v, rune=%v", mStr, mRune)
 			}
 			if mStr != nil {
-				if mStr.String() != mRune.String() || mStr.Index != mRune.Index || mStr.Length != mRune.Length {
+				if mStr.String() != mRune.String() || mStr.RuneIndex != mRune.RuneIndex || mStr.RuneLength != mRune.RuneLength {
 					t.Fatalf("FindStringMatch mismatch: str=(%q, %d, %d), rune=(%q, %d, %d)",
-						mStr.String(), mStr.Index, mStr.Length, mRune.String(), mRune.Index, mRune.Length)
+						mStr.String(), mStr.RuneIndex, mStr.RuneLength, mRune.String(), mRune.RuneIndex, mRune.RuneLength)
 				}
 				if len(mStr.Groups()) != len(mRune.Groups()) {
 					t.Fatalf("group count mismatch: str=%d, rune=%d", len(mStr.Groups()), len(mRune.Groups()))
@@ -2679,9 +2679,9 @@ func TestCompileRunesIdenticalToCompile(t *testing.T) {
 				t.Fatalf("FindRunesMatch nil mismatch: str=%v, rune=%v", mRuneMatch1, mRuneMatch2)
 			}
 			if mRuneMatch1 != nil {
-				if mRuneMatch1.String() != mRuneMatch2.String() || mRuneMatch1.Index != mRuneMatch2.Index || mRuneMatch1.RuneLength != mRuneMatch2.RuneLength {
+				if mRuneMatch1.String() != mRuneMatch2.String() || mRuneMatch1.RuneIndex != mRuneMatch2.RuneIndex || mRuneMatch1.RuneLength != mRuneMatch2.RuneLength {
 					t.Fatalf("FindRunesMatch mismatch: str=(%q, %d, %d), rune=(%q, %d, %d)",
-						mRuneMatch1.String(), mRuneMatch1.Index, mRuneMatch1.RuneLength, mRuneMatch2.String(), mRuneMatch2.Index, mRuneMatch2.RuneLength)
+						mRuneMatch1.String(), mRuneMatch1.RuneIndex, mRuneMatch1.RuneLength, mRuneMatch2.String(), mRuneMatch2.RuneIndex, mRuneMatch2.RuneLength)
 				}
 			}
 
@@ -2801,8 +2801,50 @@ func TestCompileRunesECMAScriptSurrogates(t *testing.T) {
 		if m == nil {
 			t.Fatal("expected match, got nil")
 		}
-		if m.Index != 6 || m.RuneLength != 2 {
-			t.Fatalf("expected match at index 6 length 2, got index %d length %d", m.Index, m.RuneLength)
+		if m.RuneIndex != 6 || m.RuneLength != 2 {
+			t.Fatalf("expected match at index 6 length 2, got index %d length %d", m.RuneIndex, m.RuneLength)
+		}
+	})
+
+	t.Run("surrogate prefix and alternation optimization", func(t *testing.T) {
+		// Pattern with surrogate code unit in leading prefix alternation
+		// verifying prefixanalyzer optimization path preserves 0xDCA9 without lossy replacement
+		pattern := []rune{0xDCA9, 'x', '|', 0xDCA9, 'y'}
+		re, err := CompileRunes(pattern, ECMAScript)
+		if err != nil {
+			t.Fatalf("CompileRunes failed: %v", err)
+		}
+
+		input := []rune{'a', 'b', 0xDCA9, 'y', 'c'}
+		m, err := re.FindRunesMatch(input)
+		if err != nil {
+			t.Fatalf("FindRunesMatch failed: %v", err)
+		}
+		if m == nil {
+			t.Fatal("expected match, got nil")
+		}
+		if m.RuneIndex != 2 || m.RuneLength != 2 {
+			t.Fatalf("expected match at index 2 length 2, got index %d length %d", m.RuneIndex, m.RuneLength)
+		}
+	})
+
+	t.Run("surrogate literal after loop optimization", func(t *testing.T) {
+		pattern := []rune{'a', '+', 0xDCA9, 'z'}
+		re, err := CompileRunes(pattern, ECMAScript)
+		if err != nil {
+			t.Fatalf("CompileRunes failed: %v", err)
+		}
+
+		input := []rune{'x', 'a', 'a', 0xDCA9, 'z', 'q'}
+		m, err := re.FindRunesMatch(input)
+		if err != nil {
+			t.Fatalf("FindRunesMatch failed: %v", err)
+		}
+		if m == nil {
+			t.Fatal("expected match, got nil")
+		}
+		if m.RuneIndex != 1 || m.RuneLength != 4 {
+			t.Fatalf("expected match at index 1 length 4, got index %d length %d", m.RuneIndex, m.RuneLength)
 		}
 	})
 }
