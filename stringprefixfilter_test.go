@@ -511,6 +511,24 @@ func TestFindStringMatchStart(t *testing.T) {
 	}
 }
 
+func TestFindPrefixMatches(t *testing.T) {
+	for _, tc := range []struct{ pattern, input string }{
+		{`\d*(?:a[bc]){2}d`, "abacd"},
+		{`\d*((abc)|(ade)|(abf))`, "ade"},
+		{`\d*(éx|êy)`, "éx"},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			re := MustCompile(tc.pattern)
+			if m, err := re.FindStringMatch(tc.input); err != nil || m == nil || m.String() != tc.input {
+				t.Errorf("FindStringMatch(%q) = %v, %v; want full match", tc.input, m, err)
+			}
+			if m, err := re.FindRunesMatch([]rune(tc.input)); err != nil || m == nil || m.String() != tc.input {
+				t.Errorf("FindRunesMatch(%q) = %v, %v; want full match", tc.input, m, err)
+			}
+		})
+	}
+}
+
 func BenchmarkStringIndexPrefixesFilter(b *testing.B) {
 	prefixes := []string{
 		"value00", "value01", "value02", "value03",
