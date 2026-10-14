@@ -291,6 +291,46 @@ func TestECMA_Test262ExecScenarios(t *testing.T) {
 	}
 }
 
+func TestECMA_DotExcludesLineTerminators(t *testing.T) {
+	// test/built-ins/RegExp/dotall/without-dotall.js and without-dotall-unicode.js:
+	// without the DotAll flag, Atom::. matches every character except the
+	// LineTerminators (U+000A, U+000D, U+2028, U+2029), regardless of the
+	// m and u flags.
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"a", true},
+		{"3", true},
+		{"π", true},
+		{"\u2027", true},
+		{"\u0085", true},
+		{"\v", true},
+		{"\f", true},
+		{"\u180E", true},
+		{"\n", false},
+		{"\r", false},
+		{"\u2028", false},
+		{"\u2029", false},
+	}
+	for _, options := range []RegexOptions{
+		ECMAScript, ECMAScript | Multiline, ECMAScript | Unicode, ECMAScript | Unicode | Multiline,
+	} {
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("%d/U+%04X", int(options), []rune(tt.input)[0]), func(t *testing.T) {
+				re := MustCompile(`^.$`, options)
+				matched, err := re.MatchString(tt.input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if matched != tt.want {
+					t.Fatalf("/^.$/ matched %q = %v, want %v", tt.input, matched, tt.want)
+				}
+			})
+		}
+	}
+}
+
 func TestECMA_Test262CompileErrors(t *testing.T) {
 	tests := []struct {
 		source string
