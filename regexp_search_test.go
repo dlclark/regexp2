@@ -265,6 +265,45 @@ func TestRequiredLandmarkChainSearch(t *testing.T) {
 	}
 }
 
+func TestRequiredLandmarkChainSearchReusesWork(t *testing.T) {
+	for _, tc := range []struct {
+		pattern, input string
+	}{
+		// One alternative's walk says nothing about another's.
+		{`\S*(\t|\s*b|\s*c)a()`, "aa ca"},
+		// A walk that stops at a rune outside the whitespace says nothing
+		// about cores after that rune.
+		{`\S*(\t|\s*b)c()`, " \ta bc"},
+		// After the VM fails, the next search reuses the candidate.
+		{`\S*\B(\t|\s*b)c()`, "a  bc"},
+	} {
+		re := MustCompile(tc.pattern)
+		reference := compileWithoutSearchOptimizations(tc.pattern)
+		got, err := re.FindAllRunesIndex([]rune(tc.input), -1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := reference.FindAllRunesIndex([]rune(tc.input), -1)
+		if err != nil || !sameStringIndexes(got, want) {
+			t.Fatalf("%q on %q: indexes = %v, want %v, err %v", tc.pattern, tc.input, got, want, err)
+		}
+	}
+
+	// A scan of other input must not reuse what an earlier scan found.
+	re := MustCompile(`\S*(\t|\s*b)c()`)
+	runner := &Runner{re: re, code: re.code}
+	for _, input := range []string{"    \tc", "aaa\tbc", " \t c", "a \tbc"} {
+		m, err := runner.scan([]rune(input), nil, 0, 0, -1, true, re.MatchTimeout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w, err := compileWithoutSearchOptimizations(re.String()).FindRunesMatch([]rune(input))
+		if err != nil || (m == nil) != (w == nil) || m != nil && (m.runeSliceIndex() != w.RuneIndex || m.RuneLength != w.RuneLength) {
+			t.Fatalf("scan(%q) = %s, want %s, err %v", input, matchSummary(m), matchSummary(w), err)
+		}
+	}
+}
+
 func TestRequiredLandmarkLargeRepeatCount(t *testing.T) {
 	// The short alternative must match even when another alternative has a
 	// huge minimum length. On 32-bit platforms, adding that length to the

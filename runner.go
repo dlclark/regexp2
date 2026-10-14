@@ -70,6 +70,16 @@ type Runner struct {
 
 	operator syntax.InstOp
 	codepos  int
+
+	// landmarkCore and landmarkCandidate come from the last required landmark
+	// chain search in this scan, and landmarkCore is -1 before it. A search
+	// from a later position up to landmarkCore would return the larger of that
+	// position and landmarkCandidate.
+	landmarkCore      int
+	landmarkCandidate int
+	// landmarkWalks holds the last walk in this scan for each alternative of
+	// the first landmark.
+	landmarkWalks []requiredLandmarkWalk
 }
 
 // run searches for matches and can continue from the previous match.
@@ -121,6 +131,8 @@ func (r *Runner) scan(rt []rune, textInfo *matchText, textstart, candidate, prev
 	}
 
 	r.Runtextpos = candidate
+	r.landmarkCore = -1
+	clear(r.landmarkWalks)
 
 	// setup our scanner functions
 	findFirstChar := r.re.findFirstChar
@@ -1873,6 +1885,16 @@ func findRequiredLandmarkChainLeftToRight(r *Runner, chain *syntax.RequiredLandm
 		return false
 	}
 
+	if r.Runtextpos <= r.landmarkCore {
+		if candidate := max(r.Runtextpos, r.landmarkCandidate); hasRequiredLengthAt(r, candidate) {
+			r.Runtextpos = candidate
+			return true
+		}
+	}
+	if len(r.landmarkWalks) < len(chain.Landmarks[0].Alternatives) {
+		r.landmarkWalks = make([]requiredLandmarkWalk, len(chain.Landmarks[0].Alternatives))
+	}
+
 	for searchStart := r.Runtextpos; searchStart <= latestPossibleStart(r); {
 		first, ok := findNextRequiredLandmarkRunes(r.Runtext, searchStart, r.Runtextend, chain.Landmarks[0])
 		if !ok {
@@ -1890,12 +1912,13 @@ func findRequiredLandmarkChainLeftToRight(r *Runner, chain *syntax.RequiredLandm
 			nextStart = landmark.End
 		}
 
-		candidate := requiredLandmarkStart(r.Runtext, r.Runtextpos, r.Runtextend, chain.Landmarks[0], first.CoreStart)
+		candidate := requiredLandmarkStart(r.Runtext, r.Runtextpos, r.Runtextend, chain.Landmarks[0], first.CoreStart, r.landmarkWalks)
 		for candidate > r.Runtextpos && chain.LeadingLoopSet.Contains(r.Runtext[candidate-1]) {
 			candidate--
 		}
 		if hasRequiredLengthAt(r, candidate) {
 			r.Runtextpos = candidate
+			r.landmarkCore, r.landmarkCandidate = first.CoreStart, candidate
 			return true
 		}
 
@@ -1948,16 +1971,26 @@ func boundRequiredLandmarkMatch(input []rune, landmark syntax.RequiredLandmark, 
 	return match
 }
 
-// requiredLandmarkStart returns the earliest position, not before minStart,
-// where a match can start if its first landmark core starts at or after core.
-// An alternative's leading whitespace can start the match only if that
-// alternative's core starts at core or right after a run of that whitespace
-// from core.
-func requiredLandmarkStart(input []rune, minStart, endAt int, landmark syntax.RequiredLandmark, core int) int {
+// requiredLandmarkStart returns a position, not before minStart, that is at
+// or before the start of any match whose first landmark core starts at or
+// after core, once LeadingLoopSet is rewound from it. An alternative's leading
+// whitespace can start such a match before core only if that alternative's
+// core starts at core or right after a run of that whitespace from core.
+// walks caches that check for each alternative.
+func requiredLandmarkStart(input []rune, minStart, endAt int, landmark syntax.RequiredLandmark, core int, walks []requiredLandmarkWalk) int {
 	start := core
-	for _, alt := range landmark.Alternatives {
+	for j, alt := range landmark.Alternatives {
+		if start == minStart {
+			break
+		}
 		ws := alt.LeadingWhitespaceSet
-		if ws == nil || core == minStart || !ws.Contains(input[core-1]) || !requiredLandmarkAlternativeAfterWhitespace(input, core, endAt, alt) {
+		if ws == nil || !ws.Contains(input[core-1]) {
+			continue
+		}
+		if core < walks[j].start || core >= walks[j].end {
+			walks[j] = walkRequiredLandmarkAlternative(input, core, endAt, alt)
+		}
+		if !walks[j].found {
 			continue
 		}
 		altStart := core - 1
@@ -1969,16 +2002,30 @@ func requiredLandmarkStart(input []rune, minStart, endAt int, landmark syntax.Re
 	return start
 }
 
-func requiredLandmarkAlternativeAfterWhitespace(input []rune, pos, endAt int, alt syntax.RequiredLandmarkAlternative) bool {
+// requiredLandmarkWalk is the result of walkRequiredLandmarkAlternative from
+// every position in [start, end). The zero value holds no result.
+type requiredLandmarkWalk struct {
+	start, end int
+	found      bool
+}
+
+// walkRequiredLandmarkAlternative reports whether alt's core starts at pos or
+// right after a run of alt's leading whitespace from pos. The walk stops at
+// the first core or at the first rune that is not that whitespace, so it
+// gives the same result from any position up to where it stopped.
+func walkRequiredLandmarkAlternative(input []rune, pos, endAt int, alt syntax.RequiredLandmarkAlternative) requiredLandmarkWalk {
+	walk := requiredLandmarkWalk{start: pos, end: endAt}
 	for ; pos < endAt; pos++ {
 		if _, ok := requiredLandmarkAlternativeMatch(input, pos, endAt, alt); ok {
-			return true
+			walk.end, walk.found = pos+1, true
+			break
 		}
 		if !alt.LeadingWhitespaceSet.Contains(input[pos]) {
-			return false
+			walk.end = pos + 1
+			break
 		}
 	}
-	return false
+	return walk
 }
 
 func requiredLandmarkAlternativeMatch(input []rune, start, endAt int, alt syntax.RequiredLandmarkAlternative) (requiredLandmarkMatch, bool) {
