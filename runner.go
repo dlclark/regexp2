@@ -1890,10 +1890,7 @@ func findRequiredLandmarkChainLeftToRight(r *Runner, chain *syntax.RequiredLandm
 			nextStart = landmark.End
 		}
 
-		candidate := first.Start
-		if candidate < r.Runtextpos {
-			candidate = r.Runtextpos
-		}
+		candidate := requiredLandmarkStart(r.Runtext, r.Runtextpos, r.Runtextend, chain.Landmarks[0], first.CoreStart)
 		for candidate > r.Runtextpos && chain.LeadingLoopSet.Contains(r.Runtext[candidate-1]) {
 			candidate--
 		}
@@ -1910,7 +1907,6 @@ func findRequiredLandmarkChainLeftToRight(r *Runner, chain *syntax.RequiredLandm
 }
 
 type requiredLandmarkMatch struct {
-	Start     int
 	CoreStart int
 	End       int
 }
@@ -1926,16 +1922,12 @@ func findNextRequiredLandmarkRunes(input []rune, startAt, endAt int, landmark sy
 	return requiredLandmarkMatch{}, false
 }
 
-// boundRequiredLandmarkMatch makes the bounds of the first alternative found
-// hold for whichever alternative the VM uses, at this core or a later one.
-// Start rewinds over any alternative's leading whitespace. Another
-// alternative can end before End only if its core starts before End, so End
-// drops to the earliest end that such a start allows. Each other alternative
-// tests at most one rune per rune of the found core.
+// boundRequiredLandmarkMatch makes End hold for whichever alternative the VM
+// uses, at this core or a later one. Another alternative can end before End
+// only if its core starts before End, so End drops to the earliest end that
+// such a start allows. Each other alternative tests at most one rune per rune
+// of the found core.
 func boundRequiredLandmarkMatch(input []rune, landmark syntax.RequiredLandmark, found int, match requiredLandmarkMatch) requiredLandmarkMatch {
-	for match.Start > 0 && landmark.LeadingWhitespaceSet != nil && landmark.LeadingWhitespaceSet.Contains(input[match.Start-1]) {
-		match.Start--
-	}
 	for j, alt := range landmark.Alternatives {
 		if j == found {
 			continue
@@ -1944,7 +1936,9 @@ func boundRequiredLandmarkMatch(input []rune, landmark syntax.RequiredLandmark, 
 		if len(alt.Literal) > 0 {
 			minLength = len(alt.Literal)
 		}
-		for c := match.CoreStart; c+minLength < match.End; c++ {
+		// minLength can be close to MaxInt32, so c+minLength can overflow int
+		// on 32-bit platforms.
+		for c := match.CoreStart; minLength < match.End-c; c++ {
 			if (len(alt.Literal) > 0 && input[c] == alt.Literal[0]) || (alt.Set != nil && alt.Set.Contains(input[c])) {
 				match.End = c + minLength
 				break
@@ -1952,6 +1946,39 @@ func boundRequiredLandmarkMatch(input []rune, landmark syntax.RequiredLandmark, 
 		}
 	}
 	return match
+}
+
+// requiredLandmarkStart returns the earliest position, not before minStart,
+// where a match can start if its first landmark core starts at or after core.
+// An alternative's leading whitespace can start the match only if that
+// alternative's core starts at core or right after a run of that whitespace
+// from core.
+func requiredLandmarkStart(input []rune, minStart, endAt int, landmark syntax.RequiredLandmark, core int) int {
+	start := core
+	for _, alt := range landmark.Alternatives {
+		ws := alt.LeadingWhitespaceSet
+		if ws == nil || core == minStart || !ws.Contains(input[core-1]) || !requiredLandmarkAlternativeAfterWhitespace(input, core, endAt, alt) {
+			continue
+		}
+		altStart := core - 1
+		for altStart > minStart && ws.Contains(input[altStart-1]) {
+			altStart--
+		}
+		start = min(start, altStart)
+	}
+	return start
+}
+
+func requiredLandmarkAlternativeAfterWhitespace(input []rune, pos, endAt int, alt syntax.RequiredLandmarkAlternative) bool {
+	for ; pos < endAt; pos++ {
+		if _, ok := requiredLandmarkAlternativeMatch(input, pos, endAt, alt); ok {
+			return true
+		}
+		if !alt.LeadingWhitespaceSet.Contains(input[pos]) {
+			return false
+		}
+	}
+	return false
 }
 
 func requiredLandmarkAlternativeMatch(input []rune, start, endAt int, alt syntax.RequiredLandmarkAlternative) (requiredLandmarkMatch, bool) {
@@ -1993,11 +2020,7 @@ func requiredLandmarkAlternativeMatch(input []rune, start, endAt int, alt syntax
 		return requiredLandmarkMatch{}, false
 	}
 
-	matchStart := start
-	for matchStart > 0 && alt.LeadingWhitespaceSet != nil && alt.LeadingWhitespaceSet.Contains(input[matchStart-1]) {
-		matchStart--
-	}
-	return requiredLandmarkMatch{Start: matchStart, CoreStart: start, End: end}, true
+	return requiredLandmarkMatch{CoreStart: start, End: end}, true
 }
 
 func indexOfLiteralAfterLoop(r *Runner, literal *syntax.LiteralAfterLoop, searchStart int) int {

@@ -1241,9 +1241,13 @@ func TestRequiredLandmarkAlternativeMatchDoesNotRewindTrailingWhitespace(t *test
 	if !ok {
 		t.Fatal("requiredLandmarkAlternativeMatch failed")
 	}
-	want := requiredLandmarkMatch{Start: 2, CoreStart: 2, End: 5}
+	want := requiredLandmarkMatch{CoreStart: 2, End: 5}
 	if got != want {
 		t.Fatalf("requiredLandmarkAlternativeMatch = %#v, want %#v", got, want)
+	}
+	landmark := syntax.RequiredLandmark{Alternatives: []syntax.RequiredLandmarkAlternative{alt}}
+	if start := requiredLandmarkStart(input, 0, len(input), landmark, got.CoreStart); start != 2 {
+		t.Fatalf("requiredLandmarkStart = %d, want 2", start)
 	}
 }
 

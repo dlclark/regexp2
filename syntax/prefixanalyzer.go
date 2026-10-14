@@ -1316,42 +1316,18 @@ func extractRequiredLandmark(node *RegexNode) (RequiredLandmark, bool) {
 		if !ok {
 			return RequiredLandmark{}, false
 		}
-		return newRequiredLandmark([]RequiredLandmarkAlternative{alt})
+		return RequiredLandmark{Alternatives: []RequiredLandmarkAlternative{alt}}, true
 	}
 
-	alts := make([]RequiredLandmarkAlternative, 0, len(node.Children))
+	landmark := RequiredLandmark{Alternatives: make([]RequiredLandmarkAlternative, 0, len(node.Children))}
 	for _, child := range node.Children {
 		alt, ok := extractRequiredLandmarkAlternative(child)
 		if !ok {
 			return RequiredLandmark{}, false
 		}
-		alts = append(alts, alt)
+		landmark.Alternatives = append(landmark.Alternatives, alt)
 	}
-	return newRequiredLandmark(alts)
-}
-
-// newRequiredLandmark also computes the union of the alternatives' leading
-// whitespace sets.
-func newRequiredLandmark(alts []RequiredLandmarkAlternative) (RequiredLandmark, bool) {
-	if len(alts) == 0 {
-		return RequiredLandmark{}, false
-	}
-	landmark := RequiredLandmark{Alternatives: alts}
-	for _, alt := range alts {
-		ws := alt.LeadingWhitespaceSet
-		if ws == nil {
-			continue
-		}
-		if landmark.LeadingWhitespaceSet == nil {
-			set := ws.Copy()
-			landmark.LeadingWhitespaceSet = &set
-		} else if landmark.LeadingWhitespaceSet.IsMergeable() && ws.IsMergeable() {
-			landmark.LeadingWhitespaceSet.addSet(*ws)
-		} else {
-			return RequiredLandmark{}, false
-		}
-	}
-	return landmark, true
+	return landmark, len(landmark.Alternatives) > 0
 }
 
 func extractRequiredLandmarkAlternative(node *RegexNode) (RequiredLandmarkAlternative, bool) {

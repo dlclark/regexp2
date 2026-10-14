@@ -69,12 +69,6 @@ type RequiredLandmark struct {
 	// landmark. A landmark matches when any one alternative matches at a
 	// position in the input.
 	Alternatives []RequiredLandmarkAlternative
-
-	// LeadingWhitespaceSet is the union of the alternatives' leading
-	// whitespace sets, or nil if none has one. When the first landmark is
-	// found, the runner rewinds over contiguous runes from this set before
-	// rewinding over LeadingLoopSet.
-	LeadingWhitespaceSet *CharSet
 }
 
 type RequiredLandmarkAlternative struct {
@@ -91,7 +85,10 @@ type RequiredLandmarkAlternative struct {
 
 	// LeadingWhitespaceSet is the optional or required whitespace immediately
 	// before the core token. If RequireWhitespaceBefore is true, at least one
-	// rune from this set must precede the core.
+	// rune from this set must precede the core. For the first landmark, the
+	// runner rewinds over contiguous runes from this set before rewinding over
+	// LeadingLoopSet, if this alternative's core starts at the found core or
+	// right after a run of this set from there.
 	LeadingWhitespaceSet *CharSet
 
 	// TrailingWhitespaceSet is the optional or required whitespace immediately

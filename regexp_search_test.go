@@ -1,6 +1,7 @@
 package regexp2
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -253,11 +254,53 @@ func TestRequiredLandmarkChainSearch(t *testing.T) {
 		{`\S*(ab|[ac])b()`, "ab", "ab"},
 		// Another alternative's leading whitespace can start the match.
 		{`\S*(\t|\s*b)c()`, " \tbc", " \tbc"},
+		{`\S*(\t|\s*b)c()`, " \t \tbc", " \t \tbc"},
 	} {
 		t.Run(tc.pattern, func(t *testing.T) {
 			m, err := MustCompile(tc.pattern).FindStringMatch(tc.input)
 			if err != nil || m == nil || m.String() != tc.want || m.RuneIndex != 0 {
 				t.Fatalf("FindStringMatch(%q) = %s, %v; want %q at 0", tc.input, matchSummary(m), err, tc.want)
+			}
+		})
+	}
+}
+
+func TestRequiredLandmarkLargeRepeatCount(t *testing.T) {
+	// The short alternative must match even when another alternative has a
+	// huge minimum length. On 32-bit platforms, adding that length to the
+	// core's starting index (2) must not overflow and panic in the prefilter.
+	re := MustCompile(`\S*(ab|[cd]{2147483646})z()`)
+	m, err := re.FindStringMatch("__abz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m == nil {
+		t.Fatal("expected a match")
+	}
+	if m.RuneIndex != 0 || m.String() != "__abz" {
+		t.Fatalf("got %q at %d; want %q at 0", m.String(), m.RuneIndex, "__abz")
+	}
+}
+
+func BenchmarkRequiredLandmarkWhitespaceAlternatives(b *testing.B) {
+	for _, n := range []int{1024, 4096, 16384} {
+		b.Run(strconv.Itoa(n), func(b *testing.B) {
+			re := MustCompile(`\S*(\t|\s*b)c()`)
+			// There is no b, so only the tab alternative can match. Rewinding
+			// over the spaces for the other alternative causes repeated scans.
+			input := []rune(strings.Repeat(" ", n) + "\tc")
+			b.ReportAllocs()
+			for b.Loop() {
+				m, err := re.FindRunesMatch(input)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if m == nil {
+					b.Fatal("expected a match")
+				}
+				if m.RuneIndex != n || m.RuneLength != 2 {
+					b.Fatalf("got index %d, length %d; want index %d, length 2", m.RuneIndex, m.RuneLength, n)
+				}
 			}
 		})
 	}
