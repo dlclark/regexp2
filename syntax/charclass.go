@@ -66,7 +66,7 @@ var (
 
 var (
 	AnyClass          = getCharSetFromOldString([]rune{0}, false)
-	ECMAAnyClass      = getCharSetFromOldString([]rune{0, 0x000a, 0x000b, 0x000d, 0x000e}, false)
+	ECMAAnyClass      = getCharSetFromOldString([]rune{0, 0x000a, 0x000b, 0x000d, 0x000e, 0x2028, 0x202a}, false)
 	NoneClass         = getCharSetFromOldString(nil, false)
 	ECMAWordClass     = getCharSetFromOldString(ecmaWord, false)
 	NotECMAWordClass  = getCharSetFromOldString(ecmaWord, true)

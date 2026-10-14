@@ -76,6 +76,7 @@ func TestCharSetMayOverlap(t *testing.T) {
 		// Both cursors must advance before the ranges meet at an endpoint.
 		{&CharSet{ranges: []SingleRange{{'a', 'c'}, {'g', 'i'}}}, &CharSet{ranges: []SingleRange{{'d', 'f'}, {'i', 'j'}}}, true},
 		{&CharSet{ranges: []SingleRange{{'\n', '\n'}, {'\r', '\r'}}}, ECMAAnyClass(), false},
+		{&CharSet{ranges: []SingleRange{{'\u2028', '\u2029'}}}, ECMAAnyClass(), false},
 		// Sets with categories or subtraction keep the existing path.
 		{DigitClass(), ECMADigitClass(), true},
 		{&CharSet{ranges: []SingleRange{{'0', '9'}}, sub: ECMADigitClass()}, ECMADigitClass(), false},
