@@ -65,8 +65,15 @@ func TestLiteralQuoting(t *testing.T) {
 
 	// ECMAScript retains its existing identity-escape behavior: Q and E are
 	// literals, while the text between them is still regular expression syntax.
-	requireFullMatch(t, `\Q.\E`, `QxE`, ECMAScript)
-	requireNoFullMatch(t, `\Q.\E`, `.`, ECMAScript)
+	re := MustCompile(`^\Q.\E$`, ECMAScript)
+	for _, tc := range []struct {
+		input string
+		want  bool
+	}{{"QxE", true}, {".", false}} {
+		if got, err := re.MatchString(tc.input); err != nil || got != tc.want {
+			t.Fatalf("ECMAScript identity escapes on %q = %v, %v; want %v", tc.input, got, err, tc.want)
+		}
+	}
 }
 
 func TestUnicodeNewlineEscape(t *testing.T) {
@@ -79,7 +86,9 @@ func TestUnicodeNewlineEscape(t *testing.T) {
 	requireNoFullMatch(t, `\R`, "x")
 	requireFullMatch(t, `\R{2}`, "\r\n\n")
 	requireFullMatch(t, `\R`, "R", RE2)
-	requireFullMatch(t, `\R`, "R", ECMAScript)
+	if got, err := MustCompile(`^\R$`, ECMAScript).MatchString("R"); err != nil || !got {
+		t.Fatalf("ECMAScript \\R identity escape = %v, %v; want true", got, err)
+	}
 
 	re := MustCompile(`\R`, RightToLeft)
 	m, err := re.FindStringMatch("x\r\ny")
@@ -115,7 +124,9 @@ func TestExtendedGraphemeClusterEscape(t *testing.T) {
 	requireFullMatch(t, `\X{3}`, "a\u0301b\r\n")
 	requireNoFullMatch(t, `\X\p{GCB=Extend}`, "a\u0301")
 	requireFullMatch(t, `\X`, "X", RE2)
-	requireFullMatch(t, `\X`, "X", ECMAScript)
+	if got, err := MustCompile(`^\X$`, ECMAScript).MatchString("X"); err != nil || !got {
+		t.Fatalf("ECMAScript \\X identity escape = %v, %v; want true", got, err)
+	}
 }
 
 func TestExtendedGraphemeClusterRightToLeft(t *testing.T) {

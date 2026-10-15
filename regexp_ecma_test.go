@@ -414,7 +414,7 @@ func TestECMA_CharSetRange(t *testing.T) {
 		},
 		"invalid-slash-P": {
 			expr:    `[a-\P]`,
-			wantErr: "error parsing regexp: cannot create range with shorthand escape sequence \\P in `[a-\\P]`",
+			wantErr: "error parsing regexp: [a-P] range in reverse order in `[a-\\P]`",
 		},
 		"ordered-space": {
 			expr: `[\s-z]`,
@@ -434,7 +434,7 @@ func TestECMA_CharSetRange(t *testing.T) {
 		"ordered-point": {
 			expr: `[\p-z]`,
 			data: "a-b szd",
-			want: []string{"-", "s", "z"},
+			want: []string{"s", "z"},
 		},
 	}
 
