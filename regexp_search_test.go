@@ -4,6 +4,7 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/dlclark/regexp2/v2/syntax"
@@ -391,6 +392,65 @@ func TestRequiredLandmarkChainSearchReusesWork(t *testing.T) {
 	}
 }
 
+func TestRequiredLandmarkChainSearchFindNextMatch(t *testing.T) {
+	re := MustCompile(`\S*(\t|\s*b)c()`)
+	other := MustCompile(`\S*(b|\t)c(\t|c)()`)
+	for _, re := range []*Regexp{re, other} {
+		if re.code.FindOptimizations == nil || re.code.FindOptimizations.FindMode != syntax.RequiredLandmarkChain_LeftToRight {
+			t.Fatalf("%q does not use a required landmark chain", re.String())
+		}
+	}
+	input := []rune(" \tc \tc  bc\tc \tc")
+	next := func(re *Regexp, m *Match) *Match {
+		n, err := re.FindNextMatch(m)
+		if err != nil {
+			t.Error(err)
+		}
+		return n
+	}
+	iterate := func(re *Regexp, m *Match) (matches []*Match, summaries []string) {
+		for ; m != nil; m = next(re, m) {
+			matches, summaries = append(matches, m), append(summaries, matchSummary(m))
+		}
+		return matches, summaries
+	}
+	first, err := re.FindRunesMatch(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches, got := iterate(re, first)
+	_, want := iterate(compileWithoutSearchOptimizations(re.String()), first)
+	if strings.Join(got, "; ") != strings.Join(want, "; ") {
+		t.Fatalf("matches = %q, want %q", got, want)
+	}
+
+	// The searches for a match have passed the matches after it, so a call
+	// on an earlier match must start new ones.
+	for i := len(matches) - 2; i >= 0; i-- {
+		if got := matchSummary(next(re, matches[i])); got != want[i+1] {
+			t.Fatalf("FindNextMatch(match %d) = %s, want %s", i, got, want[i+1])
+		}
+	}
+
+	// A pattern with other landmarks cannot use them.
+	m := next(re, matches[0])
+	if got, want := matchSummary(next(other, m)), matchSummary(next(compileWithoutSearchOptimizations(other.String()), m)); got != want {
+		t.Fatalf("other pattern: FindNextMatch = %s, want %s", got, want)
+	}
+
+	// Only one of several calls on the same match can continue them.
+	m = next(re, matches[0])
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			if _, got := iterate(re, next(re, m)); strings.Join(got, "; ") != strings.Join(want[2:], "; ") {
+				t.Errorf("matches = %q, want %q", got, want[2:])
+			}
+		})
+	}
+	wg.Wait()
+}
+
 func TestRequiredLandmarkChainSearchDifferential(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 	pick := func(choices ...string) string { return choices[rng.Intn(len(choices))] }
@@ -514,6 +574,31 @@ func BenchmarkRequiredLandmarkWhitespaceAlternatives(b *testing.B) {
 				}
 				if m.RuneIndex != n || m.RuneLength != 2 {
 					b.Fatalf("got index %d, length %d; want index %d, length 2", m.RuneIndex, m.RuneLength, n)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkRequiredLandmarkFindNextMatch(b *testing.B) {
+	for _, n := range []int{1024, 4096, 16384} {
+		b.Run(strconv.Itoa(n), func(b *testing.B) {
+			re := MustCompile(`\S*(\t|\s*b)[ \t]()`)
+			// Searching for the second alternative reads all the whitespace
+			// after each match, so each call must continue the last search.
+			input := []rune(strings.Repeat(" \t\t", n/3))
+			b.ReportAllocs()
+			for b.Loop() {
+				count := 0
+				m, err := re.FindRunesMatch(input)
+				for ; m != nil && err == nil; m, err = re.FindNextMatch(m) {
+					count++
+				}
+				if err != nil {
+					b.Fatal(err)
+				}
+				if count != n/3 {
+					b.Fatalf("got %d matches; want %d", count, n/3)
 				}
 			}
 		})

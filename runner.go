@@ -77,12 +77,11 @@ type Runner struct {
 	// position and landmarkCandidate.
 	landmarkCore      int
 	landmarkCandidate int
-	// landmarkSearches holds what the search for each landmark of
-	// landmarkChain learned about Runtext. Scans of the same Runtext
-	// between getRunner and putRunner start where earlier ones ended, so
-	// they keep it.
-	landmarkChain    *syntax.RequiredLandmarkChain
-	landmarkSearches []requiredLandmarkSearch
+	// landmarks holds what the required landmark searches learned about
+	// Runtext. Scans of the same Runtext between getRunner and putRunner
+	// start where earlier ones ended, so they keep it. FindNextMatch moves it
+	// to the match it returns and back.
+	landmarks *requiredLandmarkState
 }
 
 // run searches for matches and can continue from the previous match.
@@ -119,8 +118,9 @@ func (r *Runner) scan(rt []rune, textInfo *matchText, textstart, candidate, prev
 	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
 	r.debug = r.re.Debug()
 	r.Runtextstart = textstart
-	// putRunner clears Runtext, so another call never keeps landmarkSearches.
-	if r.landmarkSearches != nil && (len(r.Runtext) != len(rt) || len(rt) == 0 || &r.Runtext[0] != &rt[0]) {
+	// putRunner clears Runtext, so another call keeps landmarks only if
+	// FindNextMatch sets them.
+	if r.landmarks != nil && (len(r.Runtext) != len(rt) || len(rt) == 0 || &r.Runtext[0] != &rt[0]) {
 		r.resetRequiredLandmarkSearches()
 	}
 	r.Runtext = rt
@@ -1933,22 +1933,29 @@ func findRequiredLandmarkChainLeftToRight(r *Runner, chain *syntax.RequiredLandm
 	return false
 }
 
+// requiredLandmarkState holds what the searches for chain's landmarks learned
+// about one input.
+type requiredLandmarkState struct {
+	chain    *syntax.RequiredLandmarkChain
+	searches []requiredLandmarkSearch
+}
+
 // requiredLandmarkSearches returns the search state of chain's landmarks.
 func (r *Runner) requiredLandmarkSearches(chain *syntax.RequiredLandmarkChain) []requiredLandmarkSearch {
-	if r.landmarkChain != chain {
-		r.landmarkChain = chain
-		r.landmarkSearches = make([]requiredLandmarkSearch, len(chain.Landmarks))
+	if r.landmarks == nil || r.landmarks.chain != chain {
+		searches := make([]requiredLandmarkSearch, len(chain.Landmarks))
 		for i, landmark := range chain.Landmarks {
-			r.landmarkSearches[i].alternatives = make([]requiredLandmarkCursor, len(landmark.Alternatives))
+			searches[i].alternatives = make([]requiredLandmarkCursor, len(landmark.Alternatives))
 		}
+		r.landmarks = &requiredLandmarkState{chain: chain, searches: searches}
 	}
-	return r.landmarkSearches
+	return r.landmarks.searches
 }
 
 // resetRequiredLandmarkSearches discards everything learned about Runtext.
 func (r *Runner) resetRequiredLandmarkSearches() {
-	for i := range r.landmarkSearches {
-		s := &r.landmarkSearches[i]
+	for i := range r.landmarks.searches {
+		s := &r.landmarks.searches[i]
 		s.last, s.found = requiredLandmarkMatch{}, false
 		for j := range s.alternatives {
 			s.alternatives[j] = requiredLandmarkCursor{prefix: s.alternatives[j].prefix}
