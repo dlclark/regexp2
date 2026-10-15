@@ -1,9 +1,12 @@
 package regexp2
 
 import (
+	"math/rand"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/dlclark/regexp2/v2/syntax"
 )
 
 func TestAlternationWithNegatedStartingCharacter(t *testing.T) {
@@ -265,14 +268,81 @@ func TestRequiredLandmarkChainSearch(t *testing.T) {
 	}
 }
 
+func TestRequiredLandmarkSearchWindows(t *testing.T) {
+	for _, tc := range []struct {
+		pattern, input string
+		want           requiredLandmarkMatch
+		found          bool
+	}{
+		// A literal core can straddle the end of a window.
+		{`[yz]*(ab|q)c()`, "zzabc", requiredLandmarkMatch{2, 4}, true},
+		// Another alternative's core can follow a start that an earlier
+		// alternative cannot decide yet.
+		{`[yz]*(b|aba)c()`, "zzzabacbc", requiredLandmarkMatch{3, 5}, true},
+		// A set core that ends at the end of a window needs the rune after it.
+		{`\S*([ab]{1,3}\s+|x)c()`, "aabc", requiredLandmarkMatch{}, false},
+		{`\S*([ab]{1,2}\s+|aa)c()`, "aa c", requiredLandmarkMatch{0, 2}, true},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			landmark := MustCompile(tc.pattern).code.FindOptimizations.LandmarkChain.Landmarks[0]
+			s := requiredLandmarkSearch{alternatives: make([]requiredLandmarkCursor, len(landmark.Alternatives))}
+			input := []rune(tc.input)
+			if got, ok := s.next(input, 0, len(input), landmark); got != tc.want || ok != tc.found {
+				t.Fatalf("next(%q) = %v, %v; want %v, %v", tc.input, got, ok, tc.want, tc.found)
+			}
+		})
+	}
+}
+
+func TestRequiredLandmarkCursorDropsEarlierPrefix(t *testing.T) {
+	// After the cursor reads "ab" at 0 and moves past 0, only the match
+	// at 2 that overlaps it can still be a core.
+	input := []rune("ababa")
+	alt := syntax.RequiredLandmarkAlternative{Literal: []rune("aba")}
+	var c requiredLandmarkCursor
+	if _, ok := c.find(input, 0, 5, 2, 2, &alt); ok {
+		t.Fatal("find from 0 found a core it has not read")
+	}
+	if m, ok := c.find(input, 1, 5, 3, 3, &alt); ok || c.undecided(5) != 2 {
+		t.Fatalf("find from 1 = %v, %v, undecided %d; want none, undecided 2", m, ok, c.undecided(5))
+	}
+	if m, ok := c.find(input, 2, 5, 3, 5, &alt); !ok || m != (requiredLandmarkMatch{2, 5}) {
+		t.Fatalf("find from 2 = %v, %v; want {2 5}", m, ok)
+	}
+}
+
+func TestRequiredLandmarkCursorStopsWhenNoCoreFits(t *testing.T) {
+	set := MustCompile(`\S*(\s+[ab]{3}|x)c()`).code.FindOptimizations.LandmarkChain.Landmarks[0].Alternatives[0]
+	for _, tc := range []struct {
+		name             string
+		alt              syntax.RequiredLandmarkAlternative
+		input            string
+		startAt, readEnd int
+	}{
+		// Neither start where the literal fits matches.
+		{"literal", syntax.RequiredLandmarkAlternative{Literal: []rune("abcd")}, "xxaba", 0, 2},
+		{"long literal", syntax.RequiredLandmarkAlternative{Literal: []rune("aba")}, "ab", 0, 0},
+		// No later start follows whitespace, but none fits either.
+		{"set", set, "zzzzz", 3, 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := []rune(tc.input)
+			var c requiredLandmarkCursor
+			if _, ok := c.find(input, tc.startAt, len(input), tc.readEnd, tc.readEnd, &tc.alt); ok || !c.exhausted {
+				t.Fatalf("find = %v, exhausted %v; want false, true", ok, c.exhausted)
+			}
+		})
+	}
+}
+
 func TestRequiredLandmarkChainSearchReusesWork(t *testing.T) {
 	for _, tc := range []struct {
 		pattern, input string
 	}{
-		// One alternative's walk says nothing about another's.
+		// One alternative's search says nothing about another's.
 		{`\S*(\t|\s*b|\s*c)a()`, "aa ca"},
-		// A walk that stops at a rune outside the whitespace says nothing
-		// about cores after that rune.
+		// Whitespace that stops at another rune says nothing about cores
+		// after that rune.
 		{`\S*(\t|\s*b)c()`, " \ta bc"},
 		// After the VM fails, the next search reuses the candidate.
 		{`\S*\B(\t|\s*b)c()`, "a  bc"},
@@ -300,6 +370,111 @@ func TestRequiredLandmarkChainSearchReusesWork(t *testing.T) {
 		w, err := compileWithoutSearchOptimizations(re.String()).FindRunesMatch([]rune(input))
 		if err != nil || (m == nil) != (w == nil) || m != nil && (m.runeSliceIndex() != w.RuneIndex || m.RuneLength != w.RuneLength) {
 			t.Fatalf("scan(%q) = %s, want %s, err %v", input, matchSummary(m), matchSummary(w), err)
+		}
+	}
+
+	// Nor must a call on a slice that the caller changed after an earlier call.
+	// Reuse one runner even if a GC empties the pool.
+	pooled := &Runner{re: re, code: re.code}
+	re.runnerPool.New = func() any { return pooled }
+	input := make([]rune, 6)
+	for _, text := range []string{"xxxxxx", "\tc  bc"} {
+		copy(input, []rune(text))
+		got, err := re.FindAllRunesIndex(input, -1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := compileWithoutSearchOptimizations(re.String()).FindAllRunesIndex(input, -1)
+		if err != nil || !sameStringIndexes(got, want) {
+			t.Fatalf("FindAllRunesIndex(%q) = %v, want %v, err %v", text, got, want, err)
+		}
+	}
+}
+
+func TestRequiredLandmarkChainSearchDifferential(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	pick := func(choices ...string) string { return choices[rng.Intn(len(choices))] }
+	alternative := func() string {
+		var b strings.Builder
+		if rng.Intn(2) == 0 {
+			b.WriteString(pick(`\s*`, `\s+`, `\s{2,}`))
+		}
+		if rng.Intn(2) == 0 {
+			b.WriteString(pick("a", "ab", "aab", "aba", "\t", " a", "a b"))
+		} else {
+			b.WriteString(pick(`[ab]`, `[a ]`, `[ \t]`, `[b\t]`) + pick("", "{1,2}", "{2}", "{1,3}", "{2147483646}", "{2,2147483646}"))
+		}
+		if rng.Intn(3) == 0 {
+			b.WriteString(pick(`\s*`, `\s+`))
+		}
+		return b.String()
+	}
+	var inputs [][]rune
+	for _, alphabet := range []string{"aab \t \t\nc", "ab "} {
+		for i := 0; i < 75; i++ {
+			input := make([]rune, rng.Intn(30))
+			for j := range input {
+				input[j] = rune(alphabet[rng.Intn(len(alphabet))])
+			}
+			inputs = append(inputs, input)
+		}
+	}
+	for attempts, chains := 0, 0; chains < 150; attempts++ {
+		if attempts == 10000 {
+			t.Fatalf("found only %d landmark chains in %d patterns", chains, attempts)
+		}
+		var b strings.Builder
+		b.WriteString(pick(`\S*`, `\S*?`, `[a-c]*`, `\w*`, `[^z]*`, `.*`))
+		b.WriteString(pick("", "", `\b`, `\B`, `^`, `(?m:^)`, `$`, `\A`, `\G`, `\Z`))
+		for i := 2 + rng.Intn(2); i > 0; i-- {
+			alternatives := make([]string, 1+rng.Intn(3))
+			for j := range alternatives {
+				alternatives[j] = alternative()
+			}
+			b.WriteString("(" + strings.Join(alternatives, "|") + ")" + pick("", "", ".", `\s*`, "a?"))
+		}
+		b.WriteString(pick("()", "$", `\s*()`))
+		pattern := b.String()
+		option := []RegexOptions{None, ECMAScript, RE2, Multiline, IgnoreCase}[rng.Intn(5)]
+		re := MustCompile(pattern, option)
+		if re.code.FindOptimizations == nil || re.code.FindOptimizations.FindMode != syntax.RequiredLandmarkChain_LeftToRight {
+			continue
+		}
+		chains++
+		reference := compileWithoutSearchOptimizations(pattern, option)
+		for _, input := range inputs {
+			got, err := re.FindAllRunesIndex(input, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := reference.FindAllRunesIndex(input, -1)
+			if err != nil || !sameStringIndexes(got, want) {
+				t.Fatalf("%q on %q, options %v: indexes = %v, want %v, err %v", pattern, string(input), option, got, want, err)
+			}
+			for _, start := range []int{0, len(input) / 2} {
+				m, err := re.FindRunesMatchStartingAt(input, start)
+				if err != nil {
+					t.Fatal(err)
+				}
+				w, err := reference.FindRunesMatchStartingAt(input, start)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for m != nil && w != nil {
+					if !corpusIntSlicesEqual(corpusMatchSubmatchIndex(m), corpusMatchSubmatchIndex(w)) {
+						t.Fatalf("%q on %q at %d, options %v: captures differ", pattern, string(input), start, option)
+					}
+					if m, err = re.FindNextMatch(m); err != nil {
+						t.Fatal(err)
+					}
+					if w, err = reference.FindNextMatch(w); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if (m == nil) != (w == nil) {
+					t.Fatalf("%q on %q at %d, options %v: match counts differ", pattern, string(input), start, option)
+				}
+			}
 		}
 	}
 }
@@ -339,6 +514,32 @@ func BenchmarkRequiredLandmarkWhitespaceAlternatives(b *testing.B) {
 				}
 				if m.RuneIndex != n || m.RuneLength != 2 {
 					b.Fatalf("got index %d, length %d; want index %d, length 2", m.RuneIndex, m.RuneLength, n)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkRequiredLandmarkLongWhitespaceCore(b *testing.B) {
+	for _, n := range []int{1024, 4096, 16384} {
+		b.Run(strconv.Itoa(n), func(b *testing.B) {
+			re := MustCompile(`\S*(\t|\s*[ \t]{32768})\t*c()`)
+			// The first alternative matches. The second cannot consume
+			// 32768 whitespace runes because it encounters 'c'.
+			// Padding ensures that remaining input length alone cannot
+			// rule out the second alternative.
+			input := []rune(" " + strings.Repeat("\t", n) + "c" + strings.Repeat("x", 32768))
+			b.ReportAllocs()
+			for b.Loop() {
+				m, err := re.FindRunesMatch(input)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if m == nil {
+					b.Fatal("expected a match")
+				}
+				if m.RuneIndex != 1 || m.RuneLength != n+1 {
+					b.Fatalf("got index %d, length %d; want index 1, length %d", m.RuneIndex, m.RuneLength, n+1)
 				}
 			}
 		})

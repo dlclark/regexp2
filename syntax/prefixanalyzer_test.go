@@ -357,3 +357,19 @@ func TestFindOptimizationsRequiredLandmarkChain(t *testing.T) {
 		t.Fatal("second separator alternative should allow optional trailing whitespace")
 	}
 }
+
+func TestFindOptimizationsRequiredLandmarkChainAnchors(t *testing.T) {
+	// The runner tests the anchors at each start it advances over, so each
+	// type must appear once. Their order does not matter.
+	tree, err := Parse(`\S*\b\b(?m:^)\b(?m:^)(a|\s*b)c()`, ParseOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain := tree.FindOptimizations.LandmarkChain
+	if chain == nil {
+		t.Fatal("LandmarkChain is nil")
+	}
+	if got := chain.Anchors; len(got) != 2 || !slices.Contains(got, NtBoundary) || !slices.Contains(got, NtBol) {
+		t.Fatalf("Anchors = %v, want NtBoundary and NtBol once each", got)
+	}
+}

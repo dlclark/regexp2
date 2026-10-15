@@ -58,6 +58,11 @@ type RequiredLandmarkChain struct {
 	// to recover the earliest plausible regex start position.
 	LeadingLoopSet *CharSet
 
+	// Anchors are the distinct zero-width assertions between the leading loop
+	// and the first landmark. The VM tests them where the first landmark's
+	// alternative starts.
+	Anchors []NodeType
+
 	// Landmarks must all be found, in slice order, for the chain prefilter to
 	// produce a candidate. Alternatives can overlap, so the runner uses bounds
 	// that hold for whichever alternative the VM uses.
