@@ -39,8 +39,9 @@ type Regexp struct {
 	MatchTimeout time.Duration
 
 	// read-only after Compile
-	pattern string       // as passed to Compile
-	options RegexOptions // options
+	pattern       string // as passed to Compile
+	unmarshalable bool
+	options       RegexOptions // options
 	debug   bool
 
 	caps                  map[int]int      // public group number -> dense capture slot
@@ -110,7 +111,17 @@ func compileRunes(pattern []rune, c compileConfig) (*Regexp, error) {
 	if err != nil {
 		return nil, err
 	}
-	return compileTree(string(pattern), tree, c)
+	re, err := compileTree(string(pattern), tree, c)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range pattern {
+		if !utf8.ValidRune(r) {
+			re.unmarshalable = true
+			break
+		}
+	}
+	return re, nil
 }
 
 func compileTree(pattern string, tree *syntax.RegexTree, c compileConfig) (*Regexp, error) {
@@ -662,6 +673,9 @@ func (re *Regexp) GroupNumberFromName(name string) int {
 // MarshalText implements [encoding.TextMarshaler]. The output
 // matches that of calling the [Regexp.String] method.
 func (re *Regexp) MarshalText() ([]byte, error) {
+	if re.unmarshalable || !utf8.ValidString(re.pattern) {
+		return nil, errors.New("regexp2: pattern cannot be marshaled to text because it contains invalid UTF-8")
+	}
 	return []byte(re.String()), nil
 }
 
