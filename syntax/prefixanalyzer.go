@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Computes a character class for the first character in tree.  This uses a more robust algorithm
@@ -397,10 +398,13 @@ func tryFindPrefix(node *RegexNode, vsb *runeBuffer) bool {
 		}
 		if limit > 1 {
 			body := slices.Clone(vsb.Runes()[start:])
+			bodyByteLen := runeSliceUTF8Len(body)
+			curByteLen := runeSliceUTF8Len(vsb.Runes())
 			for i := 1; i < limit; i++ {
-				if vsb.Len()+len(body) > maxLoopPrefixLength {
+				if curByteLen+bodyByteLen > maxLoopPrefixLength {
 					return false
 				}
+				curByteLen += bodyByteLen
 				vsb.WriteRunes(body)
 			}
 		}
@@ -428,6 +432,19 @@ func commonPrefixRuneLen(a, b []rune) int {
 		}
 	}
 	return commonLen
+}
+
+func runeSliceUTF8Len(runes []rune) int {
+	n := 0
+	for _, r := range runes {
+		l := utf8.RuneLen(r)
+		if l < 0 {
+			n += 3
+		} else {
+			n += l
+		}
+	}
+	return n
 }
 func min(x, y int) int {
 	if x < y {

@@ -203,7 +203,7 @@ func TestFindPrefix(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to parse %s: %v", s.p, err)
 			}
-			if got := findPrefix(tree.Root); got != s.expected {
+			if got := string(findPrefix(tree.Root)); got != s.expected {
 				t.Fatalf("wanted %q got %q for pattern %s", s.expected, got, s.p)
 			}
 		})
