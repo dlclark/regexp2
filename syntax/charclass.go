@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
@@ -750,6 +751,13 @@ func (c *CharSet) addCaseEquivalences() {
 	if c.anything {
 		return
 	}
+	// A subtracted set narrows this one, so its members must be folded too:
+	// [a-z-[aeiou]] excludes 'A' as well as 'a' when matching case-insensitively.
+	if c.sub != nil {
+		sub := c.sub.Copy()
+		sub.addCaseEquivalences()
+		c.sub = &sub
+	}
 	rangeCount := len(c.ranges)
 	for i := 0; i < rangeCount; i++ {
 		r := c.ranges[i]
@@ -765,22 +773,74 @@ func (c *CharSet) addCaseEquivalences() {
 	c.canonicalize()
 }
 
+// InvariantToLower maps a rune the way the invariant culture does. It differs
+// from unicode.ToLower for LATIN CAPITAL LETTER I WITH DOT ABOVE, which the
+// invariant culture leaves alone rather than folding onto 'i'.
+func InvariantToLower(ch rune) rune {
+	if ch == 0x0130 {
+		return ch
+	}
+	return unicode.ToLower(ch)
+}
+
+var (
+	caseEquivOnce  sync.Once
+	caseEquivByKey map[rune][]rune
+)
+
+// caseEquivalences groups every rune that participates in case mapping by its
+// invariant lowercase form. Two runes are case-equivalent exactly when they
+// share a group, which is a narrower relation than Unicode's simple case folding:
+// folding also relates LATIN SMALL LETTER LONG S to 's' and GREEK SMALL LETTER
+// FINAL SIGMA to the other sigmas, neither of which shares a lowercase form.
+func caseEquivalences() map[rune][]rune {
+	caseEquivOnce.Do(func() {
+		m := make(map[rune][]rune, 1500)
+		seen := make(map[rune]struct{}, 3000)
+		add := func(r rune) {
+			if _, ok := seen[r]; ok {
+				return
+			}
+			seen[r] = struct{}{}
+			key := InvariantToLower(r)
+			m[key] = append(m[key], r)
+		}
+		for _, cr := range unicode.CaseRanges {
+			for r := rune(cr.Lo); r <= rune(cr.Hi); r++ {
+				add(r)
+				// The mapped forms are usually covered by another range, but
+				// adding them keeps a group complete when they are not.
+				add(unicode.ToLower(r))
+				add(unicode.ToUpper(r))
+				add(unicode.ToTitle(r))
+			}
+		}
+		for _, group := range m {
+			slices.Sort(group)
+		}
+		caseEquivByKey = m
+	})
+	return caseEquivByKey
+}
+
 // Performs a fast lookup which determines if a character is involved in case conversion, as well as
 // returns the OTHER characters that should be considered equivalent in case it does participate in case conversion.
 func tryFindCaseEquivalences(ch rune) []rune {
-	newCh := unicode.SimpleFold(ch)
-	if newCh == ch {
+	group := caseEquivalences()[InvariantToLower(ch)]
+	if len(group) < 2 {
 		// no case support
 		return nil
 	}
-	equiv := []rune{newCh}
-	for {
-		newCh = unicode.SimpleFold(newCh)
-		if newCh == ch {
-			return equiv
+	equiv := make([]rune, 0, len(group)-1)
+	for _, eq := range group {
+		if eq != ch {
+			equiv = append(equiv, eq)
 		}
-		equiv = append(equiv, newCh)
 	}
+	if len(equiv) == 0 {
+		return nil
+	}
+	return equiv
 }
 
 func (c *CharSet) addSubtraction(sub *CharSet) {
@@ -968,7 +1028,7 @@ func (c *CharSet) addLowercase() {
 	for i := 0; i < len(c.ranges); i++ {
 		r := c.ranges[i]
 		if r.First == r.Last {
-			lower := unicode.ToLower(r.First)
+			lower := InvariantToLower(r.First)
 			c.ranges[i] = SingleRange{First: lower, Last: lower}
 		} else {
 			toAdd = append(toAdd, r)
@@ -1025,7 +1085,6 @@ var lcTable = []lcMap{
 	{'\u0041', '\u005A', LowercaseAdd, 32},
 	{'\u00C0', '\u00DE', LowercaseAdd, 32},
 	{'\u0100', '\u012E', LowercaseBor, 0},
-	{'\u0130', '\u0130', LowercaseSet, 0x0069},
 	{'\u0132', '\u0136', LowercaseBor, 0},
 	{'\u0139', '\u0147', LowercaseBad, 0},
 	{'\u014A', '\u0176', LowercaseBor, 0},
