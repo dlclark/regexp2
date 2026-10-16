@@ -3008,3 +3008,91 @@ func TestCompileRunesWithOptions(t *testing.T) {
 		t.Fatalf("expected match, got: %v, err=%v", matched, err)
 	}
 }
+func assertCompileRunesMatch(t *testing.T, re *Regexp, input []rune, want bool) {
+	t.Helper()
+	if got, err := re.MatchRunes(input); err != nil || got != want {
+		t.Errorf("MatchRunes(%U) = %v, %v; want %v, nil",
+			input, got, err, want)
+	}
+}
+
+func TestCompileRunesSurrogateRepetition(t *testing.T) {
+	for _, quantifier := range []string{"{2}", "{2,3}?"} {
+		t.Run(quantifier, func(t *testing.T) {
+			pattern := append([]rune{0xDCA9}, []rune(quantifier)...)
+			re, err := CompileRunes(pattern, ECMAScript)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			assertCompileRunesMatch(t, re, []rune{0xDCA9, 0xDCA9}, true)
+			assertCompileRunesMatch(t, re, []rune{0xFFFD, 0xFFFD}, false)
+		})
+	}
+}
+
+func TestCompileRunesDistinctSurrogateLiterals(t *testing.T) {
+	// ^(?:(<DCA9>x)|(<DCAA>x))$
+	// Captures keep the alternatives distinct.
+	pattern := []rune{
+		'^', '(', '?', ':',
+		'(', 0xDCA9, 'x', ')',
+		'|',
+		'(', 0xDCAA, 'x', ')',
+		')', '$',
+	}
+	re, err := CompileRunes(pattern, ECMAScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertCompileRunesMatch(t, re, []rune{0xDCA9, 'x'}, true)
+	assertCompileRunesMatch(t, re, []rune{0xDCAA, 'x'}, true)
+	assertCompileRunesMatch(t, re, []rune{0xFFFD, 'x'}, false)
+}
+
+func TestCompileRunesMarshalTextPreservesMatching(t *testing.T) {
+	pattern := []rune{0xDCA9, 'x'}
+	re, err := CompileRunes(pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCompileRunesMatch(t, re, pattern, true)
+	assertCompileRunesMatch(t, re, []rune{0xFFFD, 'x'}, false)
+
+	encoded, err := re.MarshalText()
+	if err != nil {
+		// Explicitly rejecting an unrepresentable pattern is also safe.
+		t.Logf("MarshalText explicitly rejected the pattern: %v", err)
+		return
+	}
+
+	var restored Regexp
+	if err := restored.UnmarshalText(encoded); err != nil {
+		t.Fatalf("UnmarshalText(%q): %v", encoded, err)
+	}
+	assertCompileRunesMatch(t, &restored, pattern, true)
+	assertCompileRunesMatch(t, &restored, []rune{0xFFFD, 'x'}, false)
+}
+
+func BenchmarkCompileCharacterClassRanges(b *testing.B) {
+	for _, count := range []int{10, 100, 1000} {
+		b.Run(fmt.Sprintf("ranges_%d", count), func(b *testing.B) {
+			// Disjoint singleton ranges cannot coalesce.
+			var builder strings.Builder
+			builder.WriteByte('[')
+			for i := 0; i < count; i++ {
+				fmt.Fprintf(&builder, `\u%04x`, 0x1000+i*2)
+			}
+			builder.WriteString("]+")
+			pattern := builder.String()
+
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := Compile(pattern); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
