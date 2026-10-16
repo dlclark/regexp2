@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
@@ -88,7 +89,8 @@ var (
 	NotNewLineClass = getCharSetFromOldString([]rune{0x0a, 0x0b}, true)
 )
 
-var unicodeCategories = func() map[string]*unicode.RangeTable {
+// unicodeCategories is built on first use, which keeps the alias tables out of package init.
+var unicodeCategories = sync.OnceValue(func() map[string]*unicode.RangeTable {
 	retVal := make(map[string]*unicode.RangeTable)
 	for k, v := range unicode.Scripts {
 		retVal[k] = v
@@ -107,7 +109,7 @@ var unicodeCategories = func() map[string]*unicode.RangeTable {
 		retVal[k] = v
 	}
 	return retVal
-}()
+})
 
 func getCharSetFromCategoryString(negateSet bool, negateCat bool, cats ...string) func() *CharSet {
 	if negateCat && negateSet {
@@ -416,7 +418,7 @@ func (c *CharSet) charInCategories(ch rune) bool {
 			} else if ct.Negate {
 				return true
 			}
-		} else if unicode.Is(unicodeCategories[ct.Cat], ch) {
+		} else if unicode.Is(unicodeCategories()[ct.Cat], ch) {
 			// if we're in this unicode category then we're done
 			// if negate=true on this category then we "failed" our test
 			// otherwise we're good that we found it
@@ -448,7 +450,7 @@ func (c Category) String() string {
 		}
 		return "\\w"
 	}
-	if _, ok := unicodeCategories[c.Cat]; ok {
+	if _, ok := unicodeCategories()[c.Cat]; ok {
 
 		if c.Negate {
 			return "\\P{" + c.Cat + "}"
@@ -688,7 +690,7 @@ func normalizeUnicodeCategoryAlias(catName string) string {
 }
 
 func canonicalUnicodeCatName(catName string) (string, bool) {
-	if _, ok := unicodeCategories[catName]; ok {
+	if _, ok := unicodeCategories()[catName]; ok {
 		return catName, true
 	}
 
@@ -716,7 +718,7 @@ func canonicalUnicodeCatName(catName string) (string, bool) {
 			return "", false
 		}
 		canonical := prop + "=" + value
-		if _, ok := unicodeCategories[canonical]; ok {
+		if _, ok := unicodeCategories()[canonical]; ok {
 			return canonical, true
 		}
 	}
