@@ -1237,13 +1237,19 @@ func TestRequiredLandmarkAlternativeMatchDoesNotRewindTrailingWhitespace(t *test
 		RequireWhitespaceAfter: true,
 	}
 
-	got, ok := requiredLandmarkAlternativeMatch(input, 2, len(input), alt)
+	var cursor requiredLandmarkCursor
+	got, ok := cursor.find(input, 2, len(input), 3, len(input), &alt)
 	if !ok {
-		t.Fatal("requiredLandmarkAlternativeMatch failed")
+		t.Fatal("requiredLandmarkCursor.find failed")
 	}
-	want := requiredLandmarkMatch{Start: 2, CoreStart: 2, End: 5}
+	want := requiredLandmarkMatch{CoreStart: 2, End: 5}
 	if got != want {
-		t.Fatalf("requiredLandmarkAlternativeMatch = %#v, want %#v", got, want)
+		t.Fatalf("requiredLandmarkCursor.find = %#v, want %#v", got, want)
+	}
+	chain := &syntax.RequiredLandmarkChain{Landmarks: []syntax.RequiredLandmark{{Alternatives: []syntax.RequiredLandmarkAlternative{alt}}}}
+	r := &Runner{Runtext: input, Runtextend: len(input)}
+	if start := requiredLandmarkStart(r, chain, got.CoreStart, make([]requiredLandmarkCursor, 1)); start != 2 {
+		t.Fatalf("requiredLandmarkStart = %d, want 2", start)
 	}
 }
 

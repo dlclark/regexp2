@@ -1278,11 +1278,17 @@ func findRequiredLandmarkChain(node *RegexNode) *RequiredLandmarkChain {
 	// conservative prefilter: if any child cannot be described as a detectable
 	// landmark, we skip that child rather than making it part of the chain.
 	landmarks := make([]RequiredLandmark, 0, 2)
+	var anchors []NodeType
 	for _, child := range node.Children[1:] {
 		if landmark, ok := extractRequiredLandmark(child); ok {
 			landmarks = append(landmarks, landmark)
-		} else if len(landmarks) == 0 && !isZeroWidthLandmarkGap(child) {
-			return nil
+		} else if len(landmarks) == 0 {
+			if !isZeroWidthLandmarkGap(child) {
+				return nil
+			}
+			if child = unwrapTransparentNodes(child); child != nil && isLandmarkAnchor(child.T) && !slices.Contains(anchors, child.T) {
+				anchors = append(anchors, child.T)
+			}
 		}
 	}
 	if len(landmarks) < 2 {
@@ -1291,7 +1297,18 @@ func findRequiredLandmarkChain(node *RegexNode) *RequiredLandmarkChain {
 
 	return &RequiredLandmarkChain{
 		LeadingLoopSet: firstChild.Set,
+		Anchors:        anchors,
 		Landmarks:      landmarks,
+	}
+}
+
+func isLandmarkAnchor(t NodeType) bool {
+	switch t {
+	case NtBeginning, NtBol, NtStart, NtEndZ, NtEnd, NtEol,
+		NtBoundary, NtNonboundary, NtECMABoundary, NtNonECMABoundary:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1301,12 +1318,10 @@ func isZeroWidthLandmarkGap(node *RegexNode) bool {
 		return true
 	}
 	switch node.T {
-	case NtEmpty, NtResetCapture, NtUpdateBumpalong,
-		NtBeginning, NtBol, NtStart, NtEndZ, NtEnd, NtEol,
-		NtBoundary, NtNonboundary, NtECMABoundary, NtNonECMABoundary:
+	case NtEmpty, NtResetCapture, NtUpdateBumpalong:
 		return true
 	default:
-		return false
+		return isLandmarkAnchor(node.T)
 	}
 }
 

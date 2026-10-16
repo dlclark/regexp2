@@ -88,6 +88,30 @@ func TestRegisterEngine_QuickExecute(t *testing.T) {
 	}
 }
 
+func TestRegisterEngine_FindNextMatch(t *testing.T) {
+	const pattern = "find-next-match"
+	RegisterEngine(pattern, RuntimeEngineData{
+		CapSize: 1,
+		FindFirstChar: func(r *Runner) bool {
+			return r.Runtextpos < len(r.Runtext)
+		},
+		Execute: func(r *Runner) error {
+			r.Capture(0, r.Runtextpos, r.Runtextpos+1)
+			r.Runtextpos++
+			return nil
+		},
+	})
+
+	re := MustCompile(pattern)
+	m, err := re.FindStringMatch("ab")
+	if err != nil || m == nil {
+		t.Fatalf("FindStringMatch = %v, %v; want match, nil", m, err)
+	}
+	if m, err = re.FindNextMatch(m); err != nil || m == nil || m.String() != "b" {
+		t.Fatalf("FindNextMatch = %v, %v; want b, nil", m, err)
+	}
+}
+
 func TestRegisterEngine_CacheKeyIncludesBacktrackingStackLimit(t *testing.T) {
 	const pattern = "stack-limit-cache-key"
 	register := func(limit, marker int) {
