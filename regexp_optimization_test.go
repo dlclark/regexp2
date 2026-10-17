@@ -269,7 +269,7 @@ func TestQuickMatchCaptureLiveness(t *testing.T) {
 	}
 
 	// A subsequent full match must still return every capture.
-	full, err := re.run(false, 0, -1, input, newMatchText(input))
+	full, err := re.FindRunesMatchStartingAt(input, 0)
 	if err != nil || full == nil {
 		t.Fatalf("full match = %v, %v", full, err)
 	}

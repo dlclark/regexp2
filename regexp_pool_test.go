@@ -16,50 +16,193 @@ func skipIfAllocsUnreliable(t *testing.T) {
 	}
 }
 
+func TestFindRunesMatchNoMatchAllocs(t *testing.T) {
+	skipIfAllocsUnreliable(t)
+	input := []rune(strings.Repeat("x := someIdentifier + 42 // comment\n", 100))
+	re := MustCompile(`^(?:func\b)`)
+	for _, startingAt := range []bool{false, true} {
+		name := "FindRunesMatch"
+		if startingAt {
+			name = "FindRunesMatchStartingAt"
+		}
+		t.Run(name, func(t *testing.T) {
+			allocs := testing.AllocsPerRun(200, func() {
+				var m *Match
+				var err error
+				if startingAt {
+					m, err = re.FindRunesMatchStartingAt(input, 0)
+				} else {
+					m, err = re.FindRunesMatch(input)
+				}
+				if err != nil || m != nil {
+					t.Fatalf("match = %v, %v; want nil, nil", m, err)
+				}
+			})
+			if allocs != 0 {
+				t.Fatalf("allocs/op = %v, want 0", allocs)
+			}
+		})
+	}
+}
+
+func TestStringOperationsNoMatchAllocs(t *testing.T) {
+	skipIfAllocsUnreliable(t)
+	for _, tc := range []struct {
+		name, pattern, input string
+		options              RegexOptions
+	}{
+		{"anchored", `^func\b`, strings.Repeat("x := someIdentifier + 42 // comment\n", 100), None},
+		{"rejected_candidate", `func\b`, "funcx" + strings.Repeat("x", 3400), None},
+		{"right_to_left", `func\b`, strings.Repeat("x", 3400), RightToLeft},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			re := MustCompile(tc.pattern, tc.options)
+			for _, api := range []struct {
+				name string
+				call func(*testing.T)
+				want float64
+			}{
+				{"FindStringMatch", func(t *testing.T) {
+					if m, err := re.FindStringMatch(tc.input); m != nil || err != nil {
+						t.Fatalf("match = %v, %v; want nil, nil", m, err)
+					}
+				}, 0},
+				{"FindStringMatchStartingAt", func(t *testing.T) {
+					startAt := 0
+					if re.RightToLeft() {
+						startAt = len(tc.input)
+					}
+					if m, err := re.FindStringMatchStartingAt(tc.input, startAt); m != nil || err != nil {
+						t.Fatalf("match = %v, %v; want nil, nil", m, err)
+					}
+				}, 0},
+				{"Replace", func(t *testing.T) {
+					if got, err := re.Replace(tc.input, "replacement", -1, -1); got != tc.input || err != nil {
+						t.Fatalf("Replace = %q, %v; want original input, nil", got, err)
+					}
+				}, 0},
+				{"ReplaceFunc", func(t *testing.T) {
+					got, err := re.ReplaceFunc(tc.input, func(Match) string {
+						t.Fatal("unexpected match")
+						return ""
+					}, -1, -1)
+					if got != tc.input || err != nil {
+						t.Fatalf("ReplaceFunc = %q, %v; want original input, nil", got, err)
+					}
+				}, 0},
+				{"Split", func(t *testing.T) {
+					if got, err := re.Split(tc.input, -1); err != nil || len(got) != 1 || got[0] != tc.input {
+						t.Fatalf("Split = %q, %v; want original input, nil", got, err)
+					}
+				}, 1}, // The returned []string still needs storage.
+				{"FindAllStringIndex", func(t *testing.T) {
+					if got, err := re.FindAllStringIndex(tc.input, 100); len(got) != 0 || err != nil {
+						t.Fatalf("indexes = %v, %v; want no matches, nil", got, err)
+					}
+				}, 0},
+			} {
+				t.Run(api.name, func(t *testing.T) {
+					if allocs := testing.AllocsPerRun(200, func() { api.call(t) }); allocs != api.want {
+						t.Fatalf("allocs/op = %v, want %v", allocs, api.want)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestFindAllRunesIndexNoMatchAllocs(t *testing.T) {
+	skipIfAllocsUnreliable(t)
+	re := MustCompile(`^func\b`)
+	input := []rune("x := someIdentifier + 42")
+	allocs := testing.AllocsPerRun(200, func() {
+		if got, err := re.FindAllRunesIndex(input, 100); len(got) != 0 || err != nil {
+			t.Fatalf("indexes = %v, %v; want no matches, nil", got, err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs/op = %v, want 0", allocs)
+	}
+}
+
+func TestFindStringMatchPoolingDoesNotIncreaseAllocs(t *testing.T) {
+	skipIfAllocsUnreliable(t)
+	input := "needle" + strings.Repeat("x", 64<<10)
+	measure := func(re *Regexp) float64 {
+		return testing.AllocsPerRun(200, func() {
+			m, err := re.FindStringMatch(input)
+			if err != nil || m == nil || m.String() != "needle" || string(m.Runes()) != "needle" {
+				t.Fatalf("match = %v, %v; want needle, nil", m, err)
+			}
+		})
+	}
+	pooled := measure(MustCompile(`needle`))
+	unpooled := measure(MustCompile(`needle`, OptionMaxCachedRuneBufferLength(0)))
+	if pooled > unpooled {
+		t.Fatalf("pooled allocs/op = %v, unpooled = %v; pooling should not add allocations for matches", pooled, unpooled)
+	}
+}
+
 func TestReturnedMatchSurvivesPooledReuse(t *testing.T) {
-	re := MustCompile(`(?<n>needle)\d+`)
-	heldInput := strings.Repeat("漢", 80) + "needle42"
-	held, err := re.FindStringMatch(heldInput)
-	if err != nil || held == nil {
-		t.Fatalf("held match = %v, %v", held, err)
-	}
-	wantString := held.String()
-	wantRunes := string(held.Runes())
-	wantRuneIndex := held.RuneIndex
-	wantRuneLength := held.RuneLength
-	wantByteIndex, wantByteLength := held.ByteRange()
-	wantGroup := held.GroupByName("n").String()
+	for _, pattern := range []string{`needle\d+`, `(?<n>needle)\d+`} {
+		t.Run(pattern, func(t *testing.T) {
+			re := MustCompile(pattern)
+			heldInput := strings.Repeat("漢", 80) + "needle42"
+			held, err := re.FindStringMatch(heldInput)
+			if err != nil || held == nil {
+				t.Fatalf("held match = %v, %v", held, err)
+			}
+			wantString := held.String()
+			wantRunes := string(held.Runes())
+			wantRuneIndex := held.RuneIndex
+			wantRuneLength := held.RuneLength
+			wantByteIndex, wantByteLength := held.ByteRange()
+			group := held.GroupByNumber(held.GroupCount() - 1)
+			wantGroup := group.String()
 
-	// These paths return pooled rune/replace buffers. If FindStringMatch had
-	// borrowed one, later reuse would overwrite the held match.
-	for i := 0; i < 200; i++ {
-		other := strings.Repeat("z", 1500) + fmt.Sprintf("needle%d", i)
-		if ok, err := re.MatchString(other); !ok || err != nil {
-			t.Fatalf("MatchString: %v %v", ok, err)
-		}
-		if _, err := re.FindAllStringIndex(other, -1); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := re.Replace(other, "[$1]", -1, -1); err != nil {
-			t.Fatal(err)
-		}
-	}
+			// These paths return pooled rune/replace buffers. If FindStringMatch had
+			// borrowed one, later reuse would overwrite the held match.
+			for i := 0; i < 200; i++ {
+				other := strings.Repeat("z", 1500) + fmt.Sprintf("needle%d", i)
+				// Alternate misses and hits with the same buffer size as the held input.
+				miss := strings.Repeat("z", len(heldInput)-8) + "needle!!"
+				if m, err := re.FindStringMatch(miss); m != nil || err != nil {
+					t.Fatalf("miss = %v, %v; want nil, nil", m, err)
+				}
+				if _, err := re.FindStringMatch(strings.Repeat("z", len(heldInput)-8) + "needle99"); err != nil {
+					t.Fatal(err)
+				}
+				if ok, err := re.MatchString(other); !ok || err != nil {
+					t.Fatalf("MatchString: %v %v", ok, err)
+				}
+				if _, err := re.FindAllStringIndex(other, -1); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := re.Replace(other, "[$1]", -1, -1); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-	if got := held.String(); got != wantString {
-		t.Fatalf("String mutated to %q, want %q", got, wantString)
-	}
-	if got := string(held.Runes()); got != wantRunes {
-		t.Fatalf("Runes mutated to %q, want %q", got, wantRunes)
-	}
-	if held.RuneIndex != wantRuneIndex || held.RuneLength != wantRuneLength {
-		t.Fatalf("rune span mutated to (%d,%d)", held.RuneIndex, held.RuneLength)
-	}
-	gotByteIndex, gotByteLength := held.ByteRange()
-	if gotByteIndex != wantByteIndex || gotByteLength != wantByteLength {
-		t.Fatalf("ByteRange mutated to (%d,%d)", gotByteIndex, gotByteLength)
-	}
-	if got := held.GroupByName("n").String(); got != wantGroup {
-		t.Fatalf("group mutated to %q, want %q", got, wantGroup)
+			if got := held.String(); got != wantString {
+				t.Fatalf("String mutated to %q, want %q", got, wantString)
+			}
+			if got := string(held.Runes()); got != wantRunes {
+				t.Fatalf("Runes mutated to %q, want %q", got, wantRunes)
+			}
+			if held.RuneIndex != wantRuneIndex || held.RuneLength != wantRuneLength {
+				t.Fatalf("rune span mutated to (%d,%d)", held.RuneIndex, held.RuneLength)
+			}
+			gotByteIndex, gotByteLength := held.ByteRange()
+			if gotByteIndex != wantByteIndex || gotByteLength != wantByteLength {
+				t.Fatalf("ByteRange mutated to (%d,%d)", gotByteIndex, gotByteLength)
+			}
+			if got := held.GroupByNumber(held.GroupCount() - 1).String(); got != wantGroup {
+				t.Fatalf("group mutated to %q, want %q", got, wantGroup)
+			}
+			if next, err := re.FindNextMatch(held); next != nil || err != nil {
+				t.Fatalf("FindNextMatch = %v, %v; want nil, nil", next, err)
+			}
+		})
 	}
 }
 
@@ -85,6 +228,22 @@ func TestCaptureStringNoAlloc(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("String/ByteRange allocs/op = %v, want 0", allocs)
+	}
+}
+
+func TestFindNextMatchPreservesEarlierCaptures(t *testing.T) {
+	re := MustCompile(`a|b`)
+	first, err := re.FindStringMatch("a b")
+	if err != nil || first == nil || first.String() != "a" {
+		t.Fatalf("first = %v, %v; want a, nil", first, err)
+	}
+	captures := first.Captures
+	second, err := re.FindNextMatch(first)
+	if err != nil || second == nil || second.String() != "b" {
+		t.Fatalf("second = %v, %v; want b, nil", second, err)
+	}
+	if first.String() != "a" || len(captures) != 1 || captures[0].String() != "a" {
+		t.Fatalf("earlier match or capture changed after FindNextMatch: %v, %v", first, captures)
 	}
 }
 
@@ -326,6 +485,10 @@ func TestCapture_ConcurrentReads(t *testing.T) {
 			for j := 0; j < 500; j++ {
 				if got := m.String(); got != "needle" {
 					t.Errorf("String = %q", got)
+					return
+				}
+				if got := string(m.Runes()); got != "needle" {
+					t.Errorf("Runes = %q", got)
 					return
 				}
 				idx, ln := m.ByteRange()

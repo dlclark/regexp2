@@ -7,6 +7,29 @@ import (
 	"testing"
 )
 
+func BenchmarkFindRunesMatchStartingAt(b *testing.B) {
+	input := []rune(strings.Repeat("x := someIdentifier + 42 // comment\n", 100))
+	for _, tc := range []struct {
+		name, pattern string
+		wantMatch     bool
+	}{
+		{"no_match", `^(?:func\b)`, false},
+		{"match", `^(?<identifier>\w+)`, true},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			re := MustCompile(tc.pattern)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				m, err := re.FindRunesMatchStartingAt(input, 0)
+				if err != nil || (m != nil) != tc.wantMatch {
+					b.Fatal(m, err)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkSearchCaseInsensitive(b *testing.B) {
 	for _, n := range []int{16, 1024, 16384, 65536} {
 		for _, tc := range []struct {

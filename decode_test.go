@@ -45,10 +45,10 @@ func TestDecodeInputSkipsPrefixOffset(t *testing.T) {
 	prefix := strings.Repeat("漢", 20)
 	input := prefix + "needle"
 	startAt := len(prefix)
-	d := decodeInput(input, startAt, re.decodeFrom(input, startAt), 0, false)
+	d := decodeInput(input, startAt, re.decodeFrom(input, startAt), 0)
 	defer d.release()
 	if d.runeOffset != 0 {
-		t.Fatalf("needOffsets=false should leave runeOffset 0, got %d", d.runeOffset)
+		t.Fatalf("internal scans should leave runeOffset 0, got %d", d.runeOffset)
 	}
 	if got := string(d.runes); got != "needle" {
 		t.Fatalf("decoded %q, want needle", got)
@@ -59,7 +59,7 @@ func TestDecodeInputSkipsPrefixOffset(t *testing.T) {
 }
 
 func TestDecodeInputUnspecifiedStart(t *testing.T) {
-	d := decodeInput("abc", -1, 0, 0, false)
+	d := decodeInput("abc", -1, 0, 0)
 	defer d.release()
 	if d.runeStart != -1 {
 		t.Fatalf("runeStart = %d, want -1 for startAt < 0", d.runeStart)
@@ -68,7 +68,7 @@ func TestDecodeInputUnspecifiedStart(t *testing.T) {
 
 func TestDecodeInputMidRuneStart(t *testing.T) {
 	// "aéx": 'é' occupies bytes 1..2, so 2 is not a rune boundary.
-	d := decodeInput("aéx", 2, 0, 0, false)
+	d := decodeInput("aéx", 2, 0, 0)
 	defer d.release()
 	if d.runeStart != -1 {
 		t.Fatalf("runeStart = %d, want -1 for mid-rune startAt", d.runeStart)
