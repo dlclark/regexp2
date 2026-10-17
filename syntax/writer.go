@@ -2,6 +2,7 @@ package syntax
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"slices"
@@ -644,7 +645,7 @@ func (w *writer) stringCode(str []rune) int {
 		return 0
 	}
 
-	hash := string(str)
+	hash := runeSliceKey(str)
 	i, ok := w.stringhash[hash]
 	if !ok {
 		i = len(w.stringhash)
@@ -653,6 +654,21 @@ func (w *writer) stringCode(str []rune) int {
 	}
 
 	return i
+}
+
+func runeSliceKey(str []rune) string {
+	if len(str) <= 8 {
+		var buf [32]byte
+		for i, r := range str {
+			binary.LittleEndian.PutUint32(buf[i*4:], uint32(r))
+		}
+		return string(buf[:len(str)*4])
+	}
+	b := make([]byte, len(str)*4)
+	for i, r := range str {
+		binary.LittleEndian.PutUint32(b[i*4:], uint32(r))
+	}
+	return string(b)
 }
 
 // When generating code on a regex that uses a sparse set

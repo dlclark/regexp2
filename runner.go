@@ -1626,9 +1626,17 @@ func findFirstCharOptimized(r *Runner) (handled bool, found bool) {
 	case syntax.TrailingAnchor_FixedLength_LeftToRight_EndZ:
 		return true, findTrailingFixedLengthEnd(r, opts.MinRequiredLength, true)
 	case syntax.LeadingString_LeftToRight:
-		return true, findLeadingStringLeftToRight(r, []rune(opts.LeadingPrefix), false)
+		prefix := opts.LeadingPrefixRunes
+		if prefix == nil {
+			prefix = []rune(opts.LeadingPrefix)
+		}
+		return true, findLeadingStringLeftToRight(r, prefix, false)
 	case syntax.LeadingString_OrdinalIgnoreCase_LeftToRight:
-		return true, findLeadingStringLeftToRight(r, []rune(opts.LeadingPrefix), true)
+		prefix := opts.LeadingPrefixRunes
+		if prefix == nil {
+			prefix = []rune(opts.LeadingPrefix)
+		}
+		return true, findLeadingStringLeftToRight(r, prefix, true)
 	case syntax.LeadingStrings_LeftToRight:
 		if r.re != nil && r.re.prefixSearch != nil && r.re.prefixSearch.shouldUseRunes(r.Runtext, r.Runtextpos) {
 			start := r.re.prefixSearch.indexRunes(r.Runtext, r.Runtextpos)
@@ -1647,7 +1655,11 @@ func findFirstCharOptimized(r *Runner) (handled bool, found bool) {
 	case syntax.FixedDistanceChar_LeftToRight:
 		return true, findFixedDistanceCharLeftToRight(r, opts.FixedDistanceLiteral.C, opts.FixedDistanceLiteral.Distance)
 	case syntax.FixedDistanceString_LeftToRight:
-		return true, findFixedDistanceStringLeftToRight(r, []rune(opts.FixedDistanceLiteral.S), opts.FixedDistanceLiteral.Distance)
+		needle := opts.FixedDistanceLiteral.Runes
+		if needle == nil {
+			needle = []rune(opts.FixedDistanceLiteral.S)
+		}
+		return true, findFixedDistanceStringLeftToRight(r, needle, opts.FixedDistanceLiteral.Distance)
 	case syntax.LiteralAfterLoop_LeftToRight:
 		return true, findLiteralAfterLoopLeftToRight(r, opts.LiteralAfterLoop)
 	case syntax.RequiredLandmarkChain_LeftToRight:
@@ -2344,6 +2356,21 @@ func requiredLandmarkAnchorsHold(r *Runner, anchors []syntax.NodeType, pos int) 
 
 func indexOfLiteralAfterLoop(r *Runner, literal *syntax.LiteralAfterLoop, searchStart int) int {
 	switch {
+	case len(literal.Runes) > 0:
+		needle := literal.Runes
+		if literal.StringIgnoreCase {
+			var offset int
+			if isASCIIRunes(needle) {
+				offset = helpers.IndexOfIgnoreCaseAscii(r.Runtext[searchStart:], needle)
+			} else {
+				offset = helpers.IndexOfIgnoreCase(r.Runtext[searchStart:], needle)
+			}
+			if offset >= 0 {
+				return searchStart + offset
+			}
+		} else if offset := helpers.IndexOf(r.Runtext[searchStart:], needle); offset >= 0 {
+			return searchStart + offset
+		}
 	case literal.String != "":
 		needle := []rune(literal.String)
 		if literal.StringIgnoreCase {
