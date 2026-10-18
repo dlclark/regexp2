@@ -424,6 +424,76 @@ func TestECMA_Test262CompileErrors(t *testing.T) {
 	}
 }
 
+func TestECMA_WordBoundaryUsesWordCharacters(t *testing.T) {
+	// \b and \B test IsWordChar, which uses the same WordCharacters as \w:
+	// [A-Za-z0-9_], plus U+017F and U+212A when both the IgnoreCase and
+	// Unicode flags are set (ES2025 22.2.2.9.3 WordCharacters).
+	tests := []struct {
+		expr    string
+		options RegexOptions
+		input   string
+		want    []int
+	}{
+		{`\b`, 0, "a\u00e9", []int{0, 1}},
+		{`\b`, 0, "\u00e9", nil},
+		{`\b`, 0, "\u4e2d\u6587", nil},
+		{`\b`, 0, "na\u00efve", []int{0, 2, 3, 5}},
+		{`\b`, 0, "\u0131", nil},
+		{`\b`, Unicode, "\u00e9", nil},
+		{`\b`, Unicode, "\u017f", nil},
+		{`\b`, IgnoreCase, "\u017f", nil},
+		{`\b`, IgnoreCase, "\u212a", nil},
+		{`\b`, IgnoreCase | Unicode, "\u017f", []int{0, 1}},
+		{`\b`, IgnoreCase | Unicode, "\u212a", []int{0, 1}},
+		{`\b`, IgnoreCase | Unicode, "\u00e9", nil},
+		{`(?i:\b)`, Unicode, "\u017f", []int{0, 1}},
+		{`(?i:\b)`, 0, "\u017f", nil},
+		{`\B`, 0, "a\u00e9", []int{2}},
+		{`\B`, 0, "\u00e9", []int{0, 1}},
+		{`\B`, IgnoreCase | Unicode, "\u017f", nil},
+		{`\B`, IgnoreCase | Unicode, "\u0131", []int{0, 1}},
+		{`\bcaf\u00e9\b`, 0, "caf\u00e9 au lait", nil},
+		{`caf\b`, 0, "caf\u00e9", []int{0}},
+		{`\w+\b`, 0, "na\u00efve", []int{0, 3}},
+		{`a+\b`, 0, "aa\u00e9", []int{0}},
+		{`\u00e9+\B`, 0, "\u00e9\u00e9 a", []int{0}},
+		// \b checked by the required-landmark prefilter
+		{`\S*\b(a|\s*b)c`, IgnoreCase | Unicode, "\u017f bc", []int{0}},
+		{`\S*\b(a|\s*b)c`, 0, "\u017f bc", []int{2}},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d/%s/%q", int(tt.options), tt.expr, tt.input), func(t *testing.T) {
+			re := MustCompile(tt.expr, ECMAScript|tt.options)
+			var got []int
+			m, err := re.FindStringMatch(tt.input)
+			for ; m != nil && err == nil; m, err = re.FindNextMatch(m) {
+				got = append(got, m.RuneIndex)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("/%s/ matched %q at %v, want %v", tt.expr, tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWordBoundaryOutsideECMAUsesUnicodeWordChars(t *testing.T) {
+	re := MustCompile(`\b`, None)
+	var got []int
+	m, err := re.FindStringMatch("a\u00e9 \u4e2d")
+	for ; m != nil && err == nil; m, err = re.FindNextMatch(m) {
+		got = append(got, m.RuneIndex)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []int{0, 2, 3, 4}; !slices.Equal(got, want) {
+		t.Fatalf("/\\b/ matched at %v, want %v", got, want)
+	}
+}
+
 func TestECMA_CharSetRange(t *testing.T) {
 	tests := map[string]struct {
 		expr    string

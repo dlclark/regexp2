@@ -668,14 +668,14 @@ func executeDefault(r *Runner) error {
 			continue
 
 		case syntax.ECMABoundary:
-			if !r.IsECMABoundary(r.textPos()) {
+			if !r.isECMABoundary(r.textPos()) {
 				break
 			}
 			r.advance(0)
 			continue
 
 		case syntax.NonECMABoundary:
-			if r.IsECMABoundary(r.textPos()) {
+			if r.isECMABoundary(r.textPos()) {
 				break
 			}
 			r.advance(0)
@@ -2697,6 +2697,17 @@ func (r *Runner) isLineBreak(ch rune) bool {
 func (r *Runner) IsECMABoundary(index int) bool {
 	return (index > 0 && syntax.IsECMAWordChar(r.Runtext[index-1])) !=
 		(index < r.Runtextend && syntax.IsECMAWordChar(r.Runtext[index]))
+}
+
+// isECMABoundary is IsECMABoundary for the current operator, whose Ci bit
+// says whether IgnoreCase applies to it.
+func (r *Runner) isECMABoundary(index int) bool {
+	if !r.caseInsensitive || r.re.options&Unicode == 0 {
+		return r.IsECMABoundary(index)
+	}
+	opts := syntax.IgnoreCase | syntax.Unicode
+	return (index > 0 && syntax.IsECMAWordCharWithOptions(opts, r.Runtext[index-1])) !=
+		(index < r.Runtextend && syntax.IsECMAWordCharWithOptions(opts, r.Runtext[index]))
 }
 
 func (r *Runner) startTimeoutWatch() {
