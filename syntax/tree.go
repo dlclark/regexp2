@@ -970,6 +970,15 @@ func (n *RegexNode) FindLastExpressionInLoopForAutoAtomic() *RegexNode {
 	return nil
 }
 
+// containsLineBreak reports whether the set holds a character that $ can match
+// before in Multiline mode (see IsLineBreak).
+func (c *CharSet) containsLineBreak(options RegexOptions) bool {
+	if options&ECMAScript == 0 {
+		return c.CharIn('\n')
+	}
+	return c.CharIn('\n') || c.CharIn('\r') || c.CharIn('\u2028') || c.CharIn('\u2029')
+}
+
 // Determines whether a node can be switched to an atomic loop.
 //
 // The node following is subsequent, used to determine whether it overlaps.
@@ -1037,7 +1046,7 @@ func (n *RegexNode) canBeMadeAtomic(subsequent *RegexNode, iterateNullableSubseq
 				(subsequent.T == NtMulti && n.Ch != subsequent.Str[0]) ||
 				(subsequent.T == NtEnd) ||
 				(subsequent.T == NtEndZ && n.Ch != '\n') ||
-				(subsequent.T == NtEol && n.Ch != '\n') {
+				(subsequent.T == NtEol && !IsLineBreak(n.Options, n.Ch)) {
 				return true
 			}
 
@@ -1076,7 +1085,7 @@ func (n *RegexNode) canBeMadeAtomic(subsequent *RegexNode, iterateNullableSubseq
 				(subsequent.T == NtMulti && !n.Set.CharIn(subsequent.Str[0])) ||
 				(subsequent.T == NtEnd) ||
 				(subsequent.T == NtEndZ && !n.Set.CharIn('\n')) ||
-				(subsequent.T == NtEol && !n.Set.CharIn('\n')) {
+				(subsequent.T == NtEol && !n.Set.containsLineBreak(n.Options)) {
 				return true
 			}
 

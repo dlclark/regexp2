@@ -497,6 +497,22 @@ func IsECMAWordChar(r rune) bool {
 	//return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_'
 }
 
+// IsECMALineTerminator reports whether r is an ECMAScript LineTerminator:
+// LF, CR, LINE SEPARATOR or PARAGRAPH SEPARATOR.
+func IsECMALineTerminator(r rune) bool {
+	return r == '\n' || r == '\r' || r == '\u2028' || r == '\u2029'
+}
+
+// IsLineBreak reports whether r ends a line for the ^ and $ anchors in
+// Multiline mode. Only LF does, except in ECMAScript mode, where every
+// LineTerminator does.
+func IsLineBreak(options RegexOptions, r rune) bool {
+	if options&ECMAScript != 0 {
+		return IsECMALineTerminator(r)
+	}
+	return r == '\n'
+}
+
 func IsECMAIdentifierStartChar(r rune) bool {
 	return r == '$' || r == '_' || unicode.In(r, unicode.L, unicode.Nl, unicode.Other_ID_Start)
 }

@@ -331,6 +331,71 @@ func TestECMA_DotExcludesLineTerminators(t *testing.T) {
 	}
 }
 
+func TestECMA_MultilineAnchorsMatchAtLineTerminators(t *testing.T) {
+	// With the Multiline flag, ^ and $ also match after and before every
+	// LineTerminator (U+000A, U+000D, U+2028, U+2029), not only after and
+	// before U+000A (ES2025 22.2.2.6 Assertion, IsLineTerminator).
+	tests := []struct {
+		expr  string
+		input string
+		want  string
+		index int
+	}{
+		{`^b`, "a\rb", "b", 2},
+		{`^b`, "a\u2028b", "b", 2},
+		{`^b`, "a\u2029b", "b", 2},
+		{`^b`, "a\r\nb", "b", 3},
+		{`a$`, "a\rb", "a", 0},
+		{`a$`, "a\u2028b", "a", 0},
+		{`a$`, "a\u2029b", "a", 0},
+		{`a$`, "a\r\nb", "a", 0},
+		{`^$`, "a\r\r\nb", "", 2},
+		{`^\d+$`, "x\r\n42\r\ny", "42", 3},
+		{`^.+$`, "\u2028abc\u2029", "abc", 1},
+		{`(?<=^)b`, "a\u2028b", "b", 2},
+		{`b(?=$)`, "b\u2029", "b", 0},
+		// ^ checked by the required-landmark prefilter
+		{`\S*^(a|\s*b)c`, "x\r bc", " bc", 2},
+		{`\S*^(a|\s*b)c`, "x\u2028 bc", " bc", 2},
+		// a loop over line terminators must still give characters back to $
+		{`\r*$`, "\r\rx", "\r", 0},
+		{`[\r\u2028]*$`, "\r\u2028x", "\r", 0},
+	}
+	for _, options := range []RegexOptions{ECMAScript | Multiline, ECMAScript | Unicode | Multiline} {
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("%d/%s/%q", int(options), tt.expr, tt.input), func(t *testing.T) {
+				re := MustCompile(tt.expr, options)
+				m, err := re.FindStringMatch(tt.input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if m == nil {
+					t.Fatalf("/%s/ found no match in %q, want %q at %d", tt.expr, tt.input, tt.want, tt.index)
+				}
+				if m.String() != tt.want || m.RuneIndex != tt.index {
+					t.Fatalf("/%s/ matched %q at %d in %q, want %q at %d", tt.expr, m.String(), m.RuneIndex, tt.input, tt.want, tt.index)
+				}
+			})
+		}
+	}
+}
+
+func TestMultilineAnchorsOnlyUseLineFeedOutsideECMA(t *testing.T) {
+	// .NET and RE2 treat only U+000A as a line break for ^ and $.
+	for _, options := range []RegexOptions{Multiline, RE2 | Multiline} {
+		for _, input := range []string{"a\rb", "a\u2028b", "a\u2029b"} {
+			re := MustCompile(`^b|a$`, options)
+			matched, err := re.MatchString(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if matched {
+				t.Fatalf("options %d: /^b|a$/ matched %q, want no match", int(options), input)
+			}
+		}
+	}
+}
+
 func TestECMA_Test262CompileErrors(t *testing.T) {
 	tests := []struct {
 		source string
