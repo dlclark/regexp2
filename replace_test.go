@@ -72,6 +72,24 @@ func TestReplace_LimitCount(t *testing.T) {
 	}
 }
 
+func TestReplace_ZeroCount(t *testing.T) {
+	for _, option := range []RegexOptions{None, RightToLeft} {
+		re := MustCompile(`a`, option)
+		for _, input := range []string{"aあa", "no match"} {
+			if got, err := re.Replace(input, "b", -1, 0); err != nil || got != input {
+				t.Errorf("Replace(%q, count=0) = %q, %v", input, got, err)
+			}
+			got, err := re.ReplaceFunc(input, func(Match) string {
+				t.Error("evaluator called with count=0")
+				return "b"
+			}, -1, 0)
+			if err != nil || got != input {
+				t.Errorf("ReplaceFunc(%q, count=0) = %q, %v", input, got, err)
+			}
+		}
+	}
+}
+
 func TestReplace_LimitCountSlice(t *testing.T) {
 	re := MustCompile(`a`, None)
 	myStr := "aaaaa"
