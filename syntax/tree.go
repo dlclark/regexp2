@@ -472,8 +472,9 @@ func (node *RegexNode) processNode(subsequent *RegexNode) {
 }
 
 func (n *RegexNode) reduce() *RegexNode {
-	// Remove IgnoreCase option from everything except a Backreference
-	if n.T != NtRef {
+	// Remove IgnoreCase option from everything except a Backreference and an
+	// ECMAScript \b or \B whose word characters depend on it
+	if n.T != NtRef && !((n.T == NtECMABoundary || n.T == NtNonECMABoundary) && hasECMAWordCharExtras(n.Options)) {
 		n.Options &= ^IgnoreCase
 	}
 	switch n.T {

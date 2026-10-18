@@ -489,12 +489,21 @@ func IsWordChar(r rune) bool {
 	//return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_'
 }
 
+// IsECMAWordChar reports whether r is one of the ECMAScript basic word
+// characters [A-Za-z0-9_], which \w, \b and \B are defined by.
 func IsECMAWordChar(r rune) bool {
-	return unicode.In(r,
-		unicode.Categories["L"], unicode.Categories["Mn"],
-		unicode.Categories["Nd"], unicode.Categories["Pc"])
+	return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_'
+}
 
-	//return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_'
+// IsECMAWordCharWithOptions is IsECMAWordChar for a \b or \B parsed with the
+// given options. With both IgnoreCase and Unicode, WordCharacters also holds
+// U+017F and U+212A, whose simple case folds are 's' and 'k'.
+func IsECMAWordCharWithOptions(options RegexOptions, r rune) bool {
+	return IsECMAWordChar(r) || hasECMAWordCharExtras(options) && (r == '\u017F' || r == '\u212A')
+}
+
+func hasECMAWordCharExtras(options RegexOptions) bool {
+	return options&(IgnoreCase|Unicode) == IgnoreCase|Unicode
 }
 
 // IsECMALineTerminator reports whether r is an ECMAScript LineTerminator:
