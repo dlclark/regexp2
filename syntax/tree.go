@@ -834,7 +834,7 @@ func (n *RegexNode) makeLoopAtomic() {
 			// If this is now a One repeater with a small enough length,
 			// make it a Multi instead, as they're better optimized down the line.
 			n.T = NtMulti
-			n.Str = []rune(strings.Repeat(string(n.Ch), n.N))
+			n.Str = repeatRune(n.Ch, n.N)
 			n.Ch = 0x0
 			n.M = 0
 			n.N = 0
@@ -1976,7 +1976,7 @@ func (n *RegexNode) makeQuantifier(lazy bool, min, max int) *RegexNode {
 		// processing. The counts used here in real-world expressions are invariably small (e.g. 4),
 		// but we set an upper bound just to avoid creating really large strings.
 		n.T = NtMulti
-		n.Str = []rune(strings.Repeat(string(n.Ch), max))
+		n.Str = repeatRune(n.Ch, max)
 		n.Ch = 0
 		return n
 	}
@@ -2505,4 +2505,12 @@ func (n *RegexNode) FirstCharOfOneOrMulti() rune {
 		return n.Ch
 	}
 	return n.Str[0]
+}
+
+func repeatRune(r rune, count int) []rune {
+	res := make([]rune, count)
+	for i := range res {
+		res[i] = r
+	}
+	return res
 }
