@@ -26,6 +26,8 @@ var (
 	DefaultMatchTimeout = time.Duration(math.MaxInt64)
 	// ErrBacktrackingStackLimit is returned when a match exceeds its configured backtracking stack size.
 	ErrBacktrackingStackLimit = errors.New("regexp2: maximum backtracking stack size exceeded")
+	// ErrMatchStepLimit is returned when a match takes more steps than its Regexp's MatchStepLimit.
+	ErrMatchStepLimit = errors.New("regexp2: match step limit exceeded")
 )
 
 // Regexp is the representation of a compiled regular expression.
@@ -37,6 +39,15 @@ type Regexp struct {
 	// (DefaultMatchTimeout) causes all time out checking to be
 	// suppressed.
 	MatchTimeout time.Duration
+
+	// A match fails with ErrMatchStepLimit once the engine has taken more
+	// than MatchStepLimit steps. Like MatchTimeout it bounds catastrophic
+	// backtracking, but it counts work instead of reading a clock, so a
+	// match is never failed because its goroutine waited for a CPU, and the
+	// same pattern and input always get the same result. Zero (the default)
+	// means no limit. Both limits may be set; the first one reached ends the
+	// match.
+	MatchStepLimit int64
 
 	// read-only after Compile
 	pattern string       // as passed to Compile

@@ -38,7 +38,7 @@ if isMatch, _ := re.MatchString(`Something to match`); isMatch {
 }
 ```
 
-The `*Match*` methods can return a timeout error if you set the `re.MatchTimeout` field, or `ErrBacktrackingStackLimit` if a match exceeds its configured backtracking stack size. Any other error is a bug in the `regexp2` package. If you need more details about capture groups in a match then use the `FindStringMatch` method, like so:
+The `*Match*` methods can return a timeout error if you set the `re.MatchTimeout` field, `ErrMatchStepLimit` if you set the `re.MatchStepLimit` field, or `ErrBacktrackingStackLimit` if a match exceeds its configured backtracking stack size. Any other error is a bug in the `regexp2` package. If you need more details about capture groups in a match then use the `FindStringMatch` method, like so:
 
 ```go
 if m, _ := re.FindStringMatch(`Something to match`); m != nil {
@@ -194,7 +194,7 @@ For pooled buffer cache options, set `n` to `0` to disable pooling, or `-1` to a
 ## Compare `regexp` and `regexp2`
 | Category | regexp | regexp2 |
 | --- | --- | --- |
-| Catastrophic backtracking possible | no, constant execution time guarantees | yes; backtracking stack growth is bounded by default, and `re.MatchTimeout` can also bound match duration |
+| Catastrophic backtracking possible | no, constant execution time guarantees | yes; backtracking stack growth is bounded by default, and `re.MatchTimeout` or `re.MatchStepLimit` can also bound match duration or work |
 | Python-style capture groups `(?P<name>re)` | yes | no (yes in RE2 compat mode) |
 | .NET-style capture groups `(?<name>re)` or `(?'name're)` | yes | yes |
 | comments `(?#comment)` | no | yes |
@@ -255,6 +255,15 @@ times are optimized away and do not consume backtracking stack space.
 `Regexp.MatchTimeout` can be set to limit the impact of such behavior; the
 match will fail with an error after approximately MatchTimeout. No timeout
 checks are done by default.
+
+`Regexp.MatchStepLimit` bounds the same behavior by work instead of time: the
+match fails with `ErrMatchStepLimit` once the engine has taken more than that
+many steps. It needs no background clock, and the result does not depend on
+scheduling: a match whose goroutine waits for a CPU on a busy machine is not
+failed for it, and a given pattern and input always get the same result. A step
+is one instruction of the matching engine, so a linear pattern takes a few
+steps per input character; set the limit well above what your longest
+legitimate input needs. Both limits may be set together.
 
 Timeout checking is not free. The current timeout checking implementation starts
 a background worker that updates a clock value approximately once every 100
