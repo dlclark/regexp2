@@ -668,14 +668,14 @@ func executeDefault(r *Runner) error {
 			continue
 
 		case syntax.ECMABoundary:
-			if !r.isECMABoundary(r.textPos()) {
+			if !r.IsECMABoundaryWithOptions(r.textPos(), r.ecmaBoundaryOptions()) {
 				break
 			}
 			r.advance(0)
 			continue
 
 		case syntax.NonECMABoundary:
-			if r.isECMABoundary(r.textPos()) {
+			if r.IsECMABoundaryWithOptions(r.textPos(), r.ecmaBoundaryOptions()) {
 				break
 			}
 			r.advance(0)
@@ -2319,10 +2319,12 @@ func requiredLandmarkAnchorsHold(r *Runner, anchors []syntax.NodeType, pos int) 
 			ok = r.IsBoundary(pos)
 		case syntax.NtNonboundary:
 			ok = !r.IsBoundary(pos)
+		// Boundaries with the IgnoreCase|Unicode word characters are not
+		// landmark anchors (see findRequiredLandmarkChain).
 		case syntax.NtECMABoundary:
-			ok = r.IsECMABoundary(pos)
+			ok = r.IsECMABoundaryWithOptions(pos, None)
 		case syntax.NtNonECMABoundary:
-			ok = !r.IsECMABoundary(pos)
+			ok = !r.IsECMABoundaryWithOptions(pos, None)
 		case syntax.NtBeginning:
 			ok = pos == 0
 		case syntax.NtStart:
@@ -2694,20 +2696,35 @@ func (r *Runner) isLineBreak(ch rune) bool {
 	return ch == '\n' || r.re.options&ECMAScript != 0 && syntax.IsECMALineTerminator(ch)
 }
 
+// IsECMABoundary reports whether index is between a letter, nonspacing mark,
+// decimal digit or connector punctuation and something else.
+//
+// Deprecated: IsECMABoundary is kept so that existing generated engines keep
+// their behavior. It does not use the ECMAScript word characters; use
+// IsECMABoundaryWithOptions.
 func (r *Runner) IsECMABoundary(index int) bool {
 	return (index > 0 && syntax.IsECMAWordChar(r.Runtext[index-1])) !=
 		(index < r.Runtextend && syntax.IsECMAWordChar(r.Runtext[index]))
 }
 
-// isECMABoundary is IsECMABoundary for the current operator, whose Ci bit
-// says whether IgnoreCase applies to it.
-func (r *Runner) isECMABoundary(index int) bool {
-	if !r.caseInsensitive || r.re.options&Unicode == 0 {
-		return r.IsECMABoundary(index)
-	}
-	opts := syntax.IgnoreCase | syntax.Unicode
+// IsECMABoundaryWithOptions reports whether index is an ECMAScript word
+// boundary for a \b or \B with the given options: whether exactly one of the
+// characters before and after index is in the WordCharacters, which are
+// [A-Za-z0-9_], plus U+017F and U+212A with both IgnoreCase and Unicode.
+func (r *Runner) IsECMABoundaryWithOptions(index int, options RegexOptions) bool {
+	opts := syntax.RegexOptions(options)
 	return (index > 0 && syntax.IsECMAWordCharWithOptions(opts, r.Runtext[index-1])) !=
 		(index < r.Runtextend && syntax.IsECMAWordCharWithOptions(opts, r.Runtext[index]))
+}
+
+// ecmaBoundaryOptions returns the options of the current \b or \B operator
+// that choose its word characters. The writer sets Ci on it only when its
+// scoped options have both IgnoreCase and Unicode (see RegexNode.reduce).
+func (r *Runner) ecmaBoundaryOptions() RegexOptions {
+	if r.caseInsensitive {
+		return IgnoreCase | Unicode
+	}
+	return None
 }
 
 func (r *Runner) startTimeoutWatch() {

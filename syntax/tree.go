@@ -1057,7 +1057,7 @@ func (n *RegexNode) canBeMadeAtomic(subsequent *RegexNode, iterateNullableSubseq
 				(subsequent.IsSetloopFamily() && subsequent.M == 0 && !subsequent.Set.CharIn(n.Ch)) ||
 				(subsequent.T == NtBoundary && n.M > 0 && IsWordChar(n.Ch)) ||
 				(subsequent.T == NtNonboundary && n.M > 0 && !IsWordChar(n.Ch)) ||
-				(subsequent.T == NtECMABoundary && n.M > 0 && IsECMAWordChar(n.Ch)) ||
+				(subsequent.T == NtECMABoundary && n.M > 0 && IsECMAWordCharWithOptions(subsequent.Options, n.Ch)) ||
 				(subsequent.T == NtNonECMABoundary && n.M > 0 && !IsECMAWordChar(n.Ch)) {
 				goto end
 			}

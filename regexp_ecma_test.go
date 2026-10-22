@@ -448,6 +448,10 @@ func TestECMA_WordBoundaryUsesWordCharacters(t *testing.T) {
 		{`\b`, IgnoreCase | Unicode, "\u00e9", nil},
 		{`(?i:\b)`, Unicode, "\u017f", []int{0, 1}},
 		{`(?i:\b)`, 0, "\u017f", nil},
+		{`(?iu:\b)`, 0, "\u212a", []int{0, 1}},
+		{`(?iu:\B)`, 0, "\u212a", nil},
+		{`(?-u:\b)`, IgnoreCase | Unicode, "\u212a", nil},
+		{`(?-i:\b)`, IgnoreCase | Unicode, "\u212a", nil},
 		{`\B`, 0, "a\u00e9", []int{2}},
 		{`\B`, 0, "\u00e9", []int{0, 1}},
 		{`\B`, IgnoreCase | Unicode, "\u017f", nil},
@@ -1467,6 +1471,47 @@ func TestECMADuplicateCaptureUse(t *testing.T) {
 				if got := code.CaptureSlotInUse[slot]; got != want {
 					t.Errorf("capture slot %d in use = %v, want %v", slot, got, want)
 				}
+			}
+		})
+	}
+}
+
+func TestLegacyGeneratedECMABoundaryCompatibility(t *testing.T) {
+	// Equivalent to the existing regexp2cg output for this boundary-only
+	// pattern. Keep the wrapper distinct from other tests' registered patterns.
+	const pattern = `(?:(?:(?:\b)))`
+	engine := RuntimeEngineData{
+		CapSize:       1,
+		FindFirstChar: func(*Runner) bool { return true },
+		Execute: func(r *Runner) error {
+			if r.IsECMABoundary(r.Runtextpos) {
+				r.Capture(0, r.Runtextpos, r.Runtextpos)
+			}
+			return nil
+		},
+	}
+	for _, tt := range []struct {
+		name, input string
+		options     RegexOptions
+	}{
+		{"iu_long_s", "ſ", ECMAScript | IgnoreCase | Unicode},
+		{"iu_kelvin", "K", ECMAScript | IgnoreCase | Unicode},
+		// Deliberately preserve legacy generated behavior, even where it
+		// differs from ECMAScript. Newly generated engines can use a new API.
+		{"legacy_unicode_letter", "é", ECMAScript},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			RegisterEngine(pattern, engine, tt.options)
+			r := MustCompile(pattern, tt.options)
+			m, err := r.FindStringMatch(tt.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if m == nil {
+				t.Fatal("legacy generated engine lost its boundary match")
+			}
+			if m.RuneIndex != 0 || m.RuneLength != 0 {
+				t.Fatalf("got span (%d,%d), want (0,0)", m.RuneIndex, m.RuneLength)
 			}
 		})
 	}
