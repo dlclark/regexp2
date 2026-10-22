@@ -489,17 +489,25 @@ func IsWordChar(r rune) bool {
 	//return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_'
 }
 
-// IsECMAWordChar reports whether r is one of the ECMAScript basic word
-// characters [A-Za-z0-9_], which \w, \b and \B are defined by.
+// IsECMAWordChar reports whether r is a letter, nonspacing mark, decimal
+// digit or connector punctuation. This is the classification that
+// Runner.IsECMABoundary keeps for existing generated code; it is not the
+// ECMAScript word character set, which IsECMAWordCharWithOptions tests.
 func IsECMAWordChar(r rune) bool {
-	return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_'
+	return unicode.In(r,
+		unicode.Categories["L"], unicode.Categories["Mn"],
+		unicode.Categories["Nd"], unicode.Categories["Pc"])
+
+	//return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_'
 }
 
-// IsECMAWordCharWithOptions is IsECMAWordChar for a \b or \B parsed with the
-// given options. With both IgnoreCase and Unicode, WordCharacters also holds
-// U+017F and U+212A, whose simple case folds are 's' and 'k'.
+// IsECMAWordCharWithOptions reports whether r is in the ECMAScript
+// WordCharacters that \w, \b and \B are defined by, for a \b or \B with the
+// given options: [A-Za-z0-9_], plus U+017F and U+212A (whose simple case folds
+// are 's' and 'k') with both IgnoreCase and Unicode.
 func IsECMAWordCharWithOptions(options RegexOptions, r rune) bool {
-	return IsECMAWordChar(r) || hasECMAWordCharExtras(options) && (r == '\u017F' || r == '\u212A')
+	return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '_' ||
+		(r == '\u017F' || r == '\u212A') && hasECMAWordCharExtras(options)
 }
 
 func hasECMAWordCharExtras(options RegexOptions) bool {
