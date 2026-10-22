@@ -498,6 +498,20 @@ func TestWordBoundaryOutsideECMAUsesUnicodeWordChars(t *testing.T) {
 	}
 }
 
+func TestNonboundaryAfterLoopGivesBackCharacters(t *testing.T) {
+	// \B holds between two characters of the same loop, so a loop before \B
+	// must keep its backtracking.
+	for _, expr := range []string{`!+\B`, `\W+\B`} {
+		m, err := MustCompile(expr, None).FindStringMatch("!!a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m == nil || m.RuneIndex != 0 || m.RuneLength != 1 {
+			t.Fatalf("/%s/ on %q: got %v, want span (0,1)", expr, "!!a", m)
+		}
+	}
+}
+
 func TestECMA_CharSetRange(t *testing.T) {
 	tests := map[string]struct {
 		expr    string
@@ -1471,6 +1485,42 @@ func TestECMADuplicateCaptureUse(t *testing.T) {
 				if got := code.CaptureSlotInUse[slot]; got != want {
 					t.Errorf("capture slot %d in use = %v, want %v", slot, got, want)
 				}
+			}
+		})
+	}
+}
+
+func TestECMABoundaryRegression(t *testing.T) {
+	const ecma = ECMAScript
+	const iu = ecma | IgnoreCase | Unicode
+	for _, tt := range []struct {
+		name, pattern, input  string
+		options               RegexOptions
+		wantMatch             bool
+		wantIndex, wantLength int
+	}{
+		// Inline u is a supported regexp2 extension, not JavaScript syntax.
+		{"inline_iu_long_s", `(?iu:\b)`, "ſ", ecma, true, 0, 0},
+		{"inline_iu_kelvin", `(?iu:\b)`, "K", ecma, true, 0, 0},
+		{"inline_iu_nonboundary", `(?iu:\B)`, "ſ", ecma, false, 0, 0},
+		{"inline_disable_i", `(?-i:\b)`, "ſ", iu, false, 0, 0},
+		{"inline_disable_u", `(?-u:\b)`, "ſ", iu, false, 0, 0},
+		// These require backing up inside a nonword loop before testing \B.
+		{"literal_backtracking", `é+\B`, "ééa", ecma, true, 0, 1},
+		// This class-loop failure also exists before PR #132.
+		{"class_backtracking", `\W+\B`, "ééa", ecma, true, 0, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := MustCompile(tt.pattern, tt.options)
+			m, err := r.FindStringMatch(tt.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (m != nil) != tt.wantMatch {
+				t.Fatalf("/%s/ on %q: match=%v, want %v", tt.pattern, tt.input, m != nil, tt.wantMatch)
+			}
+			if m != nil && (m.RuneIndex != tt.wantIndex || m.RuneLength != tt.wantLength) {
+				t.Fatalf("got span (%d,%d), want (%d,%d)", m.RuneIndex, m.RuneLength, tt.wantIndex, tt.wantLength)
 			}
 		})
 	}
