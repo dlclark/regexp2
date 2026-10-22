@@ -1841,3 +1841,37 @@ func TestLegacyGeneratedECMABoundaryCompatibility(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkECMABoundaryDigitLoop(b *testing.B) {
+	for _, mode := range []struct {
+		name    string
+		options RegexOptions
+	}{
+		{"plain", ECMAScript},
+		{"iu", ECMAScript | IgnoreCase | Unicode},
+	} {
+		for _, pattern := range []struct{ name, expr string }{
+			{"literal", `1+\b`},
+			{"anchored_literal", `^1+\b`},
+			{"digit_class", `\d+\b`},
+		} {
+			for _, n := range []int{100, 1000, 10000} {
+				b.Run(fmt.Sprintf("%s/%s/%d", mode.name, pattern.name, n), func(b *testing.B) {
+					r := MustCompile(pattern.expr, mode.options)
+					input := strings.Repeat("1", n) + "b"
+					// Check the result and warm the runner before timing.
+					if matched, err := r.MatchString(input); err != nil || matched {
+						b.Fatalf("matched=%v, err=%v; want false, nil", matched, err)
+					}
+					b.ReportAllocs()
+					b.ResetTimer()
+					for i := 0; i < b.N; i++ {
+						if matched, err := r.MatchString(input); err != nil || matched {
+							b.Fatalf("matched=%v, err=%v; want false, nil", matched, err)
+						}
+					}
+				})
+			}
+		}
+	}
+}
