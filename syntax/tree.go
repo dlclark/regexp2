@@ -1007,7 +1007,13 @@ func (n *RegexNode) canBeMadeAtomic(subsequent *RegexNode, iterateNullableSubseq
 
 		// If the current node's options don't match the subsequent node, then we cannot make it atomic.
 		// This applies to RightToLeft for lookbehinds, as well as patterns that enable/disable global flags in the middle of the pattern.
-		if n.Options != subsequent.Options {
+		// reduce keeps IgnoreCase only on an ECMAScript \b or \B that also has Unicode, to choose its word characters; the
+		// boundary checks below hold for either set of word characters, so leave it out of the comparison.
+		subsequentOptions := subsequent.Options
+		if subsequent.T == NtECMABoundary || subsequent.T == NtNonECMABoundary {
+			subsequentOptions &^= IgnoreCase
+		}
+		if n.Options != subsequentOptions {
 			return false
 		}
 
