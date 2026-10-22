@@ -67,8 +67,11 @@ type Runner struct {
 	// Reusable metadata for internal string scans. Returned matches own theirs.
 	textInfo *matchText
 
-	timeout  time.Duration // timeout in milliseconds (needed for actual)
-	deadline fasttime
+	timeout    time.Duration // timeout in milliseconds (needed for actual)
+	deadline   fasttime
+	noDeadline bool  // no MatchTimeout: the step limit alone is checked
+	stepLimit  int64 // MatchStepLimit of this match; 0 is none
+	steps      int64 // steps taken by this match
 
 	operator syntax.InstOp
 	codepos  int
@@ -115,7 +118,10 @@ func (re *Regexp) run(quick bool, textstart int, input []rune) (*Match, error) {
 // and allows quick scans to omit it entirely.
 func (r *Runner) scan(rt []rune, textInfo *matchText, textstart, candidate, previousMatchLength int, quick bool, timeout time.Duration) (*Match, error) {
 	r.timeout = timeout
-	r.ignoreTimeout = (time.Duration(math.MaxInt64) == timeout)
+	r.noDeadline = (time.Duration(math.MaxInt64) == timeout)
+	r.stepLimit = r.re.MatchStepLimit
+	r.steps = 0
+	r.ignoreTimeout = r.noDeadline && r.stepLimit <= 0
 	r.debug = r.re.Debug()
 	r.Runtextstart = textstart
 	// putRunner clears Runtext, so another call keeps landmarks only if
@@ -2700,14 +2706,25 @@ func (r *Runner) IsECMABoundary(index int) bool {
 }
 
 func (r *Runner) startTimeoutWatch() {
-	if r.ignoreTimeout {
+	if r.noDeadline {
 		return
 	}
 	r.deadline = makeDeadline(r.timeout)
 }
 
+// CheckTimeout is called once per engine step. It counts the step against
+// MatchStepLimit, then compares the clock with MatchTimeout's deadline.
 func (r *Runner) CheckTimeout() error {
-	if r.ignoreTimeout || !r.deadline.reached() {
+	if r.ignoreTimeout {
+		return nil
+	}
+	if r.stepLimit > 0 {
+		r.steps++
+		if r.steps > r.stepLimit {
+			return ErrMatchStepLimit
+		}
+	}
+	if r.noDeadline || !r.deadline.reached() {
 		return nil
 	}
 
