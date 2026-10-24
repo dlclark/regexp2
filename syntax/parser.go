@@ -2255,7 +2255,7 @@ func (p *parser) scanCharEscape(inClass bool) (r rune, err error) {
 			r, err = p.scanHex(2)
 		}
 	case 'u':
-		// ECMAscript suppot \u{HEX} only if `u` is also set
+		// ECMAscript support \u{HEX} only if `u` is also set
 		if p.useOptionE() && p.useOptionU() && p.charsRight() > 0 && p.rightChar(0) == '{' {
 			p.moveRight(1)
 			return p.scanHexUntilBrace()
@@ -2285,8 +2285,8 @@ func (p *parser) scanCharEscape(inClass bool) (r rune, err error) {
 	case 'v':
 		return '\u000B', nil
 	case 'c':
-		if p.useOptionE() && !p.useOptionU() {
-			return p.scanECMAControl(inClass), nil
+		if p.useOptionE() {
+			return p.scanECMAControl(inClass)
 		}
 		r, err = p.scanControl()
 	default:
@@ -2298,27 +2298,40 @@ func (p *parser) scanCharEscape(inClass bool) (r rune, err error) {
 		}
 		return ch, nil
 	}
-	if err != nil && p.useOptionE() {
+	// Annex B's fallback to a literal character applies only without the
+	// Unicode flag; in Unicode mode escape errors are early errors.
+	if err != nil && p.useOptionE() && !p.useOptionU() {
 		p.textto(pos)
 		return ch, nil
 	}
 	return
 }
 
-// scanECMAControl implements Annex B's non-Unicode control escapes.
-func (p *parser) scanECMAControl(inClass bool) rune {
+// scanECMAControl implements Annex B's control escapes.
+func (p *parser) scanECMAControl(inClass bool) (rune, error) {
+	if p.useOptionU() {
+		// Unicode mode requires a control letter; Annex B's leniency
+		// (digits and '_' inside classes) does not apply.
+		if p.charsRight() == 0 {
+			return 0, p.getErr(ErrMissingControl)
+		}
+		c := p.rightChar(0)
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z') {
+			return 0, p.getErr(ErrUnrecognizedControl)
+		}
+	}
 	if p.charsRight() > 0 {
 		ch := p.rightChar(0)
 		if ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z' ||
 			inClass && (ch >= '0' && ch <= '9' || ch == '_') {
 			p.moveRight(1)
-			return ch % 32
+			return ch % 32, nil
 		}
 	}
 	// Only the backslash is an atom; c and its following syntax are scanned
 	// normally, including in the capture prescan.
 	p.moveLeft()
-	return '\\'
+	return '\\', nil
 }
 
 // Grabs and converts an ascii control character
