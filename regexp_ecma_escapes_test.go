@@ -136,6 +136,52 @@ func TestECMALegacyEscapeErrors(t *testing.T) {
 	}
 }
 
+// Annex B is not applied for Unicode RegExp:
+// invalid control escape sequences are early errors when the Unicode flag is set.
+func TestECMAUnicodeControlEscapes(t *testing.T) {
+	for _, pattern := range []string{
+		`\c`, `\c0`, `\c1`, `\c_`, `\c-`, `\c `, `\cА`, // Cyrillic, not ASCII A.
+		`[\c]`, `[\c0]`, `[\c_]`, `[\cA`,
+	} {
+		t.Run(pattern, func(t *testing.T) {
+			if _, err := regexp2.Compile(pattern, regexp2.ECMAScript|regexp2.Unicode); err == nil {
+				t.Fatal("expected a compile error")
+			}
+		})
+	}
+	// Valid control escapes must match the control character itself, not fall
+	// back to a literal interpretation of the pattern text.
+	for _, tc := range []struct {
+		pattern string
+		match   []string // inputs that must match
+		noMatch []string // inputs a literal fallback would match
+	}{
+		{`\cA`, []string{"\x01"}, []string{"cA", `\cA`}},
+		{`\cz`, []string{"\x1a"}, []string{"cz", `\cz`}},
+		{`[\cA]`, []string{"\x01"}, []string{"c", "A", `\cA`}},
+		{`[\cA-\cZ]`, []string{"\x01", "\x1a"}, []string{"c", "A", "Z", `\cA`}},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			re, err := regexp2.Compile(tc.pattern, regexp2.ECMAScript|regexp2.Unicode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, input := range tc.match {
+				got, err := re.MatchString(input)
+				if err != nil || !got {
+					t.Errorf("MatchString(%q) = %v, %v; want true", input, got, err)
+				}
+			}
+			for _, input := range tc.noMatch {
+				got, err := re.MatchString(input)
+				if err != nil || got {
+					t.Errorf("MatchString(%q) = %v, %v; want false", input, got, err)
+				}
+			}
+		})
+	}
+}
+
 func TestLegacyEscapeModeIsolation(t *testing.T) {
 	for _, options := range []regexp2.RegexOptions{regexp2.None, regexp2.RE2, regexp2.Unicode, regexp2.RE2 | regexp2.Unicode} {
 		for _, tc := range []struct{ pattern, input string }{
