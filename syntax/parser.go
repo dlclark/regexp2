@@ -2307,17 +2307,17 @@ func (p *parser) scanCharEscape(inClass bool) (r rune, err error) {
 	return
 }
 
-// scanECMAControl implements Annex B's non-Unicode control escapes.
+// scanECMAControl implements Annex B's control escapes.
 func (p *parser) scanECMAControl(inClass bool) (rune, error) {
 	if p.useOptionU() {
-		// Unicode mode requires a control letter; B.1.4's leniency
+		// Unicode mode requires a control letter; Annex B's leniency
 		// (digits and '_' inside classes) does not apply.
 		if p.charsRight() == 0 {
 			return 0, p.getErr(ErrMissingControl)
 		}
 		c := p.rightChar(0)
 		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z') {
-			return 0, p.getErr(ErrUnrecognizedControl, string(c))
+			return 0, p.getErr(ErrUnrecognizedControl)
 		}
 	}
 	if p.charsRight() > 0 {
