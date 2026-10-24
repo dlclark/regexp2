@@ -104,7 +104,7 @@ const (
 	ErrTooFewHex                  = "insufficient hexadecimal digits"
 	ErrInvalidHex                 = "hex values may not be larger than 0x10FFFF"
 	ErrMalformedNameRef           = "malformed \\k<...> named back reference"
-	ErrBadClassInCharRange        = "cannot include class \\%v in character range"
+	ErrBadClassInCharRange        = "cannot include class \\%c in character range"
 	ErrShorthandClassInCharRange  = "cannot create range with shorthand escape sequence \\%v"
 	ErrUnterminatedBracket        = "unterminated [] set"
 	ErrSubtractionMustBeLast      = "a subtraction must be the last element in a character class"
@@ -1943,6 +1943,17 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 	closed := false
 	var quoted []rune
 
+	// ECMAScript class-range state (ECMA-262 B.1.2). In non-Unicode ECMAScript
+	// patterns a class escape (\d \s \w) may appear on either side of a dash;
+	// CharacterRangeOrUnion then treats the dash as a literal, and the range
+	// production consumes exactly "escape - atom". The atom after such a dash
+	// is therefore the range's right side and cannot begin another range; the
+	// scan resumes with normal range rules after it. Under the Unicode flag
+	// the same construct is a SyntaxError (B.1.2.1 early errors).
+	lastWasClassEscape := false // the previous item was a standalone \d \s \w
+	lastClassEscape := rune(0)  // which escape it was, for error reporting
+	awaitRight := false         // the next item is the right side of a demoted range
+
 	var cc *CharSet
 	if !scanOnly {
 		cc = &CharSet{}
@@ -1995,9 +2006,15 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 		} else if ch == '\\' && !fTranslatedChar && p.charsRight() > 0 {
 			switch ch = p.moveRightGetChar(); ch {
 			case 'D', 'd':
+				wasInRange := inRange
 				if !scanOnly {
 					if inRange {
 						if !p.useOptionE() {
+							return nil, p.getErr(ErrBadClassInCharRange, ch)
+						}
+						if p.useOptionU() {
+							// ECMA-262 B.1.2.1 early error: in Unicode mode a
+							// range may not involve a class escape.
 							return nil, p.getErr(ErrBadClassInCharRange, ch)
 						}
 						cc.addChar(chPrev)
@@ -2006,12 +2023,30 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					}
 					cc.addDigit(p.useOptionE() || p.useRE2(), ch == 'D')
 				}
+				if p.useOptionE() {
+					// Track the demotion state in both passes so that error
+					// detection stays consistent.
+					switch {
+					case wasInRange:
+						// This escape completed a demoted range as its right side.
+						inRange = false
+					case awaitRight:
+						awaitRight = false
+					default:
+						lastWasClassEscape = true
+						lastClassEscape = ch
+					}
+				}
 				continue
 
 			case 'S', 's':
+				wasInRange := inRange
 				if !scanOnly {
 					if inRange {
 						if !p.useOptionE() {
+							return nil, p.getErr(ErrBadClassInCharRange, ch)
+						}
+						if p.useOptionU() {
 							return nil, p.getErr(ErrBadClassInCharRange, ch)
 						}
 						cc.addChar(chPrev)
@@ -2020,12 +2055,27 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					}
 					cc.addSpace(p.useOptionE(), p.useRE2(), ch == 'S')
 				}
+				if p.useOptionE() {
+					switch {
+					case wasInRange:
+						inRange = false
+					case awaitRight:
+						awaitRight = false
+					default:
+						lastWasClassEscape = true
+						lastClassEscape = ch
+					}
+				}
 				continue
 
 			case 'W', 'w':
+				wasInRange := inRange
 				if !scanOnly {
 					if inRange {
 						if !p.useOptionE() {
+							return nil, p.getErr(ErrBadClassInCharRange, ch)
+						}
+						if p.useOptionU() {
 							return nil, p.getErr(ErrBadClassInCharRange, ch)
 						}
 						cc.addChar(chPrev)
@@ -2034,6 +2084,17 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					}
 
 					cc.addWord(p.useOptionE() || p.useRE2(), ch == 'W')
+				}
+				if p.useOptionE() {
+					switch {
+					case wasInRange:
+						inRange = false
+					case awaitRight:
+						awaitRight = false
+					default:
+						lastWasClassEscape = true
+						lastClassEscape = ch
+					}
 				}
 				continue
 
@@ -2068,6 +2129,13 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 			case '-':
 				if !scanOnly {
 					cc.addRange(ch, ch)
+				}
+				if p.useOptionE() {
+					// \- is an ordinary single-character atom: it may be the
+					// right side of a demoted range but never starts or
+					// completes one.
+					awaitRight = false
+					lastWasClassEscape = false
 				}
 				continue
 
@@ -2112,6 +2180,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 
 		if inRange {
 			inRange = false
+			lastWasClassEscape = false
 			if !scanOnly {
 				if ch == '[' && !fTranslatedChar && !firstChar {
 					// We thought we were in a range, but we're actually starting a subtraction.
@@ -2135,11 +2204,33 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 					cc.addRange(chPrev, ch)
 				}
 			}
+		} else if p.useOptionE() && awaitRight {
+			// ECMA-262 B.1.2: this atom is the right side of a range whose
+			// other side was a class escape (CharacterRangeOrUnion demoted the
+			// dash to a literal), so it cannot begin a new range.
+			if !scanOnly {
+				cc.addRange(ch, ch)
+			}
+			awaitRight = false
+		} else if p.useOptionE() && lastWasClassEscape && ch == '-' && !fTranslatedChar && p.charsRight() >= 1 && p.rightChar(0) != ']' {
+			// ECMA-262 B.1.2: a dash immediately after a class escape belongs
+			// to the range production "escape - atom"; CharacterRangeOrUnion
+			// demotes the dash to a literal and the next atom becomes the
+			// range's right side.
+			if !scanOnly {
+				if p.useOptionU() {
+					return nil, p.getErr(ErrBadClassInCharRange, lastClassEscape)
+				}
+				cc.addRange('-', '-')
+			}
+			awaitRight = true
+			lastWasClassEscape = false
 		} else if p.charsRight() >= 2 && p.rightChar(0) == '-' && p.rightChar(1) != ']' {
 			// this could be the start of a range
 			chPrev = ch
 			inRange = true
 			p.moveRight(1)
+			lastWasClassEscape = false
 		} else if p.charsRight() >= 1 && ch == '-' && !fTranslatedChar && p.rightChar(0) == '[' && !firstChar {
 			// we aren't in a range, and now there is a subtraction.  Usually this happens
 			// only when a subtraction follows a range, like [a-z-[b]]
@@ -2162,6 +2253,7 @@ func (p *parser) scanCharSet(caseInsensitive, scanOnly bool) (*CharSet, error) {
 			if !scanOnly {
 				cc.addRange(ch, ch)
 			}
+			lastWasClassEscape = false
 		}
 	}
 

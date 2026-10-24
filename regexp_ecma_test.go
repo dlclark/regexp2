@@ -501,6 +501,63 @@ func TestECMA_CharSetRange(t *testing.T) {
 			data: "a-b szd",
 			want: []string{"s", "z"},
 		},
+		"backtick-after-demoted-range": {
+			// [\s-_-a]: the first dash is a literal after \s and _ is that
+			// range's right side, so the second dash stays literal too and no
+			// [_-a] range forms to include U+0060.
+			expr: `^[\s-_-a]$`,
+			data: "\u0060",
+			want: nil,
+		},
+		// ECMA-262 B.1.2: after a range is demoted because it involves a class
+		// escape (\d \s \w), the production consumes exactly "escape - atom"
+		// and the scan resumes as a fresh ClassContents, where a leading dash
+		// is a literal again. A range may therefore not straddle a demoted one.
+		"demoted-then-literal-dash": {
+			expr: `[\d-a-c]`,
+			data: "abced",
+			want: []string{"a", "c"},
+		},
+		"demoted-then-range": {
+			expr: `[\d-a-c-f]`,
+			data: "abcedfg",
+			want: []string{"a", "c", "e", "d", "f"},
+		},
+		"range-after-demoted": {
+			// No dash follows \s directly, so [_-a] is a real range.
+			expr: `[\s_-a]`,
+			data: "_`a",
+			want: []string{"_", "`", "a"},
+		},
+		"demoted-double-dash": {
+			// [\d--b]: the second dash is the right side of the demoted range,
+			// so no [-b] range forms (a and ` are not members).
+			expr: `[\d--b]`,
+			data: "0-a`b",
+			want: []string{"0", "-", "b"},
+		},
+		"range-after-demoted-double-dash": {
+			// [\s-_--b]: the fresh --b does form a real [-b] range.
+			expr: `[\s-_--b]`,
+			data: " `.-a b",
+			want: []string{" ", "`", ".", "-", "a", " ", "b"},
+		},
+		"escape-on-right-then-range": {
+			// [a-\d-c-e]: the demoted a-\d range, then the fresh -c-e range.
+			expr: `[a-\d-c-e]`,
+			data: "0ab cde",
+			want: []string{"0", "a", "c", "d", "e"},
+		},
+		"invalid-unicode-digit-range": {
+			expr:    `[a-\d]`,
+			opt:     Unicode,
+			wantErr: "error parsing regexp: cannot include class \\d in character range in `[a-\\d]`",
+		},
+		"invalid-unicode-digit-range-left": {
+			expr:    `[\d-a]`,
+			opt:     Unicode,
+			wantErr: "error parsing regexp: cannot include class \\d in character range in `[\\d-a]`",
+		},
 	}
 
 	for name, tt := range tests {
