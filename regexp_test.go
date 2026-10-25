@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/dlclark/regexp2/v2/syntax"
 )
@@ -1882,6 +1883,40 @@ func TestEcmaScriptUnicodeRange(t *testing.T) {
 	}
 	if m == nil {
 		t.Fatal("Expected non-nil, got nil")
+	}
+}
+
+func TestCharacterClassUnionPreservesPolarity(t *testing.T) {
+	// Complement-shaped ranges must keep their union semantics while more
+	// members are added, regardless of the order or the regex flavor.
+	last := string(unicode.MaxRune)
+	for _, options := range []RegexOptions{None, ECMAScript, RE2} {
+		for _, tc := range []struct {
+			pattern string
+			matches string
+			misses  string
+		}{
+			{`[\x01-` + last + `]`, "a" + last, "\x00"},
+			{`[\x01-` + last + `\x00]`, "\x00a" + last, ""},
+			{`[\x00\x01-` + last + `]`, "\x00a" + last, ""},
+			{`[^\x01-` + last + `]`, "\x00", "a" + last},
+			{`[\x00-/:-` + last + `a]`, "-a" + last, "09"},
+			{`[\x00-/:-` + last + `\d]`, "-09a" + last, ""},
+		} {
+			t.Run(fmt.Sprintf("%s/%d", tc.pattern, options), func(t *testing.T) {
+				re := MustCompile(`^`+tc.pattern+`$`, options)
+				for _, inputs := range []struct {
+					chars string
+					want  bool
+				}{{tc.matches, true}, {tc.misses, false}} {
+					for _, c := range inputs.chars {
+						if got, err := re.MatchString(string(c)); err != nil || got != inputs.want {
+							t.Errorf("MatchString(%q) = %v, %v; want %v", c, got, err, inputs.want)
+						}
+					}
+				}
+			})
+		}
 	}
 }
 

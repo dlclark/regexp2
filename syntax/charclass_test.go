@@ -47,12 +47,106 @@ func TestCharSetSerializeRoundTrip(t *testing.T) {
 	})
 }
 
-func TestCanonicalize(t *testing.T) {
-	set := &CharSet{}
-	set.addRange('\x01', unicode.MaxRune)
+func TestCanonicalizePreservesMembership(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		ranges []SingleRange
+		negate bool
+	}{
+		{"empty", nil, false},
+		{"negated empty", nil, true},
+		{"overlapping and adjacent", []SingleRange{{'d', 'f'}, {'a', 'c'}, {'b', 'e'}, {'z', 'z'}}, false},
+		{"negated union", []SingleRange{{'d', 'f'}, {'a', 'c'}, {'b', 'e'}, {'z', 'z'}}, true},
+		{"complement range", []SingleRange{{':', unicode.MaxRune}, {0, '/'}}, false},
+		{"full domain", []SingleRange{{'a', unicode.MaxRune}, {0, 'b'}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			set := &CharSet{ranges: append([]SingleRange(nil), tc.ranges...), negate: tc.negate}
+			// Repeated canonicalization must preserve the original union,
+			// including gaps, negation, and the endpoints of the rune domain.
+			for pass := 0; pass < 2; pass++ {
+				set.canonicalize()
+				chars := []rune{'é', '中', unicode.MaxRune - 1, unicode.MaxRune}
+				for r := rune(0); r < 128; r++ {
+					chars = append(chars, r)
+				}
+				for _, r := range chars {
+					want := false
+					for _, span := range tc.ranges {
+						want = want || (span.First <= r && r <= span.Last)
+					}
+					want = want != tc.negate
+					if got := set.Contains(r); got != want {
+						t.Errorf("pass %d: Contains(%U) = %v, want %v", pass, r, got, want)
+					}
+				}
+			}
+		})
+	}
+}
 
-	if want, got := "[^\\x00]", set.String(); want != got {
-		t.Fatalf("wanted: %s, got %s", want, got)
+func TestCanonicalizeAllowsFurtherMembers(t *testing.T) {
+	for _, missing := range []rune{0, '5', unicode.MaxRune} {
+		set := &CharSet{}
+		if missing > 0 {
+			set.addRange(0, missing-1)
+		}
+		if missing < unicode.MaxRune {
+			set.addRange(missing+1, unicode.MaxRune)
+		}
+		set.canonicalize()
+		if set.Contains(missing) {
+			t.Fatalf("Contains(%U) before addition = true, want false", missing)
+		}
+		set.addChar(missing)
+		if !set.Contains(missing) || !set.IsAnything() {
+			t.Errorf("adding %U to its complement did not produce the full set", missing)
+		}
+	}
+}
+
+func TestSimplifyPreservesMembership(t *testing.T) {
+	withoutNewline := []SingleRange{{0, '\n' - 1}, {'\n' + 1, unicode.MaxRune}}
+	for _, tc := range []struct {
+		name         string
+		set          CharSet
+		wantNegated  bool
+		wantInverse  bool
+		wantAnything bool
+	}{
+		{name: "empty"},
+		{name: "full domain", set: CharSet{ranges: []SingleRange{{0, unicode.MaxRune}}}, wantAnything: true},
+		{name: "missing first rune", set: CharSet{ranges: []SingleRange{{1, unicode.MaxRune}}}, wantNegated: true, wantInverse: true},
+		{name: "missing last rune", set: CharSet{ranges: []SingleRange{{0, unicode.MaxRune - 1}}}, wantNegated: true, wantInverse: true},
+		{name: "missing interior range", set: CharSet{ranges: []SingleRange{{0, '/'}, {':', unicode.MaxRune}}}, wantNegated: true},
+		{name: "category fills gap", set: CharSet{ranges: withoutNewline, categories: []charCategory{newCharCategory(Category{Cat: SpaceCategoryText})}}, wantAnything: true},
+		{name: "category leaves gap", set: CharSet{ranges: withoutNewline, categories: []charCategory{newCharCategory(Category{Cat: "Nd"})}}, wantNegated: true, wantInverse: true},
+		{name: "already negated", set: CharSet{ranges: withoutNewline, negate: true}, wantNegated: true},
+		{name: "subtraction", set: CharSet{ranges: withoutNewline, sub: ECMADigitClass()}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			set := tc.set.Copy()
+			set.canonicalize()
+			before := set.Copy()
+			chars := []rune{'é', '中', unicode.MaxRune - 1, unicode.MaxRune}
+			for r := rune(0); r < 128; r++ {
+				chars = append(chars, r)
+			}
+			for pass := 0; pass < 2; pass++ {
+				set.simplify()
+				for _, r := range chars {
+					if got, want := set.Contains(r), before.Contains(r); got != want {
+						t.Errorf("pass %d: Contains(%U) = %v, want %v", pass, r, got, want)
+					}
+				}
+				// These public predicates are used by the engine and code
+				// generator to select equivalent specialized matchers.
+				if set.IsNegated() != tc.wantNegated || set.IsSingletonInverse() != tc.wantInverse || set.IsAnything() != tc.wantAnything {
+					t.Errorf("pass %d: negated/inverse/anything = %v/%v/%v, want %v/%v/%v", pass,
+						set.IsNegated(), set.IsSingletonInverse(), set.IsAnything(), tc.wantNegated, tc.wantInverse, tc.wantAnything)
+				}
+			}
+		})
 	}
 }
 

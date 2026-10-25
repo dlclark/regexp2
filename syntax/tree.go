@@ -193,19 +193,14 @@ func nodeWithCaseConversion(n *RegexNode) *RegexNode {
 
 	if n.Ch > 0 {
 		ch := n.Ch
-		if isLow, isUp := unicode.IsLower(ch), unicode.IsUpper(ch); isLow || isUp {
-			/*var upper, lower rune
-			// it's a capitalizable char
-			if isUp {
-				upper = ch
-				lower = unicode.ToLower(ch)
-			} else {
-				lower = ch
-				upper = unicode.ToUpper(ch)
-			}*/
+		folds := unicode.IsLower(ch) || unicode.IsUpper(ch)
+		if n.Options&ECMAScript != 0 {
+			folds = unicode.SimpleFold(ch) != ch
+		}
+		if folds {
 			set := &CharSet{}
 			set.addChar(ch)
-			set.addCaseEquivalences()
+			set.addCaseEquivalences(n.Options)
 			t := NtSet
 
 			switch n.T {
@@ -226,7 +221,7 @@ func nodeWithCaseConversion(n *RegexNode) *RegexNode {
 		// just to be safe we don't modify the original set pointer
 		// just in case it's used in a case-sensitive area
 		s := n.Set.Copy()
-		s.addCaseEquivalences()
+		s.addCaseEquivalences(n.Options)
 		n.Set = &s
 		n.Options &= ^IgnoreCase
 	}
@@ -1931,6 +1926,9 @@ func (n *RegexNode) reduceGroup() *RegexNode {
 // or empty, it's transformed accordingly.
 func (n *RegexNode) reduceSet() *RegexNode {
 	// Extract empty-set, one and not-one case as special
+	if n.Set != nil {
+		n.Set.simplify()
+	}
 
 	if n.Set == nil {
 		n.T = NtNothing
