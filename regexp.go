@@ -305,6 +305,53 @@ func (re *Regexp) FindRunesMatchStartingAt(r []rune, startAt int) (*Match, error
 	return re.run(false, startAt, r)
 }
 
+// FindRunesMatches calls f for each successive match of r starting at the rune
+// index startAt (use -1 for the beginning, or the end for RightToLeft
+// patterns), in the same order and with the same empty-match advancing rules
+// as iterating with FindRunesMatchStartingAt and FindNextMatch. The Match
+// passed to f is owned by the Regexp and is only valid for the duration of the
+// call; f must copy out any data it needs to keep. Returning false from f
+// stops the iteration. Unlike that iteration, matching reuses internal state,
+// so no per-match memory is allocated or retained, but the Match carries no
+// capture text metadata, so its String and ByteRange methods must not be used.
+func (re *Regexp) FindRunesMatches(r []rune, startAt int, f func(m *Match) bool) error {
+	if f == nil {
+		return nil
+	}
+
+	runner := re.getRunner()
+	defer re.putRunner(runner)
+
+	if startAt < 0 {
+		if re.RightToLeft() {
+			startAt = len(r)
+		} else {
+			startAt = 0
+		}
+	}
+
+	previousMatchLength := -1
+	// Keep the match in the runner between iterations (quick tidying) only when
+	// no bool-only quick engine is registered: ExecuteQuick removes captures
+	// that are not observable by the pattern itself, but callers of this method
+	// read capture positions of every group.
+	quick := re.executeQuick == nil
+	for {
+		m, err := runner.scan(r, nil, startAt, startAt, previousMatchLength, quick, re.MatchTimeout)
+		if err != nil {
+			return err
+		}
+		if m == nil {
+			return nil
+		}
+		if !f(m) {
+			return nil
+		}
+		startAt = m.textpos
+		previousMatchLength = m.RuneLength
+	}
+}
+
 // FindAllStringIndex returns a slice of byte index pairs identifying all
 // successive matches in s.
 func (re *Regexp) FindAllStringIndex(s string, n int) ([][]int, error) {

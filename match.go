@@ -425,6 +425,32 @@ func (m *Match) GroupByNumber(num int) *Group {
 	return m.groupByIndex(num)
 }
 
+// GroupRange returns the rune index and rune length of the last capture of the
+// group with the given number without materializing Group objects. ok is false
+// when the group number is out of range or the group did not participate in
+// the match. It is meant for callers that only need capture positions, e.g.
+// while iterating with FindRunesMatches, where the Match is only valid for the
+// duration of the callback and no capture text metadata is initialized.
+func (m *Match) GroupRange(num int) (index, length int, ok bool) {
+	// check our sparse map
+	if m.sparseCaps != nil {
+		newNum, exists := m.sparseCaps[num]
+		if !exists {
+			return 0, 0, false
+		}
+		num = newNum
+	}
+	if num < 0 || num >= len(m.matchcount) {
+		return 0, 0, false
+	}
+	c := m.matchcount[num]
+	if c == 0 {
+		return 0, 0, false
+	}
+	interval := m.matches[num]
+	return interval[(c-1)*2], interval[c*2-1], true
+}
+
 func (m *Match) groupByIndex(num int) *Group {
 	if num >= len(m.matchcount) || num < 0 {
 		return nil
