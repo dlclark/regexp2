@@ -1819,6 +1819,7 @@ func TestECMABoundaryScopedIgnoreCase(t *testing.T) {
 		{"nested_no_i_nonboundary", `(?i:(?-i:\B\u212A\B))`, "\u212A", u, true, 0, 1},
 		{"nested_modifier_restored", `(?i:(?-i:x) \b\u212A\b)`, "x \u212A", u, true, 0, 3},
 		{"modifier_ends_with_group", `(?i:x) \b\u212A\b`, "x \u212A", u, false, 0, 0},
+		{"scoped_i_landmark_preserves_start", `\S*(?i:\b)(a|\s*b)c()`, "\u017f bc", u, true, 0, 4},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r := MustCompile(tt.pattern, tt.options)
