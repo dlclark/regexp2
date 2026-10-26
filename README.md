@@ -334,7 +334,7 @@ This flag should not be treated as compatibility with C#'s `RegexOptions.ECMAScr
 
 Without `Unicode`, escapes such as `\a`, `\e`, `\A`, `\G`, `\Z`, and `\z` match their literal letters. A control escape `\c` requires an ASCII letter; inside a character class, digits and `_` are also accepted, with character value modulo 32. Otherwise the backslash is literal and `c` and the following syntax are parsed normally: `\c*` matches a backslash followed by zero or more `c` characters, and `[\c]` matches either a backslash or `c`. With `Unicode`, Annex B is not applied, so `\c` must be followed by an ASCII letter and any other character is a compile error. `Escape` emits `\x07` for BEL so that its output also preserves that character in ECMAScript mode.
 
-Additionally a Unicode mode is provided which allows parsing of `\u{CodePoint}` syntax only when both `ECMAScript` and `Unicode` are provided.
+Additionally a Unicode mode is provided which allows parsing of `\u{CodePoint}` syntax only when both `ECMAScript` and `Unicode` are provided. In that mode, adjacent four-hex high/low surrogate escapes, such as `\uD83D\uDE00`, form one code point in atoms, character classes, and ranges. Braced surrogate escapes and isolated surrogates remain separate.
 
 With `ECMAScript|Unicode`, property escapes use the exact names and aliases allowed by [ECMA-262](https://tc39.es/ecma262/multipage/text-processing.html#sec-runtime-semantics-unicodematchproperty-p):
 
