@@ -424,6 +424,94 @@ func TestECMA_Test262CompileErrors(t *testing.T) {
 	}
 }
 
+func TestECMA_WordBoundaryUsesWordCharacters(t *testing.T) {
+	// \b and \B test IsWordChar, which uses the same WordCharacters as \w:
+	// [A-Za-z0-9_], plus U+017F and U+212A when both the IgnoreCase and
+	// Unicode flags are set (ES2025 22.2.2.9.3 WordCharacters).
+	tests := []struct {
+		expr    string
+		options RegexOptions
+		input   string
+		want    []int
+	}{
+		{`\b`, 0, "a\u00e9", []int{0, 1}},
+		{`\b`, 0, "\u00e9", nil},
+		{`\b`, 0, "\u4e2d\u6587", nil},
+		{`\b`, 0, "na\u00efve", []int{0, 2, 3, 5}},
+		{`\b`, 0, "\u0131", nil},
+		{`\b`, Unicode, "\u00e9", nil},
+		{`\b`, Unicode, "\u017f", nil},
+		{`\b`, IgnoreCase, "\u017f", nil},
+		{`\b`, IgnoreCase, "\u212a", nil},
+		{`\b`, IgnoreCase | Unicode, "\u017f", []int{0, 1}},
+		{`\b`, IgnoreCase | Unicode, "\u212a", []int{0, 1}},
+		{`\b`, IgnoreCase | Unicode, "\u00e9", nil},
+		{`(?i:\b)`, Unicode, "\u017f", []int{0, 1}},
+		{`(?i:\b)`, 0, "\u017f", nil},
+		{`(?iu:\b)`, 0, "\u212a", []int{0, 1}},
+		{`(?iu:\B)`, 0, "\u212a", nil},
+		{`(?-u:\b)`, IgnoreCase | Unicode, "\u212a", nil},
+		{`(?-i:\b)`, IgnoreCase | Unicode, "\u212a", nil},
+		{`\B`, 0, "a\u00e9", []int{2}},
+		{`\B`, 0, "\u00e9", []int{0, 1}},
+		{`\B`, IgnoreCase | Unicode, "\u017f", nil},
+		{`\B`, IgnoreCase | Unicode, "\u0131", []int{0, 1}},
+		{`\bcaf\u00e9\b`, 0, "caf\u00e9 au lait", nil},
+		{`caf\b`, 0, "caf\u00e9", []int{0}},
+		{`\w+\b`, 0, "na\u00efve", []int{0, 3}},
+		{`a+\b`, 0, "aa\u00e9", []int{0}},
+		{`\u00e9+\B`, 0, "\u00e9\u00e9 a", []int{0}},
+		// \b checked by the required-landmark prefilter
+		{`\S*\b(a|\s*b)c`, IgnoreCase | Unicode, "\u017f bc", []int{0}},
+		{`\S*\b(a|\s*b)c`, 0, "\u017f bc", []int{2}},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d/%s/%q", int(tt.options), tt.expr, tt.input), func(t *testing.T) {
+			re := MustCompile(tt.expr, ECMAScript|tt.options)
+			var got []int
+			m, err := re.FindStringMatch(tt.input)
+			for ; m != nil && err == nil; m, err = re.FindNextMatch(m) {
+				got = append(got, m.RuneIndex)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("/%s/ matched %q at %v, want %v", tt.expr, tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWordBoundaryOutsideECMAUsesUnicodeWordChars(t *testing.T) {
+	re := MustCompile(`\b`, None)
+	var got []int
+	m, err := re.FindStringMatch("a\u00e9 \u4e2d")
+	for ; m != nil && err == nil; m, err = re.FindNextMatch(m) {
+		got = append(got, m.RuneIndex)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []int{0, 2, 3, 4}; !slices.Equal(got, want) {
+		t.Fatalf("/\\b/ matched at %v, want %v", got, want)
+	}
+}
+
+func TestNonboundaryAfterLoopGivesBackCharacters(t *testing.T) {
+	// \B holds between two characters of the same loop, so a loop before \B
+	// must keep its backtracking.
+	for _, expr := range []string{`!+\B`, `\W+\B`} {
+		m, err := MustCompile(expr, None).FindStringMatch("!!a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m == nil || m.RuneIndex != 0 || m.RuneLength != 1 {
+			t.Fatalf("/%s/ on %q: got %v, want span (0,1)", expr, "!!a", m)
+		}
+	}
+}
+
 func TestECMA_CharSetRange(t *testing.T) {
 	tests := map[string]struct {
 		expr    string
@@ -1674,5 +1762,152 @@ func TestECMADuplicateCaptureUse(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestECMABoundaryRegression(t *testing.T) {
+	const ecma = ECMAScript
+	const iu = ecma | IgnoreCase | Unicode
+	for _, tt := range []struct {
+		name, pattern, input  string
+		options               RegexOptions
+		wantMatch             bool
+		wantIndex, wantLength int
+	}{
+		// Inline u is a supported regexp2 extension, not JavaScript syntax.
+		{"inline_iu_long_s", `(?iu:\b)`, "ſ", ecma, true, 0, 0},
+		{"inline_iu_kelvin", `(?iu:\b)`, "K", ecma, true, 0, 0},
+		{"inline_iu_nonboundary", `(?iu:\B)`, "ſ", ecma, false, 0, 0},
+		{"inline_disable_i", `(?-i:\b)`, "ſ", iu, false, 0, 0},
+		{"inline_disable_u", `(?-u:\b)`, "ſ", iu, false, 0, 0},
+		// These require backing up inside a nonword loop before testing \B.
+		{"literal_backtracking", `é+\B`, "ééa", ecma, true, 0, 1},
+		// This class-loop failure also exists before PR #132.
+		{"class_backtracking", `\W+\B`, "ééa", ecma, true, 0, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := MustCompile(tt.pattern, tt.options)
+			m, err := r.FindStringMatch(tt.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (m != nil) != tt.wantMatch {
+				t.Fatalf("/%s/ on %q: match=%v, want %v", tt.pattern, tt.input, m != nil, tt.wantMatch)
+			}
+			if m != nil && (m.RuneIndex != tt.wantIndex || m.RuneLength != tt.wantLength) {
+				t.Fatalf("got span (%d,%d), want (%d,%d)", m.RuneIndex, m.RuneLength, tt.wantIndex, tt.wantLength)
+			}
+		})
+	}
+}
+
+func TestECMABoundaryScopedIgnoreCase(t *testing.T) {
+	// U+212A KELVIN SIGN is a word character with i and u, but not with u
+	// alone, so a scoped i changes how \b and \B classify it while the rest
+	// of the pattern keeps its flags (ECMA-262 WordCharacters, UpdateModifiers).
+	const u = ECMAScript | Unicode
+	const iu = u | IgnoreCase
+	for _, tt := range []struct {
+		name, pattern, input  string
+		options               RegexOptions
+		wantMatch             bool
+		wantIndex, wantLength int
+	}{
+		{"nonword_before_boundary", `\S*\b(a|\s*b)c()`, "éac", u, true, 0, 3},
+		{"scoped_i_boundary", `\S*(?i:\b)(\u212A|\s*b)c()`, " \u212Ac", u, true, 1, 2},
+		{"scoped_no_i_nonboundary", `\S*(?-i:\B)(\u212A|\s*b)c()`, " \u212Ac", iu, true, 1, 2},
+		{"nested_no_i_nonboundary", `(?i:(?-i:\B\u212A\B))`, "\u212A", u, true, 0, 1},
+		{"nested_modifier_restored", `(?i:(?-i:x) \b\u212A\b)`, "x \u212A", u, true, 0, 3},
+		{"modifier_ends_with_group", `(?i:x) \b\u212A\b`, "x \u212A", u, false, 0, 0},
+		{"scoped_i_landmark_preserves_start", `\S*(?i:\b)(a|\s*b)c()`, "\u017f bc", u, true, 0, 4},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := MustCompile(tt.pattern, tt.options)
+			m, err := r.FindStringMatch(tt.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (m != nil) != tt.wantMatch {
+				t.Fatalf("/%s/ on %q: match=%v, want %v", tt.pattern, tt.input, m != nil, tt.wantMatch)
+			}
+			if m != nil && (m.RuneIndex != tt.wantIndex || m.RuneLength != tt.wantLength) {
+				t.Fatalf("got span (%d,%d), want (%d,%d)", m.RuneIndex, m.RuneLength, tt.wantIndex, tt.wantLength)
+			}
+		})
+	}
+}
+
+func TestLegacyGeneratedECMABoundaryCompatibility(t *testing.T) {
+	// Equivalent to the existing regexp2cg output for this boundary-only
+	// pattern. Keep the wrapper distinct from other tests' registered patterns.
+	const pattern = `(?:(?:(?:\b)))`
+	engine := RuntimeEngineData{
+		CapSize:       1,
+		FindFirstChar: func(*Runner) bool { return true },
+		Execute: func(r *Runner) error {
+			if r.IsECMABoundary(r.Runtextpos) {
+				r.Capture(0, r.Runtextpos, r.Runtextpos)
+			}
+			return nil
+		},
+	}
+	for _, tt := range []struct {
+		name, input string
+		options     RegexOptions
+	}{
+		{"iu_long_s", "ſ", ECMAScript | IgnoreCase | Unicode},
+		{"iu_kelvin", "K", ECMAScript | IgnoreCase | Unicode},
+		// Deliberately preserve legacy generated behavior, even where it
+		// differs from ECMAScript. Newly generated engines can use a new API.
+		{"legacy_unicode_letter", "é", ECMAScript},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			RegisterEngine(pattern, engine, tt.options)
+			r := MustCompile(pattern, tt.options)
+			m, err := r.FindStringMatch(tt.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if m == nil {
+				t.Fatal("legacy generated engine lost its boundary match")
+			}
+			if m.RuneIndex != 0 || m.RuneLength != 0 {
+				t.Fatalf("got span (%d,%d), want (0,0)", m.RuneIndex, m.RuneLength)
+			}
+		})
+	}
+}
+
+func BenchmarkECMABoundaryDigitLoop(b *testing.B) {
+	for _, mode := range []struct {
+		name    string
+		options RegexOptions
+	}{
+		{"plain", ECMAScript},
+		{"iu", ECMAScript | IgnoreCase | Unicode},
+	} {
+		for _, pattern := range []struct{ name, expr string }{
+			{"literal", `1+\b`},
+			{"anchored_literal", `^1+\b`},
+			{"digit_class", `\d+\b`},
+		} {
+			for _, n := range []int{100, 1000, 10000} {
+				b.Run(fmt.Sprintf("%s/%s/%d", mode.name, pattern.name, n), func(b *testing.B) {
+					r := MustCompile(pattern.expr, mode.options)
+					input := strings.Repeat("1", n) + "b"
+					// Check the result and warm the runner before timing.
+					if matched, err := r.MatchString(input); err != nil || matched {
+						b.Fatalf("matched=%v, err=%v; want false, nil", matched, err)
+					}
+					b.ReportAllocs()
+					b.ResetTimer()
+					for i := 0; i < b.N; i++ {
+						if matched, err := r.MatchString(input); err != nil || matched {
+							b.Fatalf("matched=%v, err=%v; want false, nil", matched, err)
+						}
+					}
+				})
+			}
+		}
 	}
 }
