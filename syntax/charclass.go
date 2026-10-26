@@ -491,8 +491,10 @@ func IsWordChar(r rune) bool {
 
 // IsECMAWordChar reports whether r is a letter, nonspacing mark, decimal
 // digit or connector punctuation. This is the classification that
-// Runner.IsECMABoundary keeps for existing generated code; it is not the
-// ECMAScript word character set, which IsECMAWordCharWithOptions tests.
+// Runner.IsECMABoundary keeps for existing generated code.
+//
+// Deprecated: IsECMAWordChar is not the ECMAScript word character set; use
+// IsECMAWordCharWithOptions.
 func IsECMAWordChar(r rune) bool {
 	return unicode.In(r,
 		unicode.Categories["L"], unicode.Categories["Mn"],
