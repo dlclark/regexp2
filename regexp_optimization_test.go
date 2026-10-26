@@ -29,7 +29,7 @@ func TestBacktrackingStackLimit(t *testing.T) {
 			if re.quickCode != nil {
 				runner.code = re.quickCode
 			}
-			m, err := runner.scan(nil, nil, 0, 0, -1, true, re.MatchTimeout)
+			m, err := runner.scan(nil, nil, 0, 0, -1, scanBounds, re.MatchTimeout)
 			if m != nil {
 				t.Fatal("scan unexpectedly matched")
 			}
@@ -257,7 +257,7 @@ func TestQuickMatchCaptureLiveness(t *testing.T) {
 	defer re.putRunner(runner)
 	runner.code = re.quickCode
 	input := []rune("aba")
-	m, err := runner.scan(input, nil, 0, 0, -1, true, re.MatchTimeout)
+	m, err := runner.scan(input, nil, 0, 0, -1, scanBounds, re.MatchTimeout)
 	if err != nil || m == nil {
 		t.Fatalf("scan = %v, %v; want match", m, err)
 	}

@@ -364,7 +364,7 @@ func TestRequiredLandmarkChainSearchReusesWork(t *testing.T) {
 	re := MustCompile(`\S*(\t|\s*b)c()`)
 	runner := &Runner{re: re, code: re.code}
 	for _, input := range []string{"    \tc", "aaa\tbc", " \t c", "a \tbc"} {
-		m, err := runner.scan([]rune(input), nil, 0, 0, -1, true, re.MatchTimeout)
+		m, err := runner.scan([]rune(input), nil, 0, 0, -1, scanBounds, re.MatchTimeout)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -462,7 +462,8 @@ func TestRequiredLandmarkChainSearchDifferential(t *testing.T) {
 		if rng.Intn(2) == 0 {
 			b.WriteString(pick("a", "ab", "aab", "aba", "\t", " a", "a b"))
 		} else {
-			b.WriteString(pick(`[ab]`, `[a ]`, `[ \t]`, `[b\t]`) + pick("", "{1,2}", "{2}", "{1,3}", "{2147483646}", "{2,2147483646}"))
+			b.WriteString(pick(`[ab]`, `[a ]`, `[ \t]`, `[b\t]`))
+			b.WriteString(pick("", "{1,2}", "{2}", "{1,3}", "{2147483646}", "{2,2147483646}"))
 		}
 		if rng.Intn(3) == 0 {
 			b.WriteString(pick(`\s*`, `\s+`))
@@ -491,7 +492,10 @@ func TestRequiredLandmarkChainSearchDifferential(t *testing.T) {
 			for j := range alternatives {
 				alternatives[j] = alternative()
 			}
-			b.WriteString("(" + strings.Join(alternatives, "|") + ")" + pick("", "", ".", `\s*`, "a?"))
+			b.WriteString("(")
+			b.WriteString(strings.Join(alternatives, "|"))
+			b.WriteString(")")
+			b.WriteString(pick("", "", ".", `\s*`, "a?"))
 		}
 		b.WriteString(pick("()", "$", `\s*()`))
 		pattern := b.String()
