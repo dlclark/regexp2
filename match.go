@@ -453,7 +453,7 @@ func (m *Match) populateOtherGroups() {
 	if m.otherGroups == nil {
 		m.otherGroups = make([]Group, len(m.matchcount)-1)
 		for i := 0; i < len(m.otherGroups); i++ {
-			m.otherGroups[i] = newGroup(m.regex.GroupNameFromNumber(i+1), m.text, m.matches[i+1], m.matchcount[i+1])
+			m.otherGroups[i] = newGroup(m.regex.groupNameFromSlot(i+1), m.text, m.matches[i+1], m.matchcount[i+1])
 		}
 	}
 }

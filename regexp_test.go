@@ -450,6 +450,11 @@ func TestGroups_Basic(t *testing.T) {
 		strs []string
 	}
 	data := []d{
+		{"(a)(b)", // unnamed
+			"ab",
+			[]string{"0", "1", "2"},
+			[]int{0, 1, 2},
+			[]string{"ab", "a", "b"}},
 		{"(?<first_name>\\S+)\\s(?<last_name>\\S+)", // example
 			"Ryan Byington",
 			[]string{"0", "first_name", "last_name"},
@@ -574,6 +579,9 @@ func TestGroups_Basic(t *testing.T) {
 			}
 			if want, got := v.strs[i], grp1.String(); want != got {
 				fatalf(re, v, "Value[%v] Wanted '%v'\nGot '%v'", i, want, got)
+			}
+			if want, got := v.name[i], grp1.Name; want != got {
+				fatalf(re, v, "Name[%v] Wanted '%v'\nGot '%v'", i, want, got)
 			}
 		}
 

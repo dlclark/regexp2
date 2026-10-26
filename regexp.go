@@ -591,6 +591,20 @@ func (re *Regexp) GroupNameFromNumber(i int) string {
 	return ""
 }
 
+// groupNameFromSlot returns the name of the group stored in capture slot i.
+// The slot differs from the group number when explicit numbers leave gaps.
+func (re *Regexp) groupNameFromSlot(i int) string {
+	if re.caps == nil {
+		return re.GroupNameFromNumber(i)
+	}
+
+	if i >= 0 && i < len(re.capslist) {
+		return re.capslist[i]
+	}
+
+	return ""
+}
+
 // GroupNumberFromName returns a group number that corresponds to a group name.
 // Returns -1 if the name is not a recognized group name. Numbered groups
 // automatically get a group name that is the decimal string equivalent of its
