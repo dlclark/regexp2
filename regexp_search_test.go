@@ -556,6 +556,182 @@ func TestRequiredLandmarkLargeRepeatCount(t *testing.T) {
 	}
 }
 
+func TestGroupRangeOriginalStringOffsets(t *testing.T) {
+	re := MustCompile(`(a)`)
+	// startAt is a byte index, but GroupRange must return original-input rune
+	// indexes, just like Capture.RuneIndex, including on subsequent matches.
+	m, err := re.FindStringMatchStartingAt("éaa", len("é"))
+	for _, wantIndex := range []int{1, 2} {
+		if err != nil || m == nil {
+			t.Fatalf("match at rune %d: match present = %v, err = %v", wantIndex, m != nil, err)
+		}
+		for _, group := range []int{0, 1} {
+			index, length, ok := m.GroupRange(group)
+			if !ok || index != wantIndex || length != 1 {
+				t.Errorf("GroupRange(%d) = (%d, %d, %v), want (%d, 1, true)", group, index, length, ok, wantIndex)
+			}
+		}
+		m, err = re.FindNextMatch(m)
+	}
+	if err != nil || m != nil {
+		t.Fatalf("after final match: match present = %v, err = %v", m != nil, err)
+	}
+}
+
+func TestFindRunesMatchesBalancedGroupRange(t *testing.T) {
+	for _, tc := range []struct {
+		name, input string
+		wantOK      bool
+	}{
+		{"fully_balanced", "ab", false},
+		{"capture_remaining", "aab", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			re := MustCompile(`(?<x>a)+(?<-x>b)`)
+			group := re.GroupNumberFromName("x")
+			calls := 0
+			err := re.FindRunesMatches([]rune(tc.input), -1, func(m *Match) bool {
+				calls++
+				index, length, ok := m.GroupRange(group)
+				if ok != tc.wantOK {
+					t.Errorf("GroupRange(x) = (%d, %d, %v), want ok = %v", index, length, ok, tc.wantOK)
+				}
+				// Index and length are only meaningful when ok is true.
+				if tc.wantOK && ok && (index != 0 || length != 1) {
+					t.Errorf("GroupRange(x) = (%d, %d, true), want (0, 1, true)", index, length)
+				}
+				return true
+			})
+			if err != nil || calls != 1 {
+				t.Fatalf("iteration: calls = %d, err = %v; want 1, nil", calls, err)
+			}
+		})
+	}
+}
+
+func TestFindRunesMatchesGroupAccessorsRefresh(t *testing.T) {
+	for _, accessor := range []struct {
+		name string
+		get  func(*Match) *Group
+	}{
+		{"GroupByNumber", func(m *Match) *Group { return m.GroupByNumber(1) }},
+		{"GroupByName", func(m *Match) *Group { return m.GroupByName("x") }},
+		{"Groups", func(m *Match) *Group { return &m.Groups()[1] }},
+	} {
+		t.Run(accessor.name, func(t *testing.T) {
+			re := MustCompile(`(?<x>a)?b`)
+			// The group moves on the second match, then does not participate
+			// in the third. Read everything within each callback's lifetime.
+			wantIndexes := []int{0, 2, 0}
+			wantCounts := []int{1, 1, 0}
+			calls := 0
+			err := re.FindRunesMatches([]rune("ababb"), -1, func(m *Match) bool {
+				if calls >= len(wantIndexes) {
+					t.Fatal("unexpected extra match")
+				}
+				g := accessor.get(m)
+				if g == nil {
+					t.Fatal("missing group x")
+				}
+				if len(g.Captures) != wantCounts[calls] {
+					t.Errorf("match %d: capture count = %d, want %d", calls, len(g.Captures), wantCounts[calls])
+				}
+				if wantCounts[calls] > 0 && (g.RuneIndex != wantIndexes[calls] || g.RuneLength != 1) {
+					t.Errorf("match %d: group range = (%d, %d), want (%d, 1)", calls, g.RuneIndex, g.RuneLength, wantIndexes[calls])
+				}
+				calls++
+				return true
+			})
+			if err != nil || calls != len(wantIndexes) {
+				t.Fatalf("iteration: calls = %d, err = %v; want %d, nil", calls, err, len(wantIndexes))
+			}
+		})
+	}
+}
+
+func TestFindRunesMatchesWholeMatchCaptures(t *testing.T) {
+	re := MustCompile(`a+`)
+	want := [][2]int{{0, 1}, {2, 2}}
+	calls := 0
+	err := re.FindRunesMatches([]rune("a aa"), -1, func(m *Match) bool {
+		if calls >= len(want) {
+			t.Fatal("unexpected extra match")
+		}
+		if len(m.Captures) != 1 {
+			t.Errorf("match %d: whole-match capture count = %d, want 1", calls, len(m.Captures))
+		} else {
+			c := m.Captures[0]
+			if c.RuneIndex != want[calls][0] || c.RuneLength != want[calls][1] {
+				t.Errorf("match %d: capture range = (%d, %d), want %v", calls, c.RuneIndex, c.RuneLength, want[calls])
+			}
+		}
+		calls++
+		return true
+	})
+	if err != nil || calls != len(want) {
+		t.Fatalf("iteration: calls = %d, err = %v; want %d, nil", calls, err, len(want))
+	}
+}
+
+func TestFindRunesMatchesRegisteredEngineAllocationScaling(t *testing.T) {
+	skipIfAllocsUnreliable(t)
+	const pattern = `(?<pr139_iteration_allocation>a)`
+	// A generated-engine test double: full execution captures group 1;
+	// boolean-only execution elides it. Correct iteration must preserve the
+	// capture while also reusing match storage.
+	RegisterEngine(pattern, RuntimeEngineData{
+		CapSize: 2,
+		FindFirstChar: func(r *Runner) bool {
+			for r.Runtextpos < r.Runtextend && r.Runtext[r.Runtextpos] != 'a' {
+				r.Runtextpos++
+			}
+			return r.Runtextpos < r.Runtextend
+		},
+		Execute: func(r *Runner) error {
+			start := r.Runtextpos
+			r.Runtextpos++
+			r.Capture(1, start, r.Runtextpos)
+			r.Capture(0, start, r.Runtextpos)
+			return nil
+		},
+		ExecuteQuick: func(r *Runner) error {
+			start := r.Runtextpos
+			r.Runtextpos++
+			r.Capture(0, start, r.Runtextpos)
+			return nil
+		},
+	})
+	re := MustCompile(pattern)
+	measure := func(matchCount int) float64 {
+		input := []rune(strings.Repeat("a", matchCount))
+		calls := 0
+		callback := func(m *Match) bool {
+			index, length, ok := m.GroupRange(1)
+			if !ok || index != calls || length != 1 {
+				t.Fatalf("match %d: group range = (%d, %d, %v), want (%d, 1, true)", calls, index, length, ok, calls)
+			}
+			calls++
+			return true
+		}
+		// AllocsPerRun warms the runner before measuring. Inputs and the
+		// callback are prepared outside the measured operation.
+		return testing.AllocsPerRun(100, func() {
+			calls = 0
+			err := re.FindRunesMatches(input, -1, callback)
+			if err != nil || calls != matchCount {
+				t.Fatalf("iteration: calls = %d, err = %v; want %d, nil", calls, err, matchCount)
+			}
+		})
+	}
+	one := measure(1)
+	many := measure(100)
+	// Permit fixed per-call overhead without pinning an exact allocation
+	// count; an additional 99 matches must not allocate per-match objects.
+	if many > one+1 {
+		t.Fatalf("allocations grow with match count: 1 match = %.1f, 100 matches = %.1f", one, many)
+	}
+}
+
 func BenchmarkRequiredLandmarkWhitespaceAlternatives(b *testing.B) {
 	for _, n := range []int{1024, 4096, 16384} {
 		b.Run(strconv.Itoa(n), func(b *testing.B) {

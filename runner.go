@@ -84,6 +84,12 @@ type Runner struct {
 	// start where earlier ones ended, so they keep it. FindNextMatch moves it
 	// to the match it returns and back.
 	landmarks *requiredLandmarkState
+
+	// fullCaptures makes scans keep the match in the runner (quick tidying)
+	// while still executing the full program, so every capture is recorded for
+	// callers that read capture positions of every group, e.g. FindRunesMatches.
+	// Reset by putRunner.
+	fullCaptures bool
 }
 
 // run starts a search on rune input.
@@ -143,7 +149,7 @@ func (r *Runner) scan(rt []rune, textInfo *matchText, textstart, candidate, prev
 	// setup our scanner functions
 	findFirstChar := r.re.findFirstChar
 	execute := r.re.execute
-	if quick && textInfo == nil && r.re.executeQuick != nil {
+	if quick && textInfo == nil && r.re.executeQuick != nil && !r.fullCaptures {
 		execute = r.re.executeQuick
 	}
 	if findFirstChar == nil {
@@ -2534,8 +2540,17 @@ func (r *Runner) tidyMatch(quick bool) *Match {
 		}
 		m.textpos = r.Runtextpos
 		if m.matchcount[0] > 0 {
+			// Keep the whole-match capture views (Capture fields, Captures and
+			// capcount) consistent with the current match. Group 0 is never
+			// affected by balancing markers, so no compaction is needed here;
+			// iteration consumers that read other groups call
+			// compactBalancedMatches themselves. All of this works on storage
+			// owned by the runner, so repeated scans allocate nothing.
 			interval := m.matches[0]
 			setCaptureFields(&m.Capture, interval[0], interval[1])
+			m.capcount = m.matchcount[0]
+			m.capSlot[0] = m.Capture
+			m.Captures = m.capSlot[:1]
 		}
 		return m
 	}
@@ -2732,6 +2747,7 @@ func (re *Regexp) getRunner() *Runner {
 func (re *Regexp) putRunner(r *Runner) {
 	r.Runtext = nil
 	r.code = re.code
+	r.fullCaptures = false
 	if r.runmatch != nil {
 		r.runmatch.text = nil
 	}

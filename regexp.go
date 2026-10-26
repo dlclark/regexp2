@@ -312,8 +312,12 @@ func (re *Regexp) FindRunesMatchStartingAt(r []rune, startAt int) (*Match, error
 // passed to f is owned by the Regexp and is only valid for the duration of the
 // call; f must copy out any data it needs to keep. Returning false from f
 // stops the iteration. Unlike that iteration, matching reuses internal state,
-// so no per-match memory is allocated or retained, but the Match carries no
-// capture text metadata, so its String and ByteRange methods must not be used.
+// so iteration itself allocates nothing and nothing is retained between
+// iterations, but the Match carries no capture text metadata, so its String
+// and ByteRange methods must not be used; group positions are available
+// through GroupRange, GroupByNumber, GroupByName and Groups, whose results are
+// equally short-lived (and whose Group objects, unlike GroupRange results, are
+// built per match).
 func (re *Regexp) FindRunesMatches(r []rune, startAt int, f func(m *Match) bool) error {
 	if f == nil {
 		return nil
@@ -331,18 +335,24 @@ func (re *Regexp) FindRunesMatches(r []rune, startAt int, f func(m *Match) bool)
 	}
 
 	previousMatchLength := -1
-	// Keep the match in the runner between iterations (quick tidying) only when
-	// no bool-only quick engine is registered: ExecuteQuick removes captures
-	// that are not observable by the pattern itself, but callers of this method
-	// read capture positions of every group.
-	quick := re.executeQuick == nil
+	// Keep the match in the runner between iterations (quick tidying), but
+	// execute the full program: ExecuteQuick removes captures that are not
+	// observable by the pattern itself, and callers of this method read capture
+	// positions of every group.
+	runner.fullCaptures = true
 	for {
-		m, err := runner.scan(r, nil, startAt, startAt, previousMatchLength, quick, re.MatchTimeout)
+		m, err := runner.scan(r, nil, startAt, startAt, previousMatchLength, true, re.MatchTimeout)
 		if err != nil {
 			return err
 		}
 		if m == nil {
 			return nil
+		}
+		if m.balancing {
+			// Like the other internal quick-scan iteration consumers
+			// (replacement, split), resolve the balancing markers before the
+			// callback reads group data.
+			compactBalancedMatches(m)
 		}
 		if !f(m) {
 			return nil

@@ -32,6 +32,13 @@ type Match struct {
 	// have done balancing, we'll need to do extra work in Tidy().
 	balancing bool
 
+	// capSlot backs the Captures slice containing the whole-match capture, so
+	// exposing it does not allocate, both for matches that stay owned by their
+	// runner (see Runner.tidyMatch) and for matches that are extracted: the
+	// latter are never reset, so nothing overwrites the slot while they are
+	// alive.
+	capSlot [1]Capture
+
 	// landmarks holds the required landmark searches that found this match.
 	landmarks *requiredLandmarkState
 }
@@ -64,10 +71,6 @@ type matchText struct {
 	byteOffset       int // original-string byte index of runes[0]
 	byteOffsets      []int
 	byteOffsetsReady bool
-	// The first returned capture retains this metadata anyway. Store it here
-	// to avoid a separate allocation; subsequent matches need their own record.
-	initialCaptureUsed bool
-	initialCapture     [1]Capture
 	// landmarkMatch is the last match that FindNextMatch found in this text.
 	// The first call to continue from it takes its landmarks.
 	landmarkMatch atomic.Pointer[Match]
@@ -243,6 +246,9 @@ func (m *Match) reset(text *matchText, textstart int) {
 		m.matchcount[i] = 0
 	}
 	m.balancing = false
+	// Drop the group objects built for the previous match, so accessors like
+	// Groups rebuild from the current capture data.
+	m.otherGroups = nil
 }
 
 func (m *Match) tidy(textpos int) {
@@ -252,13 +258,11 @@ func (m *Match) tidy(textpos int) {
 	m.textpos = textpos
 	m.capcount = m.matchcount[0]
 	//copy our root capture to the list
-	if m.text != nil && !m.text.initialCaptureUsed {
-		m.text.initialCaptureUsed = true
-		m.text.initialCapture[0] = m.Capture
-		m.Captures = m.text.initialCapture[:]
-	} else {
-		m.Captures = []Capture{m.Capture}
-	}
+	// The match has left the runner at this point (tidy is only called for
+	// matches that are extracted), so nothing can reset it anymore and its own
+	// storage can back the slice without allocating.
+	m.capSlot[0] = m.Capture
+	m.Captures = m.capSlot[:]
 	if m.text != nil && m.text.hasStringInput {
 		m.text.ensureByteOffsets()
 	}
@@ -426,10 +430,11 @@ func (m *Match) GroupByNumber(num int) *Group {
 }
 
 // GroupRange returns the rune index and rune length of the last capture of the
-// group with the given number without materializing Group objects. ok is false
-// when the group number is out of range or the group did not participate in
-// the match. It is meant for callers that only need capture positions, e.g.
-// while iterating with FindRunesMatches, where the Match is only valid for the
+// group with the given number without materializing Group objects. The index is
+// a rune index in the original input, like Capture.RuneIndex; ok is false when
+// the group number is out of range or the group did not participate in the
+// match. It is meant for callers that only need capture positions, e.g. while
+// iterating with FindRunesMatches, where the Match is only valid for the
 // duration of the callback and no capture text metadata is initialized.
 func (m *Match) GroupRange(num int) (index, length int, ok bool) {
 	// check our sparse map
@@ -448,7 +453,14 @@ func (m *Match) GroupRange(num int) (index, length int, ok bool) {
 		return 0, 0, false
 	}
 	interval := m.matches[num]
-	return interval[(c-1)*2], interval[c*2-1], true
+	runeIndex := interval[(c-1)*2]
+	if m.text != nil {
+		// The raw intervals are relative to the text the scan ran on, which for
+		// string input can be a decode buffer starting mid-string. Report
+		// original-input positions, like setCaptureFields does.
+		runeIndex += m.text.runeOffset
+	}
+	return runeIndex, interval[c*2-1], true
 }
 
 func (m *Match) groupByIndex(num int) *Group {
