@@ -1801,6 +1801,41 @@ func TestECMABoundaryRegression(t *testing.T) {
 	}
 }
 
+func TestECMABoundaryScopedIgnoreCase(t *testing.T) {
+	// U+212A KELVIN SIGN is a word character with i and u, but not with u
+	// alone, so a scoped i changes how \b and \B classify it while the rest
+	// of the pattern keeps its flags (ECMA-262 WordCharacters, UpdateModifiers).
+	const u = ECMAScript | Unicode
+	const iu = u | IgnoreCase
+	for _, tt := range []struct {
+		name, pattern, input  string
+		options               RegexOptions
+		wantMatch             bool
+		wantIndex, wantLength int
+	}{
+		{"nonword_before_boundary", `\S*\b(a|\s*b)c()`, "éac", u, true, 0, 3},
+		{"scoped_i_boundary", `\S*(?i:\b)(\u212A|\s*b)c()`, " \u212Ac", u, true, 1, 2},
+		{"scoped_no_i_nonboundary", `\S*(?-i:\B)(\u212A|\s*b)c()`, " \u212Ac", iu, true, 1, 2},
+		{"nested_no_i_nonboundary", `(?i:(?-i:\B\u212A\B))`, "\u212A", u, true, 0, 1},
+		{"nested_modifier_restored", `(?i:(?-i:x) \b\u212A\b)`, "x \u212A", u, true, 0, 3},
+		{"modifier_ends_with_group", `(?i:x) \b\u212A\b`, "x \u212A", u, false, 0, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := MustCompile(tt.pattern, tt.options)
+			m, err := r.FindStringMatch(tt.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (m != nil) != tt.wantMatch {
+				t.Fatalf("/%s/ on %q: match=%v, want %v", tt.pattern, tt.input, m != nil, tt.wantMatch)
+			}
+			if m != nil && (m.RuneIndex != tt.wantIndex || m.RuneLength != tt.wantLength) {
+				t.Fatalf("got span (%d,%d), want (%d,%d)", m.RuneIndex, m.RuneLength, tt.wantIndex, tt.wantLength)
+			}
+		})
+	}
+}
+
 func TestLegacyGeneratedECMABoundaryCompatibility(t *testing.T) {
 	// Equivalent to the existing regexp2cg output for this boundary-only
 	// pattern. Keep the wrapper distinct from other tests' registered patterns.
