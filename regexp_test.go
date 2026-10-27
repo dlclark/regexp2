@@ -2602,3 +2602,105 @@ func TestRepeatPrefixNullableFixed(t *testing.T) {
 		}
 	}
 }
+
+func TestBackreferenceFastPaths(t *testing.T) {
+	for _, mode := range []struct {
+		name   string
+		re     *Regexp
+		legacy bool
+	}{
+		{"default", MustCompile(`^([\s\S]*)#\1$`, IgnoreCase), false},
+		{"legacy", MustCompile(`^([\s\S]*)#\1$`, ECMAScript|IgnoreCase), true},
+		{"unicode", MustCompile(`^([\s\S]*)#\1$`, ECMAScript|Unicode|IgnoreCase), false},
+		{"right to left", MustCompile(`^\1#([\s\S]*)$`, IgnoreCase|RightToLeft), false},
+		{"legacy right to left", MustCompile(`^\1#([\s\S]*)$`, ECMAScript|IgnoreCase|RightToLeft), true},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			for _, tc := range []struct {
+				left, right string
+				want        bool
+				unicodeOnly bool
+			}{
+				{"", "", true, false},
+				{"", "a", false, false},
+				{"a", "A", true, false},
+				{"aZ09_@", "aZ09_@", true, false},
+				{"aZ09_@", "Az09_@", true, false},
+				{"A[", "a{", false, false},
+				{"@", "`", false, false},
+				{"9", "8", false, false},
+				{"Σé𐐀", "Σé𐐀", true, false},
+				{"Σ", "ς", true, false},
+				{"s", "ſ", true, true},
+				{"k", "K", true, true},
+				{"i", "İ", false, false},
+				{"I", "ı", false, false},
+				{"ß", "ẞ", true, true},
+				{"𐐀", "𐐨", true, true},
+				{"ß", "ss", false, false},
+				{"AbΣs!", "aBςſ!", true, true},
+				{"AbΣ!", "aBς?", false, false},
+				{"AbΣ!", "xbς!", false, false},
+				{"AbΣ!", "aXς!", false, false},
+				{"AbΣa", "AbΣA", true, false},
+				{"A" + strings.Repeat("a", 32), strings.Repeat("a", 33), true, false},
+				{"A" + strings.Repeat("a", 32), "b" + strings.Repeat("a", 32), false, false},
+				{strings.Repeat("a", 65), strings.Repeat("A", 65), true, false},
+			} {
+				want := tc.want && !(mode.legacy && tc.unicodeOnly)
+				// Exercise both ASCII/non-ASCII operand orders and mixed prefixes.
+				for _, input := range []string{tc.left + "#" + tc.right, tc.right + "#" + tc.left} {
+					if got, err := mode.re.MatchRunes([]rune(input)); err != nil || got != want {
+						t.Errorf("%s.MatchRunes(%q) = %v, %v; want %v", mode.re, input, got, err, want)
+					}
+					if got, err := mode.re.MatchString(input); err != nil || got != want {
+						t.Errorf("%s.MatchString(%q) = %v, %v; want %v", mode.re, input, got, err, want)
+					}
+					m, err := mode.re.FindStringMatch(input)
+					if err != nil || (m != nil) != want {
+						t.Errorf("%s.FindStringMatch(%q) = %v, %v; want match %v", mode.re, input, m, err, want)
+					} else if m != nil && m.String() != input {
+						t.Errorf("matched %q, want full input %q", m.String(), input)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestLiteralMatch(t *testing.T) {
+	for _, literal := range []string{"abcd", strings.Repeat("abcd", 16) + "x", strings.Repeat("éΣ𐐀z", 16) + "λ"} {
+		for _, options := range []RegexOptions{None, RightToLeft} {
+			t.Run(fmt.Sprintf("%q/options_%d", literal, options), func(t *testing.T) {
+				// The surrounding wildcards require matching on both sides of the literal.
+				re := MustCompile(`\A.(?<literal>`+literal+`).\z`, options)
+				text := "#" + literal + "!"
+				m, err := re.FindStringMatch(text)
+				if err != nil || m == nil {
+					t.Fatalf("FindStringMatch = %v, %v; want a match", m, err)
+				}
+				g := m.GroupByName("literal")
+				if m.String() != text || g == nil || g.String() != literal || g.RuneIndex != 1 || g.RuneLength != len([]rune(literal)) {
+					t.Fatalf("unexpected match or capture: %v, %v", m, g)
+				}
+				check := func(input string, want bool) {
+					t.Helper()
+					if got, err := re.MatchString(input); err != nil || got != want {
+						t.Errorf("MatchString(%q) = %v, %v; want %v", input, got, err, want)
+					}
+					if got, err := re.MatchRunes([]rune(input)); err != nil || got != want {
+						t.Errorf("MatchRunes(%q) = %v, %v; want %v", input, got, err, want)
+					}
+				}
+				check(text, true)
+				check("#"+literal, false)
+				runes := []rune(literal)
+				for _, pos := range []int{0, 1, len(runes) / 2, len(runes) - 2, len(runes) - 1} {
+					candidate := append([]rune(nil), runes...)
+					candidate[pos] = '?'
+					check("#"+string(candidate)+"!", false)
+				}
+			})
+		}
+	}
+}

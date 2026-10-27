@@ -5,6 +5,33 @@ import (
 	"testing"
 )
 
+func TestRightToLeft_LongLiteral(t *testing.T) {
+	for _, literal := range []string{strings.Repeat("abcd", 32), strings.Repeat("éΣ𐐀z", 32)} {
+		for _, anchored := range []bool{true, false} {
+			pattern := `.` + literal
+			input := "#" + literal
+			wantIndex := 0
+			if anchored {
+				pattern = `\A` + pattern + `\z`
+			} else {
+				input = "??" + input + "??"
+				wantIndex = 2
+			}
+			re := MustCompile(pattern, RightToLeft)
+			m, err := re.FindStringMatch(input)
+			if err != nil || m == nil {
+				t.Fatalf("FindStringMatch(%q), anchored=%v: %v, %v; want a match", input, anchored, m, err)
+			}
+			if m.String() != "#"+literal || m.RuneIndex != wantIndex {
+				t.Fatalf("match = %q at %d; want %q at %d", m.String(), m.RuneIndex, "#"+literal, wantIndex)
+			}
+			if got, err := re.MatchRunes([]rune(input)); err != nil || !got {
+				t.Fatalf("MatchRunes(%q) = %v, %v; want true, nil", input, got, err)
+			}
+		}
+	}
+}
+
 func TestRightToLeft_Basic(t *testing.T) {
 	re := MustCompile(`foo\d+`, RightToLeft)
 	s := "0123456789foo4567890foo1foo  0987"

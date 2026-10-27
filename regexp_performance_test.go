@@ -1,6 +1,7 @@
 package regexp2
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -600,6 +601,122 @@ func BenchmarkECMAQuantifiedCaptures(b *testing.B) {
 					}
 				})
 			})
+		}
+	}
+}
+
+func BenchmarkBackreference(b *testing.B) {
+	for _, tc := range []struct {
+		name, pattern, input string
+		options              RegexOptions
+	}{
+		{"same8", `^(.{8})#\1$`, "abcdefgh#abcdefgh", IgnoreCase},
+		{"fold8", `^(.{8})#\1$`, "abcdefgh#ABCDEFGH", IgnoreCase},
+		{"same128", `^(.{128})#\1$`, strings.Repeat("abcd", 32) + "#" + strings.Repeat("abcd", 32), IgnoreCase},
+		{"fold128", `^(.{128})#\1$`, strings.Repeat("abcd", 32) + "#" + strings.Repeat("ABCD", 32), IgnoreCase},
+		{"unicode_same64", `^(.{64})#\1$`, strings.Repeat("é", 64) + "#" + strings.Repeat("é", 64), IgnoreCase},
+		{"unicode_fold64", `^(.{64})#\1$`, strings.Repeat("é", 64) + "#" + strings.Repeat("É", 64), IgnoreCase},
+		{"legacy_fold128", `^(.{128})#\1$`, strings.Repeat("abcd", 32) + "#" + strings.Repeat("ABCD", 32), IgnoreCase | ECMAScript},
+		{"rtl_same128", `^\1#(.{128})$`, strings.Repeat("abcd", 32) + "#" + strings.Repeat("abcd", 32), IgnoreCase | RightToLeft},
+		{"rtl_fold128", `^\1#(.{128})$`, strings.Repeat("ABCD", 32) + "#" + strings.Repeat("abcd", 32), IgnoreCase | RightToLeft},
+		{"case_sensitive128", `^(.{128})#\1$`, strings.Repeat("abcd", 32) + "#" + strings.Repeat("abcd", 32), None},
+		{"capture_scan128", `^([a-z]+)#\1$`, strings.Repeat("abcd", 32) + "#" + strings.Repeat("ABCD", 32), IgnoreCase},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			benchmarkMatch(b, tc.pattern, tc.input, tc.options, true)
+		})
+	}
+}
+
+func BenchmarkBackreferenceFailure(b *testing.B) {
+	for _, length := range []int{8, 128, 4096} {
+		for _, mode := range []struct {
+			name, captured, candidate string
+			options                   RegexOptions
+		}{
+			{"case_sensitive", "a", "a", None},
+			{"exact_ignorecase", "a", "a", IgnoreCase},
+			{"ascii_fold", "a", "A", IgnoreCase},
+			{"unicode_fold", "é", "É", IgnoreCase},
+			{"legacy_fold", "a", "A", ECMAScript | IgnoreCase},
+			{"rtl_exact", "a", "a", RightToLeft | IgnoreCase},
+			{"rtl_fold", "a", "A", RightToLeft | IgnoreCase},
+		} {
+			for _, mismatch := range []struct {
+				name  string
+				index int
+			}{{"first", 0}, {"near_first", 1}, {"near_last", length - 2}, {"last", length - 1}} {
+				// Positions refer to the candidate's slice order, including in RTL mode.
+				captured := strings.Repeat(mode.captured, length)
+				candidate := []rune(strings.Repeat(mode.candidate, length))
+				candidate[mismatch.index] = '!'
+				pattern := fmt.Sprintf(`^(.{%d})#\1$`, length)
+				input := captured + "#" + string(candidate)
+				if mode.options&RightToLeft != 0 {
+					pattern = fmt.Sprintf(`^\1#(.{%d})$`, length)
+					input = string(candidate) + "#" + captured
+				}
+				b.Run(fmt.Sprintf("%s/%d/%s", mode.name, length, mismatch.name), func(b *testing.B) {
+					benchmarkMatch(b, pattern, input, mode.options, false)
+				})
+			}
+		}
+	}
+}
+
+func benchmarkMatch(b *testing.B, pattern, text string, options RegexOptions, want bool) {
+	b.Helper()
+	re := MustCompile(pattern, options)
+	input := []rune(text)
+	b.Run("runes", func(b *testing.B) {
+		if got, err := re.MatchRunes(input); err != nil || got != want {
+			b.Fatalf("warmup: %v, %v; want %v", got, err, want)
+		}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if got, err := re.MatchRunes(input); err != nil || got != want {
+				b.Fatalf("match: %v, %v; want %v", got, err, want)
+			}
+		}
+	})
+	b.Run("string", func(b *testing.B) {
+		if got, err := re.MatchString(text); err != nil || got != want {
+			b.Fatalf("warmup: %v, %v; want %v", got, err, want)
+		}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if got, err := re.MatchString(text); err != nil || got != want {
+				b.Fatalf("match: %v, %v; want %v", got, err, want)
+			}
+		}
+	})
+}
+
+func BenchmarkLiteralMatch(b *testing.B) {
+	for _, length := range []int{8, 128, 4096} {
+		literal := strings.Repeat("abcd", length/4)
+		for _, mode := range []struct {
+			name    string
+			options RegexOptions
+		}{{"ltr", None}, {"rtl", RightToLeft}} {
+			// Surrounding wildcards prevent literal-prefix filtering from rejecting
+			// a candidate before the interpreter compares the literal itself.
+			pattern := `\A.` + literal + `.\z`
+			for _, mismatch := range []struct {
+				name  string
+				index int
+			}{{"match", -1}, {"first", 0}, {"near_first", 1}, {"near_last", length - 2}, {"last", length - 1}} {
+				candidate := []rune(literal)
+				if mismatch.index >= 0 {
+					candidate[mismatch.index] = '!'
+				}
+				input := "#" + string(candidate) + "#"
+				b.Run(fmt.Sprintf("%d/%s/%s", length, mode.name, mismatch.name), func(b *testing.B) {
+					benchmarkMatch(b, pattern, input, mode.options, mismatch.index < 0)
+				})
+			}
 		}
 	}
 }
