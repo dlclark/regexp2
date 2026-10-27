@@ -182,6 +182,41 @@ func TestECMAUnicodeControlEscapes(t *testing.T) {
 	}
 }
 
+// Annex B's legacy octal escapes and its fallback for decimal escapes that
+// exceed the group count do not apply with the Unicode flag; only \0 not
+// followed by a digit is a decimal escape that is not a backreference.
+func TestECMAUnicodeDecimalEscapes(t *testing.T) {
+	for _, pattern := range []string{
+		`\1`, `(a)\2`, `(a)\10`, `\8`, `\9`, `\00`, `\01`, `\07`, `\08`,
+		`[\1]`, `[\7]`, `[\8]`, `[\00]`, `[\01]`, `[\09]`,
+	} {
+		t.Run(pattern, func(t *testing.T) {
+			if _, err := regexp2.Compile(pattern, regexp2.ECMAScript|regexp2.Unicode); err == nil {
+				t.Fatal("expected a compile error")
+			}
+		})
+	}
+	for _, tc := range []struct{ pattern, input string }{
+		{`^\0$`, "\x00"}, {`^[\0]$`, "\x00"}, {`^\0a$`, "\x00a"},
+		{`^(a)\1$`, "aa"}, {`^\1(a)$`, "a"},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			re, err := regexp2.Compile(tc.pattern, regexp2.ECMAScript|regexp2.Unicode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := re.MatchString(tc.input)
+			if err != nil || !got {
+				t.Fatalf("MatchString(%q) = %v, %v; want true", tc.input, got, err)
+			}
+		})
+	}
+	// Without ECMAScript, Unicode keeps the engine's octal escapes.
+	if got, err := regexp2.MustCompile(`^\01$`, regexp2.Unicode).MatchString("\x01"); err != nil || !got {
+		t.Fatalf("Unicode octal escape: MatchString = %v, %v; want true", got, err)
+	}
+}
+
 func TestLegacyEscapeModeIsolation(t *testing.T) {
 	for _, options := range []regexp2.RegexOptions{regexp2.None, regexp2.RE2, regexp2.Unicode, regexp2.RE2 | regexp2.Unicode} {
 		for _, tc := range []struct{ pattern, input string }{
