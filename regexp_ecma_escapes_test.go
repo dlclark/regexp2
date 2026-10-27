@@ -182,6 +182,41 @@ func TestECMAUnicodeControlEscapes(t *testing.T) {
 	}
 }
 
+// Annex B's legacy octal escapes and its fallback for decimal escapes that
+// exceed the group count do not apply with the Unicode flag; only \0 not
+// followed by a digit is a decimal escape that is not a backreference.
+func TestECMAUnicodeDecimalEscapes(t *testing.T) {
+	for _, pattern := range []string{
+		`\1`, `(a)\2`, `(a)\10`, `\8`, `\9`, `\00`, `\01`, `\07`, `\08`,
+		`[\1]`, `[\7]`, `[\8]`, `[\00]`, `[\01]`, `[\09]`,
+	} {
+		t.Run(pattern, func(t *testing.T) {
+			if _, err := regexp2.Compile(pattern, regexp2.ECMAScript|regexp2.Unicode); err == nil {
+				t.Fatal("expected a compile error")
+			}
+		})
+	}
+	for _, tc := range []struct{ pattern, input string }{
+		{`^\0$`, "\x00"}, {`^[\0]$`, "\x00"}, {`^\0a$`, "\x00a"},
+		{`^(a)\1$`, "aa"}, {`^\1(a)$`, "a"},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			re, err := regexp2.Compile(tc.pattern, regexp2.ECMAScript|regexp2.Unicode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := re.MatchString(tc.input)
+			if err != nil || !got {
+				t.Fatalf("MatchString(%q) = %v, %v; want true", tc.input, got, err)
+			}
+		})
+	}
+	// Without ECMAScript, Unicode keeps the engine's octal escapes.
+	if got, err := regexp2.MustCompile(`^\01$`, regexp2.Unicode).MatchString("\x01"); err != nil || !got {
+		t.Fatalf("Unicode octal escape: MatchString = %v, %v; want true", got, err)
+	}
+}
+
 func TestLegacyEscapeModeIsolation(t *testing.T) {
 	for _, options := range []regexp2.RegexOptions{regexp2.None, regexp2.RE2, regexp2.Unicode, regexp2.RE2 | regexp2.Unicode} {
 		for _, tc := range []struct{ pattern, input string }{
@@ -244,6 +279,76 @@ func BenchmarkECMALegacyEscapesCompile(b *testing.B) {
 			for b.Loop() {
 				if _, err := regexp2.Compile(pattern, regexp2.ECMAScript); err != nil {
 					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func TestECMAUnicodeDecimalBackreferences(t *testing.T) {
+	for _, tc := range []struct {
+		name, pattern, match, miss string
+	}{
+		{"group_8", `^(a)(b)(c)(d)(e)(f)(g)(h)\8$`, "abcdefghh", "abcdefgh8"},
+		{"group_9", `^(a)(b)(c)(d)(e)(f)(g)(h)(i)\9$`, "abcdefghii", "abcdefghi9"},
+		{"group_10", `^(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)\10$`, "abcdefghijj", "abcdefghija0"},
+		{"forward_group_10", `^\10(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)$`, "abcdefghij", "\babcdefghij"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			re, err := regexp2.Compile(tc.pattern, regexp2.ECMAScript|regexp2.Unicode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, input := range []struct {
+				value string
+				want  bool
+			}{{tc.match, true}, {tc.miss, false}} {
+				if got, err := re.MatchString(input.value); err != nil || got != input.want {
+					t.Errorf("MatchString(%q) = %v, %v; want %v",
+						input.value, got, err, input.want)
+				}
+			}
+		})
+	}
+}
+
+// Character classes cannot contain decimal backreferences, even when the
+// corresponding capture exists before or after the class.
+func TestECMAUnicodeClassDecimalEscapeWithCapture(t *testing.T) {
+	for _, pattern := range []string{`(a)[\1]`, `[\1](a)`} {
+		t.Run(pattern, func(t *testing.T) {
+			if _, err := regexp2.Compile(pattern, regexp2.ECMAScript|regexp2.Unicode); err == nil {
+				t.Fatal("expected a compile error")
+			}
+		})
+	}
+}
+
+func TestECMADecimalEscapeCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		name, pattern, match, miss string
+		options                    regexp2.RegexOptions
+	}{
+		// Leave \0 at the end of the pattern to exercise the no-lookahead case.
+		{"unicode_terminal_nul", `^\0`, "\x00", "0", regexp2.ECMAScript | regexp2.Unicode},
+		{"legacy_octal", `^\01$`, "\x01", "01", regexp2.ECMAScript},
+		{"legacy_identity_8", `^\8$`, "8", "\b", regexp2.ECMAScript},
+		{"legacy_identity_9", `^\9$`, "9", "\t", regexp2.ECMAScript},
+		{"legacy_class_octal", `^[\01]$`, "\x01", "1", regexp2.ECMAScript},
+		{"legacy_class_identity", `^[\8]$`, "8", "\b", regexp2.ECMAScript},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			re, err := regexp2.Compile(tc.pattern, tc.options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, input := range []struct {
+				value string
+				want  bool
+			}{{tc.match, true}, {tc.miss, false}, {"", false}} {
+				if got, err := re.MatchString(input.value); err != nil || got != input.want {
+					t.Errorf("MatchString(%q) = %v, %v; want %v",
+						input.value, got, err, input.want)
 				}
 			}
 		})
