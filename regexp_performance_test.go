@@ -58,6 +58,59 @@ func BenchmarkMatchClass_InRange(b *testing.B) {
 	}
 }
 
+func BenchmarkCategoryMatch(b *testing.B) {
+	for _, tc := range []struct {
+		name, pattern, text string
+	}{
+		{"LetterUnicode", `^\p{L}+$`, "é界Σ"},
+		{"DigitUnicode", `^\d+$`, "١٢٣"},
+		{"GreekUnicode", `^\p{Greek}+$`, "αβγ"},
+		{"EmojiUnicode", `^\p{Emoji}+$`, "😀😃😄"},
+		{"UnionUnicode", `^[\p{Lu}\p{Ll}\p{Nd}]+$`, "١٢٣"},
+		{"NegatedUnicode", `^\P{Nd}+$`, "é界Σ"},
+		// Controls for compiled ASCII bitmaps, special categories, and literals.
+		{"DigitASCII", `^\d+$`, "123"},
+		{"WordUnicode", `^\w+$`, "é界Σ"},
+		{"LiteralASCII", `^a+$`, "aaa"},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			re := MustCompile(tc.pattern)
+			input := []rune(strings.Repeat(tc.text, 1024))
+			// Warm the runner and exclude compilation and input conversion.
+			if ok, err := re.MatchRunes(input); err != nil || !ok {
+				b.Fatalf("MatchRunes = %v, %v; want true, nil", ok, err)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				if ok, err := re.MatchRunes(input); err != nil || !ok {
+					b.Fatalf("MatchRunes = %v, %v; want true, nil", ok, err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkCategoryCompile(b *testing.B) {
+	for _, tc := range []struct{ name, pattern string }{
+		{"Literal", `hello`},
+		{"Digit", `^\d+$`},
+		{"Letter", `^\p{L}+$`},
+		{"Alias", `^\p{gcb=Extend}+$`},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			// This measures warm compilation. Use testdata/categorybench for
+			// package initialization and the first compile in a fresh process.
+			MustCompile(tc.pattern)
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := Compile(tc.pattern); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 /*
 func BenchmarkReplaceAll(b *testing.B) {
 

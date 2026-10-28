@@ -25,3 +25,26 @@ func TestCharSetContainsCompatibility(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkCategoryContains(b *testing.B) {
+	for _, tc := range []struct {
+		name string
+		r    rune
+		want bool
+	}{
+		{"DigitASCII", '5', true},
+		{"DigitUnicode", '٥', true},
+		{"DigitMiss", 'é', false},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			// Generated runners may use deserialized sets without an ASCII bitmap.
+			set := NewCharSetRuntime(string(DigitClass().Hash()))
+			b.ReportAllocs()
+			for b.Loop() {
+				if got := set.Contains(tc.r); got != tc.want {
+					b.Fatalf("Contains(%U) = %v, want %v", tc.r, got, tc.want)
+				}
+			}
+		})
+	}
+}

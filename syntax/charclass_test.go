@@ -47,6 +47,80 @@ func TestCharSetSerializeRoundTrip(t *testing.T) {
 	})
 }
 
+func TestCategorySetCopyAndSerialization(t *testing.T) {
+	// Cached membership data must survive Copy and be reconstructed by
+	// NewCharSetRuntime, including categories inside composed sets.
+	for _, tc := range []struct {
+		pattern string
+		yes, no string
+	}{
+		{`\d`, "5٥", "aé"},
+		{`\p{Uppercase_Letter}`, "AΣ", "aσ"},
+		{`\p{Greek}`, "Σσ", "Aé"},
+		{`\p{White_Space}`, " \u2003", "Aé"},
+		// Math includes letters as well as the general category Sm.
+		{`\p{Math}`, "+𝐀", "a😀"},
+		{`\p{gcb=Extend}`, "\u0301\u0308", "aΣ"},
+		{`[\p{Greek}\p{Nd}]`, "Σ٥", "a😀"},
+		{`\P{Nd}`, "aΣ", "5٥"},
+		{`[\p{L}-[\p{Greek}]]`, "aé", "Σσ"},
+		{`(?i)\p{Lu}`, "AΣaσ", "5٥"},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			t.Parallel()
+			tree, err := Parse(tc.pattern, ParseOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			code, err := Write(tree)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(code.Sets) != 1 {
+				t.Fatalf("single character class produced %d sets", len(code.Sets))
+			}
+			original := code.Sets[0]
+			encoded := string(original.Hash())
+			copied := original.Copy()
+			restored := NewCharSetRuntime(encoded)
+			// Compiled sets have an ASCII bitmap; generated runners can use
+			// deserialized sets without one. Exercise both public paths.
+			code.PrepareCharSetASCIIBitmaps()
+			for name, set := range map[string]*CharSet{
+				"compiled": original, "copied": &copied, "restored": &restored,
+			} {
+				if string(set.Hash()) != encoded || !original.Equals(set) {
+					t.Errorf("%s changed the character set representation", name)
+				}
+				for _, r := range tc.yes {
+					if !set.Contains(r) {
+						t.Errorf("%s.Contains(%U) = false, want true", name, r)
+					}
+				}
+				for _, r := range tc.no {
+					if set.Contains(r) {
+						t.Errorf("%s.Contains(%U) = true, want false", name, r)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestCategorySetLegacySerialization(t *testing.T) {
+	// Serialized Nd class emitted by existing generated engines: flags,
+	// zero ranges, one category, then its length and name. A round trip
+	// alone would not catch an incompatible change to both reader and writer.
+	const encoded = "\x00\x00\x00\x00\x00\x01\x00\x00\x00\x02Nd"
+	set := NewCharSetRuntime(encoded)
+	if !set.Contains('5') || !set.Contains('٥') || set.Contains('Σ') {
+		t.Fatal("legacy digit class has incorrect membership")
+	}
+	if string(set.Hash()) != encoded {
+		t.Fatal("legacy digit class encoding changed")
+	}
+}
+
 func TestCanonicalizePreservesMembership(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

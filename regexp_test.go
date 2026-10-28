@@ -1338,6 +1338,40 @@ func TestUnicodePropertyAliases(t *testing.T) {
 	}
 }
 
+func TestCategoryConcurrentCompileAndMatch(t *testing.T) {
+	// Exercise category resolution concurrently with matching on an already
+	// shared regexp, not just concurrent use of the runner pool.
+	shared := MustCompile(`^[\p{Greek}\p{Nd}]+$`)
+	for i := range 16 {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			t.Parallel()
+			for _, tc := range []struct {
+				pattern, yes, no string
+			}{
+				{`^\p{gcb=Extend}+$`, "\u0301\u0308", "a"},
+				{`^[\p{L}-[\p{Greek}]]+$`, "aé", "Σσ"},
+			} {
+				re, err := Compile(tc.pattern)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if ok, err := re.MatchString(tc.yes); err != nil || !ok {
+					t.Fatalf("%s on %q = %v, %v; want true, nil", tc.pattern, tc.yes, ok, err)
+				}
+				if ok, err := re.MatchString(tc.no); err != nil || ok {
+					t.Fatalf("%s on %q = %v, %v; want false, nil", tc.pattern, tc.no, ok, err)
+				}
+			}
+			if ok, err := shared.MatchString("Σ٥σ"); err != nil || !ok {
+				t.Fatalf("shared match = %v, %v; want true, nil", ok, err)
+			}
+			if _, err := Compile(`\p{NotAUnicodeProperty}`); err == nil {
+				t.Fatal("unknown property compiled successfully")
+			}
+		})
+	}
+}
+
 func TestHexadecimalCurlyBraces(t *testing.T) {
 	re := MustCompile(`\x20`)
 	if m, err := re.MatchString(" "); err != nil {
