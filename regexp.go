@@ -39,8 +39,9 @@ type Regexp struct {
 	MatchTimeout time.Duration
 
 	// read-only after Compile
-	pattern string       // as passed to Compile
-	options RegexOptions // options
+	pattern       string // as passed to Compile
+	unmarshalable bool
+	options       RegexOptions // options
 	debug   bool
 
 	caps                  map[int]int      // public group number -> dense capture slot
@@ -78,6 +79,13 @@ func Compile(expr string, options ...CompileOption) (*Regexp, error) {
 	return compile(expr, c)
 }
 
+// CompileRunes parses a regular expression provided as a slice of runes and returns,
+// if successful, a Regexp object that can be used to match against text.
+func CompileRunes(pattern []rune, options ...CompileOption) (*Regexp, error) {
+	c := newCompileConfig(options)
+	return compileRunes(pattern, c)
+}
+
 func compile(expr string, c compileConfig) (*Regexp, error) {
 	// parse it
 	parseOptions := syntax.ParseOptions{
@@ -89,7 +97,34 @@ func compile(expr string, c compileConfig) (*Regexp, error) {
 	if err != nil {
 		return nil, err
 	}
+	return compileTree(expr, tree, c)
+}
 
+func compileRunes(pattern []rune, c compileConfig) (*Regexp, error) {
+	// parse it
+	parseOptions := syntax.ParseOptions{
+		RegexOptions:         syntax.RegexOptions(c.regexOptions),
+		MaintainCaptureOrder: c.maintainCaptureOrder,
+		CodeGen:              c.codeGen,
+	}
+	tree, err := syntax.ParseRunes(pattern, parseOptions)
+	if err != nil {
+		return nil, err
+	}
+	re, err := compileTree(string(pattern), tree, c)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range pattern {
+		if !utf8.ValidRune(r) {
+			re.unmarshalable = true
+			break
+		}
+	}
+	return re, nil
+}
+
+func compileTree(pattern string, tree *syntax.RegexTree, c compileConfig) (*Regexp, error) {
 	if c.debug {
 		log.Print(tree.Dump())
 	}
@@ -108,7 +143,7 @@ func compile(expr string, c compileConfig) (*Regexp, error) {
 
 	// return it
 	re := &Regexp{
-		pattern:       expr,
+		pattern:       pattern,
 		options:       c.regexOptions,
 		debug:         c.debug,
 		caps:          code.Caps,
@@ -159,6 +194,25 @@ func MustCompile(str string, options ...CompileOption) *Regexp {
 	regexp, err := compile(str, c)
 	if err != nil {
 		panic(`regexp2: Compile(` + quote(str) + `): ` + err.Error())
+	}
+	return regexp
+}
+
+// MustCompileRunes is like CompileRunes but panics if the expression cannot be parsed.
+// It simplifies safe initialization of global variables holding compiled regular
+// expressions.
+func MustCompileRunes(pattern []rune, options ...CompileOption) *Regexp {
+	c := newCompileConfig(options)
+
+	// lookup if we have a pre-built state machine for this pattern and options
+	regexp := getEngineRegexp(string(pattern), c)
+	if regexp != nil {
+		return regexp
+	}
+
+	regexp, err := compileRunes(pattern, c)
+	if err != nil {
+		panic(`regexp2: CompileRunes(` + quote(string(pattern)) + `): ` + err.Error())
 	}
 	return regexp
 }
@@ -634,6 +688,9 @@ func (re *Regexp) GroupNumberFromName(name string) int {
 // MarshalText implements [encoding.TextMarshaler]. The output
 // matches that of calling the [Regexp.String] method.
 func (re *Regexp) MarshalText() ([]byte, error) {
+	if re.unmarshalable || !utf8.ValidString(re.pattern) {
+		return nil, errors.New("regexp2: pattern cannot be marshaled to text because it contains invalid UTF-8")
+	}
 	return []byte(re.String()), nil
 }
 
