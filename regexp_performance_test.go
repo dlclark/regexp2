@@ -400,7 +400,7 @@ func BenchmarkFindLeadingStringsLeftToRight(b *testing.B) {
 		b.SetBytes(int64(len(t)))
 		for i := 0; i < b.N; i++ {
 			runner.Runtextpos = 0
-			if findLeadingStringsLeftToRight(runner, prefixRunes, []rune{'a', 't'}, false) {
+			if findLeadingStringsLeftToRight(runner, prefixRunes, []rune{'a', 't'}, nil, false) {
 				b.Fatal("match!")
 			}
 		}

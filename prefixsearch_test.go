@@ -242,7 +242,7 @@ func BenchmarkEqualASCIIPrefixSearch(b *testing.B) {
 
 func benchmarkEqualASCIIPrefixFallback(input []rune, prefixes [][]rune, firstRunes []rune) int {
 	for searchAt := 0; searchAt < len(input); {
-		offset := indexOfAnyRunes(input[searchAt:], firstRunes)
+		offset := indexOfAnyRunes(input[searchAt:], firstRunes, nil)
 		if offset < 0 {
 			return -1
 		}

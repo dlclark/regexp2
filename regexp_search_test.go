@@ -67,9 +67,9 @@ func TestAlternationWithNegatedStartingCharacter(t *testing.T) {
 	}
 }
 
-// Retain the original interpreter finder as an independent reference for
-// optimizations that skip possible starting positions. Disable it on both
-// programs because index and boolean APIs use the capture-elided program.
+// Retain the traditional anchor, Boyer-Moore, and first-character search as
+// a reference for the analyzed search strategies. Disable analysis on both
+// programs, then select the finder for that configuration.
 func compileWithoutSearchOptimizations(pattern string, options ...CompileOption) *Regexp {
 	re := MustCompile(pattern, options...)
 	re.stringPrefixFilter = nil
@@ -78,6 +78,7 @@ func compileWithoutSearchOptimizations(pattern string, options ...CompileOption)
 	if re.quickCode != nil {
 		re.quickCode.FindOptimizations = nil
 	}
+	re.findFirstChar = compileFindFirstChar(re.code)
 	return re
 }
 
@@ -632,5 +633,16 @@ func BenchmarkRequiredLandmarkLongWhitespaceCore(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func TestLiteralSearchNegativeRune(t *testing.T) {
+	for _, options := range []RegexOptions{None, RightToLeft} {
+		for _, pattern := range []string{"ab", "éb"} {
+			re := MustCompile(pattern, options)
+			if matched, err := re.MatchRunes([]rune{-1, 'b'}); matched || err != nil {
+				t.Fatalf("%q, options %v: MatchRunes = %v, %v; want false, nil", pattern, options, matched, err)
+			}
+		}
 	}
 }

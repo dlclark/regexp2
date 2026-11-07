@@ -222,11 +222,8 @@ func TestLeadingSetUsesOptimizedScanner(t *testing.T) {
 		Runtext:    []rune("zzb"),
 		Runtextend: 3,
 	}
-	if !shouldUseFindFirstCharOptimized(runner) {
-		t.Fatal("LeadingSet_LeftToRight was not routed to the optimized scanner")
-	}
-	if handled, found := findFirstCharOptimized(runner); !handled || !found {
-		t.Fatalf("findFirstCharOptimized = %v, %v; want true, true", handled, found)
+	if !re.findFirstChar(runner) {
+		t.Fatal("compiled finder did not find the leading set")
 	}
 	if got, want := runner.Runtextpos, 2; got != want {
 		t.Fatalf("Runtextpos = %d, want %d", got, want)
@@ -236,7 +233,7 @@ func TestLeadingSetUsesOptimizedScanner(t *testing.T) {
 func TestFindLeadingStringsSkipsToFirstRune(t *testing.T) {
 	prefixes := [][]rune{[]rune("apple"), []rune("apricot"), []rune("tiger")}
 	runner := &Runner{Runtext: []rune("zzapricot"), Runtextend: 9}
-	if !findLeadingStringsLeftToRight(runner, prefixes, []rune{'a', 't'}, false) {
+	if !findLeadingStringsLeftToRight(runner, prefixes, []rune{'a', 't'}, nil, false) {
 		t.Fatal("expected prefix")
 	}
 	if got, want := runner.Runtextpos, 2; got != want {

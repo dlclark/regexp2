@@ -179,3 +179,58 @@ func BenchmarkSearchCompilePrefixes(b *testing.B) {
 		})
 	}
 }
+
+// These complement the catalog's string searches with rune inputs, where
+// candidate scanning cannot be bypassed by the pre-decode string filter.
+func BenchmarkPreparedSearch(b *testing.B) {
+	for _, tc := range []struct {
+		name, pattern, input string
+	}{
+		{"LiteralFixed", `..abcdefghijklmno\d`, strings.Repeat("xxabcdefghijklmno!", 32)},
+		{"LiteralLong", `..abcdefghijklmnopqrstuvwxyz0123456789\d`, strings.Repeat("xxabcdefghijklmnopqrstuvwxyz0123456789!", 32)},
+		{"LiteralIgnoreCase", `(?i)abcdefghijklmno\d`, strings.Repeat("ABCDEFGHIJKLMNO!", 32)},
+		{"LiteralAfterLoop", `\d*abcdefghijklmno\d`, strings.Repeat("12abcdefghijklmno!", 32)},
+		{"SetFour", `[aceg]z`, strings.Repeat("aceg", 128)},
+		{"SetFive", `[acegi]z`, strings.Repeat("acegi", 128)},
+		{"PrefixFirstSet", `apple|berry|cherry|date|elder`, strings.Repeat("abcde", 128)},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			re := MustCompile(tc.pattern)
+			input := []rune(tc.input)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if got, err := re.MatchRunes(input); got || err != nil {
+					b.Fatal(got, err)
+				}
+			}
+		})
+	}
+}
+
+// A fresh runner isolates first-use search preparation from regex compilation.
+// The warm case measures the same scan with the runner and its storage reused.
+func BenchmarkLandmarkRunnerStartup(b *testing.B) {
+	re := MustCompile(`[yz]*(ababababac|q)(cdcdcdcdce|r)()`)
+	input := []rune("zzababababaccdcdcdcdce")
+	for _, cold := range []bool{true, false} {
+		name := "warm"
+		if cold {
+			name = "cold"
+		}
+		b.Run(name, func(b *testing.B) {
+			r := &Runner{re: re, code: re.code}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if cold {
+					r = &Runner{re: re, code: re.code}
+				}
+				r.Runtext = nil // as when a pooled runner starts a different input
+				if m, err := r.scan(input, nil, 0, 0, -1, scanBounds, re.MatchTimeout); m == nil || err != nil {
+					b.Fatal(m, err)
+				}
+			}
+		})
+	}
+}
