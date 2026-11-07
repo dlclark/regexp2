@@ -1,6 +1,7 @@
 package syntax
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 	"testing"
@@ -202,7 +203,7 @@ func TestFindPrefix(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to parse %s: %v", s.p, err)
 			}
-			if got := findPrefix(tree.Root); got != s.expected {
+			if got := string(findPrefix(tree.Root)); got != s.expected {
 				t.Fatalf("wanted %q got %q for pattern %s", s.expected, got, s.p)
 			}
 		})
@@ -273,7 +274,14 @@ func TestFindPrefixes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to parse %s: %v", s.p, err)
 			}
-			vals := findPrefixes(tree.Root, s.ignoreCase)
+			runeVals := findPrefixes(tree.Root, s.ignoreCase)
+			var vals []string
+			if runeVals != nil {
+				vals = make([]string, len(runeVals))
+				for i, r := range runeVals {
+					vals[i] = string(r)
+				}
+			}
 
 			slices.Sort(vals)
 			slices.Sort(s.expected)
@@ -402,3 +410,37 @@ func TestFindOptimizationsRequiredLandmarkChainAnchors(t *testing.T) {
 		t.Fatalf("Anchors = %v, want NtBoundary and NtBol once each", got)
 	}
 }
+
+func TestFindPrefixesWithSurrogateRunes(t *testing.T) {
+	// Verify that patterns with surrogate code points preserve their exact runes
+	// without being corrupted to utf8.RuneError (0xFFFD).
+	pattern := []rune{'[', 0xDCA9, '-', 0xDCAB, ']', 'x'}
+	tree, err := ParseRunes(pattern, ParseOptions{})
+	if err != nil {
+		t.Fatalf("failed to parse runes: %v", err)
+	}
+
+	prefixes := findPrefixes(tree.Root, false)
+	if len(prefixes) != 3 {
+		t.Fatalf("expected 3 prefixes, got %d", len(prefixes))
+	}
+	expected := [][]rune{{0xDCA9, 'x'}, {0xDCAA, 'x'}, {0xDCAB, 'x'}}
+	slices.SortFunc(prefixes, func(a, b []rune) int { return cmp.Compare(a[0], b[0]) })
+	for i, want := range expected {
+		if !slices.Equal(prefixes[i], want) {
+			t.Fatalf("prefix %d mismatch: got %v, want %v", i, prefixes[i], want)
+		}
+	}
+
+	// Verify findPrefix on literal surrogate pair
+	surrogatePair := []rune{0xD83D, 0xDCA9, 'a', 'b'}
+	tree2, err := ParseRunes(surrogatePair, ParseOptions{})
+	if err != nil {
+		t.Fatalf("failed to parse surrogate pair: %v", err)
+	}
+	prefix := findPrefix(tree2.Root)
+	if !slices.Equal(prefix, surrogatePair) {
+		t.Fatalf("findPrefix mismatch: got %v, want %v", prefix, surrogatePair)
+	}
+}
+
