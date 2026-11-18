@@ -2,6 +2,7 @@ package regexp2
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -52,6 +53,30 @@ func TestBacktrack_CatastrophicTimeout(t *testing.T) {
 				t.Errorf("Match timed out too late (%v instead of expected %v)", elapsed, timeout+lateAllowance)
 			}
 		})
+	}
+}
+
+func TestMatchTimeoutOmitsInput(t *testing.T) {
+	t.Cleanup(StopTimeoutClock)
+	re := MustCompile(`(a+)+b`)
+	re.MatchTimeout = 10 * time.Millisecond
+	input := strings.Repeat("a", 30) + strings.Repeat("x", 1024*1024)
+	matched, err := re.MatchString(input)
+	if err == nil {
+		t.Fatal("expected a timeout error")
+	}
+	if matched {
+		t.Fatal("unexpected match")
+	}
+	if !errors.Is(err, ErrMatchTimeout) {
+		t.Error("timeout error does not wrap ErrMatchTimeout")
+	}
+	if !errors.Is(fmt.Errorf("matching document: %w", err), ErrMatchTimeout) {
+		t.Error("wrapped timeout error does not match ErrMatchTimeout")
+	}
+	const want = "match timeout after 10ms"
+	if got := err.Error(); got != want {
+		t.Fatalf("timeout message: got %d bytes, want %q", len(got), want)
 	}
 }
 
