@@ -396,36 +396,22 @@ func (c *CharSet) prepareASCIIBitmap() {
 }
 
 func (c *CharSet) charInCategories(ch rune) bool {
+	// The categories form a union: ch is in the set if it matches any one of
+	// them. A category ch fails to match (including a negated category that
+	// contains ch) must not stop the later categories from being checked.
 	for _, ct := range c.categories {
-		if ct.set != nil {
-			if ct.set.Contains(ch) != ct.Negate {
-				return true
-			}
-			// Each category contributes to a union. Failure to match one
-			// property must not prevent a later property from matching.
-			continue
+		var in bool
+		switch {
+		case ct.set != nil:
+			in = ct.set.Contains(ch)
+		case ct.Cat == SpaceCategoryText:
+			in = unicode.IsSpace(ch)
+		case ct.Cat == WordCategoryText:
+			in = IsWordChar(ch)
+		default:
+			in = unicode.Is(ct.table, ch)
 		}
-		// special categories...then unicode
-		if ct.Cat == SpaceCategoryText {
-			if unicode.IsSpace(ch) {
-				// we found a space so we're done
-				// negate means this is a "bad" thing
-				return !ct.Negate
-			} else if ct.Negate {
-				return true
-			}
-		} else if ct.Cat == WordCategoryText {
-			if IsWordChar(ch) {
-				return !ct.Negate
-			} else if ct.Negate {
-				return true
-			}
-		} else if unicode.Is(ct.table, ch) {
-			// if we're in this unicode category then we're done
-			// if negate=true on this category then we "failed" our test
-			// otherwise we're good that we found it
-			return !ct.Negate
-		} else if ct.Negate {
+		if in != ct.Negate {
 			return true
 		}
 	}

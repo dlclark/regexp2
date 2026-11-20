@@ -768,6 +768,41 @@ func TestCancellingClasses(t *testing.T) {
 	}
 }
 
+func TestNegatedCategoryInUnion(t *testing.T) {
+	// A class matches a char if any one of its categories matches. A char
+	// inside a negated category (\W, \S, \P{..}) must still be tested against
+	// the categories that come after it.
+	tests := []struct {
+		pattern string
+		in      string
+		want    bool
+	}{
+		{`[\W\d]`, "1", true},
+		{`[\W\d]`, "٣", true}, // ARABIC-INDIC DIGIT THREE
+		{`[\W\d]`, "a", false},
+		{`[\W\d]`, "-", true},
+		{`[^\W\d]`, "1", false},
+		{`[^\W\d]`, "a", true},
+		{`[\S\s]`, " ", true},
+		{`[\P{L}\p{Lu}]`, "A", true},
+		{`[\P{L}\p{Lu}]`, "É", true},
+		{`[\P{L}\p{Lu}]`, "a", false},
+		{`[^\P{L}\p{Lu}]`, "É", false},
+		{`[^\P{L}\p{Lu}]`, "é", true},
+		{`[\P{Lu}\w]`, "A", true},
+	}
+	for _, tt := range tests {
+		re := MustCompile(tt.pattern)
+		got, err := re.MatchString(tt.in)
+		if err != nil {
+			t.Fatalf("%s on %q: unexpected error: %v", tt.pattern, tt.in, err)
+		}
+		if got != tt.want {
+			t.Errorf("%s on %q = %v; want %v", tt.pattern, tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestConcatLoopCaptureSet(t *testing.T) {
 	//(A|B)*?CD different Concat/Loop/Capture/Set (had [A-Z] should be [AB])
 	// we were not copying the Sets in the prefix FC stack, so the underlying sets were unexpectedly mutating
