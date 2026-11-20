@@ -757,6 +757,47 @@ func TestRunNegativeDigit(t *testing.T) {
 	}
 }
 
+func TestNegatedCategoryUnion(t *testing.T) {
+	for _, tc := range []struct {
+		pattern string
+		input   string
+		want    bool
+	}{
+		{`[\W\d]`, "1", true},
+		{`[\W\d]`, "٣", true},
+		{`[\W\d]`, "!", true},
+		{`[\W\d]`, "A", false},
+		{`[\d\W]`, "1", true},
+		{`[\d\W]`, "٣", true},
+		{`[^\W\d]`, "1", false},
+		{`[^\W\d]`, "٣", false},
+		{`[^\W\d]`, "_", true},
+		{`[\S\p{Zs}]`, " ", true},
+		{`[\S\p{Zs}]`, "\u2003", true},
+		{`[\S\p{Zs}]`, "A", true},
+		{`[\S\p{Zs}]`, "\t", false},
+		{`[\P{L}\p{Lu}]`, "A", true},
+		{`[\P{L}\p{Lu}]`, "Σ", true},
+		{`[\P{L}\p{Lu}]`, "1", true},
+		{`[\P{L}\p{Lu}]`, "σ", false},
+		{`[^\P{L}\p{Lu}]`, "É", false},
+		{`[^\P{L}\p{Lu}]`, "é", true},
+		{`[\P{L}\P{Lu}]`, "a", true},
+		{`[\P{L}\P{Lu}]`, "A", false},
+		{`(?i)\P{Lu}`, "1", true},
+		{`(?i)\P{Lu}`, "a", false},
+		{`(?i)\P{Lu}`, "A", false},
+		{`(?i)\P{Lu}`, "ǅ", false},
+		{`(?i)[\P{Lu}\p{Greek}]`, "σ", true},
+		{`(?i)[\P{Lu}\p{Greek}]`, "a", false},
+	} {
+		re := MustCompile(tc.pattern)
+		if got, err := re.MatchString(tc.input); err != nil || got != tc.want {
+			t.Errorf("%s on %q = %v, %v; want %v, nil", tc.pattern, tc.input, got, err, tc.want)
+		}
+	}
+}
+
 func TestCancellingClasses(t *testing.T) {
 	// [\w\W\s] should become "." because it means "anything"
 	re := MustCompile(`[\w\W\s]`)

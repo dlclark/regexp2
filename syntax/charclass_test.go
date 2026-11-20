@@ -107,6 +107,50 @@ func TestCategorySetCopyAndSerialization(t *testing.T) {
 	}
 }
 
+func TestNegatedCategoryUnionCodegenMembership(t *testing.T) {
+	const pattern = `[\P{L}\P{Lu}]`
+	tree, err := Parse(pattern, ParseOptions{CodeGen: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := Write(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(code.Sets) != 1 {
+		t.Fatalf("expected one character set for %s, got %d", pattern, len(code.Sets))
+	}
+	set := code.Sets[0]
+
+	// Evaluate the category shortcut or serialized fallback as a code generator would.
+	categories, negate := set.GetIfOnlyUnicodeCategories()
+	var tables []*unicode.RangeTable
+	for _, cat := range categories {
+		table := unicode.Categories[cat.Cat]
+		if table == nil {
+			t.Fatalf("no Unicode table for %q", cat.Cat)
+		}
+		tables = append(tables, table)
+	}
+	restored := NewCharSetRuntime(string(set.Hash()))
+	for _, tc := range []struct {
+		ch   rune
+		want bool
+	}{
+		{'a', true},
+		{'Σ', false},
+		{'٣', true},
+	} {
+		got := restored.Contains(tc.ch)
+		if len(tables) > 0 {
+			got = unicode.In(tc.ch, tables...) != negate
+		}
+		if got != tc.want {
+			t.Errorf("generated membership for %s on %q = %v, want %v", pattern, tc.ch, got, tc.want)
+		}
+	}
+}
+
 func TestCategorySetLegacySerialization(t *testing.T) {
 	// Serialized Nd class emitted by existing generated engines: flags,
 	// zero ranges, one category, then its length and name. A round trip
