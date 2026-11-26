@@ -182,6 +182,53 @@ func TestECMAUnicodeControlEscapes(t *testing.T) {
 	}
 }
 
+// Annex B's IdentityEscape is not applied for Unicode RegExp: only syntax
+// characters and '/' can be identity escapes, plus '-' inside a class.
+func TestECMAUnicodeIdentityEscapes(t *testing.T) {
+	for _, pattern := range []string{
+		`\-`, `\_`, `\!`, `\"`, `\'`, `\,`, `\:`, `\;`, `\<`, `\=`, `\>`, `\@`, `\~`, "\\`", `\%`, `\&`,
+		`\y`, `\q`, `\Q`, `\E`, `\R`, `\X`, `\é`,
+		`[\_]`, `[\!]`, `[\y]`, `[\k]`, `[\B]`, `[\Q]`, `[\é]`, `[a\:b]`,
+	} {
+		t.Run(pattern, func(t *testing.T) {
+			if _, err := regexp2.Compile(pattern, regexp2.ECMAScript|regexp2.Unicode); err == nil {
+				t.Fatal("expected a compile error")
+			}
+			// Without Unicode, Annex B keeps these as identity escapes.
+			if _, err := regexp2.Compile(pattern, regexp2.ECMAScript); err != nil {
+				t.Fatalf("ECMAScript without Unicode: %v", err)
+			}
+		})
+	}
+	for _, tc := range []struct{ pattern, input string }{
+		{`^\^\$\\\.\*\+\?\(\)\[\]\{\}\|\/$`, `^$\.*+?()[]{}|/`},
+		{`^[\^\$\\\.\*\+\?\(\)\[\]\{\}\|\/\-]+$`, `^$\.*+?()[]{}|/-`},
+		{`^[a\-z]+$`, "a-z"},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			re, err := regexp2.Compile(tc.pattern, regexp2.ECMAScript|regexp2.Unicode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, err := re.MatchString(tc.input); err != nil || !got {
+				t.Fatalf("MatchString(%q) = %v, %v; want true", tc.input, got, err)
+			}
+		})
+	}
+}
+
+// Escape's output must remain a valid ECMAScript Unicode pattern.
+func TestEscapeECMAUnicodeRoundTrip(t *testing.T) {
+	input := `a-b_c #!\.*+?()[]{}|^$/'"~é`
+	re, err := regexp2.Compile(`^`+regexp2.Escape(input)+`$`, regexp2.ECMAScript|regexp2.Unicode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := re.MatchString(input); err != nil || !got {
+		t.Fatalf("MatchString(%q) = %v, %v; want true", input, got, err)
+	}
+}
+
 // Annex B's legacy octal escapes and its fallback for decimal escapes that
 // exceed the group count do not apply with the Unicode flag; only \0 not
 // followed by a digit is a decimal escape that is not a backreference.

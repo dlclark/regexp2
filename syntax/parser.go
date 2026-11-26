@@ -1732,6 +1732,18 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*RegexNode, error) {
 	return newRegexNodeCh(NtOne, p.options, ch), nil
 }
 
+// isECMAUnicodeIdentityEscape reports whether \ch is accepted as an identity
+// escape in an ECMAScript Unicode pattern. ECMA-262 allows a SyntaxCharacter
+// or '/' (https://tc39.es/ecma262/#prod-IdentityEscape). '#' and ' ' are also
+// accepted because Escape emits them, so its output stays valid in this mode.
+func isECMAUnicodeIdentityEscape(ch rune) bool {
+	switch ch {
+	case '^', '$', '\\', '.', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|', '/', '#', ' ':
+		return true
+	}
+	return false
+}
+
 // Scans X for \p{X} or \P{X}
 func (p *parser) parseProperty() (string, error) {
 	// RE2 and PCRE supports \pX syntax (no {} and only 1 letter unicode cats supported)
@@ -2330,6 +2342,12 @@ func (p *parser) scanCharEscape(inClass bool) (r rune, err error) {
 			return 0, p.getErr(ErrUnrecognizedEscape, string(ch))
 		}
 		if !p.useOptionE() && !p.useRE2() && IsWordChar(ch) {
+			return 0, p.getErr(ErrUnrecognizedEscape, string(ch))
+		}
+		if p.useOptionE() && p.useOptionU() && !isECMAUnicodeIdentityEscape(ch) {
+			// Annex B's IdentityEscape does not apply with the Unicode flag:
+			// only syntax characters and '/' can be escaped. An escaped '-'
+			// inside a class is handled by the class scanner.
 			return 0, p.getErr(ErrUnrecognizedEscape, string(ch))
 		}
 		return ch, nil
