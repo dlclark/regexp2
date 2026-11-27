@@ -2282,6 +2282,10 @@ func (p *parser) scanCharEscape(inClass bool) (r rune, err error) {
 		if p.charsRight() > 0 && p.rightChar(0) == '{' && !p.useOptionE() {
 			p.moveRight(1)
 			return p.scanHexUntilBrace()
+		} else if p.useOptionE() && !p.useOptionU() && !p.hasHexDigits(2) {
+			// Annex B: \x without two hex digits is a literal 'x'. Check
+			// before scanning so this valid case doesn't allocate an error.
+			return ch, nil
 		} else {
 			r, err = p.scanHex(2)
 		}
@@ -2451,6 +2455,20 @@ func (p *parser) scanHexUntilBrace() (rune, error) {
 }
 
 // Scans exactly c hex digits (c=2 for \xFF, c=4 for \uFFFF)
+// hasHexDigits reports whether the next c characters are hex digits,
+// without moving the cursor.
+func (p *parser) hasHexDigits(c int) bool {
+	if p.charsRight() < c {
+		return false
+	}
+	for i := 0; i < c; i++ {
+		if hexDigit(p.rightChar(i)) < 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (p *parser) scanHex(c int) (rune, error) {
 
 	i := 0

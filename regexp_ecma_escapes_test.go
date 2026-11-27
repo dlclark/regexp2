@@ -217,10 +217,9 @@ func TestECMAUnicodeIdentityEscapes(t *testing.T) {
 	}
 }
 
-// Escape's output remains a valid ECMAScript Unicode pattern as long as the
-// input has no '#' or ' ', which Escape escapes but Unicode mode rejects.
+// Escape's output remains a valid ECMAScript Unicode pattern.
 func TestEscapeECMAUnicodeRoundTrip(t *testing.T) {
-	input := `a-b_c!\.*+?()[]{}|^$/'"~é`
+	input := `a-b_c!\.*+?()[]{}|^$/'"~é# `
 	re, err := regexp2.Compile(`^`+regexp2.Escape(input)+`$`, regexp2.ECMAScript|regexp2.Unicode)
 	if err != nil {
 		t.Fatal(err)
@@ -314,12 +313,66 @@ func TestEscapeBELRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEscapeSpaceAndHashRoundTrip(t *testing.T) {
+	const input = "Order #1"
+	pattern := "^" + regexp2.Escape(input) + "$"
+
+	// Exercise every combination of regex flags, including no flags.
+	options := []regexp2.RegexOptions{regexp2.None}
+	for _, flag := range []regexp2.RegexOptions{
+		regexp2.IgnoreCase, regexp2.Multiline, regexp2.ExplicitCapture,
+		regexp2.Singleline, regexp2.IgnorePatternWhitespace, regexp2.RightToLeft,
+		regexp2.ECMAScript, regexp2.RE2, regexp2.Unicode,
+	} {
+		for _, opts := range options {
+			options = append(options, opts|flag)
+		}
+	}
+
+	for _, opts := range options {
+		t.Run(fmt.Sprintf("options_%#x", opts), func(t *testing.T) {
+			re, err := regexp2.Compile(pattern, opts)
+			if err != nil {
+				t.Fatalf("Compile(%q): %v", pattern, err)
+			}
+			if got, err := re.MatchString(input); err != nil || !got {
+				t.Fatalf("MatchString(%q) = %v, %v; want true", input, got, err)
+			}
+		})
+	}
+}
+
+// A legacy ECMAScript \x without two hex digits is a literal 'x'; parsing it
+// shouldn't allocate more than parsing the 'x' itself.
+func TestECMALegacyHexEscapeAllocs(t *testing.T) {
+	for _, tc := range []struct{ escaped, literal string }{
+		{`\x{2}`, `x{2}`}, {`[\x{]`, `[x{]`},
+	} {
+		t.Run(tc.escaped, func(t *testing.T) {
+			compile := func(pattern string) func() {
+				pattern = strings.Repeat(pattern, 32)
+				return func() {
+					if _, err := regexp2.Compile(pattern, regexp2.ECMAScript); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			escaped := testing.AllocsPerRun(20, compile(tc.escaped))
+			literal := testing.AllocsPerRun(20, compile(tc.literal))
+			if escaped > literal {
+				t.Fatalf("%s allocs = %v, %s allocs = %v; want no more", tc.escaped, escaped, tc.literal, literal)
+			}
+		})
+	}
+}
+
 func BenchmarkECMALegacyEscapesCompile(b *testing.B) {
 	for _, tc := range []struct{ name, pattern string }{
 		{"plain", `abc`},
 		{"control_letters", `\cA\cz`},
 		{"literal_controls", `\c1\cА`},
 		{"control_classes", `[\c1\c_]`},
+		{"braced_hex", `\x{2}`},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			pattern := strings.Repeat(tc.pattern, 64)
