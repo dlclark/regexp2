@@ -182,6 +182,53 @@ func TestECMAUnicodeControlEscapes(t *testing.T) {
 	}
 }
 
+// Annex B's IdentityEscape is not applied for Unicode RegExp: only syntax
+// characters and '/' can be identity escapes, plus '-' inside a class.
+func TestECMAUnicodeIdentityEscapes(t *testing.T) {
+	for _, pattern := range []string{
+		`\-`, `\_`, `\!`, `\"`, `\'`, `\,`, `\:`, `\;`, `\<`, `\=`, `\>`, `\@`, `\~`, "\\`", `\%`, `\&`,
+		`\y`, `\q`, `\Q`, `\E`, `\R`, `\X`, `\é`,
+		`[\_]`, `[\!]`, `[\y]`, `[\k]`, `[\B]`, `[\Q]`, `[\é]`, `[a\:b]`,
+	} {
+		t.Run(pattern, func(t *testing.T) {
+			if _, err := regexp2.Compile(pattern, regexp2.ECMAScript|regexp2.Unicode); err == nil {
+				t.Fatal("expected a compile error")
+			}
+			// Without Unicode, Annex B keeps these as identity escapes.
+			if _, err := regexp2.Compile(pattern, regexp2.ECMAScript); err != nil {
+				t.Fatalf("ECMAScript without Unicode: %v", err)
+			}
+		})
+	}
+	for _, tc := range []struct{ pattern, input string }{
+		{`^\^\$\\\.\*\+\?\(\)\[\]\{\}\|\/$`, `^$\.*+?()[]{}|/`},
+		{`^[\^\$\\\.\*\+\?\(\)\[\]\{\}\|\/\-]+$`, `^$\.*+?()[]{}|/-`},
+		{`^[a\-z]+$`, "a-z"},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			re, err := regexp2.Compile(tc.pattern, regexp2.ECMAScript|regexp2.Unicode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, err := re.MatchString(tc.input); err != nil || !got {
+				t.Fatalf("MatchString(%q) = %v, %v; want true", tc.input, got, err)
+			}
+		})
+	}
+}
+
+// Escape's output remains a valid ECMAScript Unicode pattern.
+func TestEscapeECMAUnicodeRoundTrip(t *testing.T) {
+	input := `a-b_c!\.*+?()[]{}|^$/'"~é# `
+	re, err := regexp2.Compile(`^`+regexp2.Escape(input)+`$`, regexp2.ECMAScript|regexp2.Unicode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := re.MatchString(input); err != nil || !got {
+		t.Fatalf("MatchString(%q) = %v, %v; want true", input, got, err)
+	}
+}
+
 // Annex B's legacy octal escapes and its fallback for decimal escapes that
 // exceed the group count do not apply with the Unicode flag; only \0 not
 // followed by a digit is a decimal escape that is not a backreference.
@@ -266,12 +313,66 @@ func TestEscapeBELRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEscapeSpaceAndHashRoundTrip(t *testing.T) {
+	const input = "Order #1"
+	pattern := "^" + regexp2.Escape(input) + "$"
+
+	// Exercise every combination of regex flags, including no flags.
+	options := []regexp2.RegexOptions{regexp2.None}
+	for _, flag := range []regexp2.RegexOptions{
+		regexp2.IgnoreCase, regexp2.Multiline, regexp2.ExplicitCapture,
+		regexp2.Singleline, regexp2.IgnorePatternWhitespace, regexp2.RightToLeft,
+		regexp2.ECMAScript, regexp2.RE2, regexp2.Unicode,
+	} {
+		for _, opts := range options {
+			options = append(options, opts|flag)
+		}
+	}
+
+	for _, opts := range options {
+		t.Run(fmt.Sprintf("options_%#x", opts), func(t *testing.T) {
+			re, err := regexp2.Compile(pattern, opts)
+			if err != nil {
+				t.Fatalf("Compile(%q): %v", pattern, err)
+			}
+			if got, err := re.MatchString(input); err != nil || !got {
+				t.Fatalf("MatchString(%q) = %v, %v; want true", input, got, err)
+			}
+		})
+	}
+}
+
+// A legacy ECMAScript \x without two hex digits is a literal 'x'; parsing it
+// shouldn't allocate more than parsing the 'x' itself.
+func TestECMALegacyHexEscapeAllocs(t *testing.T) {
+	for _, tc := range []struct{ escaped, literal string }{
+		{`\x{2}`, `x{2}`}, {`[\x{]`, `[x{]`},
+	} {
+		t.Run(tc.escaped, func(t *testing.T) {
+			compile := func(pattern string) func() {
+				pattern = strings.Repeat(pattern, 32)
+				return func() {
+					if _, err := regexp2.Compile(pattern, regexp2.ECMAScript); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			escaped := testing.AllocsPerRun(20, compile(tc.escaped))
+			literal := testing.AllocsPerRun(20, compile(tc.literal))
+			if escaped > literal {
+				t.Fatalf("%s allocs = %v, %s allocs = %v; want no more", tc.escaped, escaped, tc.literal, literal)
+			}
+		})
+	}
+}
+
 func BenchmarkECMALegacyEscapesCompile(b *testing.B) {
 	for _, tc := range []struct{ name, pattern string }{
 		{"plain", `abc`},
 		{"control_letters", `\cA\cz`},
 		{"literal_controls", `\c1\cА`},
 		{"control_classes", `[\c1\c_]`},
+		{"braced_hex", `\x{2}`},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			pattern := strings.Repeat(tc.pattern, 64)

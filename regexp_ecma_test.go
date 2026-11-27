@@ -1911,3 +1911,106 @@ func BenchmarkECMABoundaryDigitLoop(b *testing.B) {
 		}
 	}
 }
+
+func TestECMAScriptUnicodeRejectsHashAndSpaceEscapes(t *testing.T) {
+	for _, tc := range []struct {
+		pattern string
+		match   string
+	}{
+		{`\#`, "#"},
+		{`\ `, " "},
+		{`[\#]`, "#"},
+		{`[\ ]`, " "},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			// ECMA-262 IdentityEscape[+UnicodeMode] only allows SyntaxCharacter or '/'.
+			if _, err := Compile(tc.pattern, ECMAScript|Unicode); err == nil {
+				t.Errorf("Compile(%q, ECMAScript|Unicode) succeeded, want an error", tc.pattern)
+			}
+
+			// Without Unicode, Annex B allows these as identity escapes.
+			re, err := Compile(`^`+tc.pattern+`$`, ECMAScript)
+			if err != nil {
+				t.Fatalf("Compile(%q, ECMAScript) failed: %v", tc.pattern, err)
+			}
+			if matched, err := re.MatchString(tc.match); err != nil || !matched {
+				t.Errorf("MatchString(%q) = %v, %v; want true", tc.match, matched, err)
+			}
+		})
+	}
+}
+
+func TestECMAScriptUnicodeRejectsBracedHexEscape(t *testing.T) {
+	for _, pattern := range []string{`\x{2}`, `[\x{2}]`} {
+		if _, err := Compile(pattern, ECMAScript|Unicode); err == nil {
+			t.Errorf("Compile(%q, ECMAScript|Unicode) succeeded, want an error", pattern)
+		}
+	}
+}
+
+func TestECMAScriptUnicodeLetterEscapes(t *testing.T) {
+	// Outside a class, \a/\e are rejected per ECMA-262; inside a class, \a/\e
+	// and the non-anchor \A/\G/\Z/\z are all rejected.
+	for _, tc := range []struct {
+		pattern string
+		match   string
+	}{
+		{`\a`, "a"},
+		{`[\a]`, "a"},
+		{`\e`, "e"},
+		{`[\e]`, "e"},
+		{`[\A]`, "A"},
+		{`[\G]`, "G"},
+		{`[\Z]`, "Z"},
+		{`[\z]`, "z"},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			if _, err := Compile(tc.pattern, ECMAScript|Unicode); err == nil {
+				t.Errorf("Compile(%q, ECMAScript|Unicode) succeeded, want an error", tc.pattern)
+			}
+
+			// Without Unicode, Annex B allows these as identity escapes.
+			re, err := Compile(`^`+tc.pattern+`$`, ECMAScript)
+			if err != nil {
+				t.Fatalf("Compile(%q, ECMAScript) failed: %v", tc.pattern, err)
+			}
+			if matched, err := re.MatchString(tc.match); err != nil || !matched {
+				t.Errorf("MatchString(%q) = %v, %v; want true", tc.match, matched, err)
+			}
+		})
+	}
+
+	// Outside a class, \A/\G/\Z/\z remain valid anchor extensions with Unicode.
+	for _, tc := range []struct {
+		pattern     string
+		unicodeHit  string
+		unicodeMiss string
+		legacyHit   string
+	}{
+		{`\Afoo`, "foo", "xfoo", "Afoo"},
+		{`\Gfoo`, "foo", "xfoo", "Gfoo"},
+		{`foo\Z`, "foo", "foox", "fooZ"},
+		{`foo\z`, "foo", "foo\n", "fooz"},
+	} {
+		t.Run("anchor/"+tc.pattern, func(t *testing.T) {
+			reU, err := Compile(tc.pattern, ECMAScript|Unicode)
+			if err != nil {
+				t.Fatalf("Compile(%q, ECMAScript|Unicode) failed: %v", tc.pattern, err)
+			}
+			if matched, err := reU.MatchString(tc.unicodeHit); err != nil || !matched {
+				t.Errorf("Unicode MatchString(%q) = %v, %v; want true", tc.unicodeHit, matched, err)
+			}
+			if matched, err := reU.MatchString(tc.unicodeMiss); err != nil || matched {
+				t.Errorf("Unicode MatchString(%q) = %v, %v; want false", tc.unicodeMiss, matched, err)
+			}
+
+			reLegacy, err := Compile(`^`+tc.pattern+`$`, ECMAScript)
+			if err != nil {
+				t.Fatalf("Compile(%q, ECMAScript) failed: %v", tc.pattern, err)
+			}
+			if matched, err := reLegacy.MatchString(tc.legacyHit); err != nil || !matched {
+				t.Errorf("legacy MatchString(%q) = %v, %v; want true", tc.legacyHit, matched, err)
+			}
+		})
+	}
+}

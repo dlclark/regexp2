@@ -455,7 +455,7 @@ func TestEscapeUnescape_Basic(t *testing.T) {
 	}
 
 	//confirm one way
-	if want, got := `\#\$\^\*\+\(\)\{\}<>\\\|\.\ `, s2; want != got {
+	if want, got := `\x23\$\^\*\+\(\)\{\}<>\\\|\.\x20`, s2; want != got {
 		t.Fatalf("Wanted '%v'\nGot '%v'", want, got)
 	}
 
