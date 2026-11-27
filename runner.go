@@ -2193,12 +2193,15 @@ func requiredLandmarkAnchorsHold(r *Runner, anchors []syntax.NodeType, pos int) 
 }
 
 func indexOfLiteralAfterLoop(r *Runner, literal *syntax.LiteralAfterLoop, searchStart int) int {
+	needle := literal.StringRunes
+	if len(needle) == 0 {
+		needle = literal.Runes
+	}
 	switch {
-	case literal.String != "":
-		needle := literal.StringRunes
+	case len(needle) > 0:
 		if literal.StringIgnoreCase {
 			var offset int
-			if literal.StringASCII {
+			if literal.StringASCII || isASCIIRunes(needle) {
 				offset = helpers.IndexOfIgnoreCaseAscii(r.Runtext[searchStart:], needle)
 			} else {
 				offset = helpers.IndexOfIgnoreCase(r.Runtext[searchStart:], needle)
@@ -2219,6 +2222,15 @@ func indexOfLiteralAfterLoop(r *Runner, literal *syntax.LiteralAfterLoop, search
 		}
 	}
 	return -1
+}
+
+func isASCIIRunes(runes []rune) bool {
+	for _, r := range runes {
+		if uint32(r) >= 128 {
+			return false
+		}
+	}
+	return true
 }
 
 func indexOfSet(chars []rune, set syntax.FixedDistanceSet) int {

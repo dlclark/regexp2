@@ -249,18 +249,21 @@ func b2i(b bool) byte {
 func (c CharSet) mapHashFill(buf *bytes.Buffer) {
 	buf.WriteByte(b2i(c.negate) + b2i(c.anything)*2)
 
-	_ = binary.Write(buf, binary.LittleEndian, int32(len(c.ranges)))
-	_ = binary.Write(buf, binary.LittleEndian, int32(len(c.categories)))
+	var tmp [8]byte
+	binary.LittleEndian.PutUint32(tmp[0:4], uint32(len(c.ranges)))
+	binary.LittleEndian.PutUint32(tmp[4:8], uint32(len(c.categories)))
+	buf.Write(tmp[:])
 	for _, r := range c.ranges {
-		buf.WriteRune(r.First)
-		buf.WriteRune(r.Last)
+		binary.LittleEndian.PutUint32(tmp[0:4], uint32(r.First))
+		binary.LittleEndian.PutUint32(tmp[4:8], uint32(r.Last))
+		buf.Write(tmp[:])
 	}
 	for _, ct := range c.categories {
 		// write the length of the cat and indicate if it's negated
 		if ct.Negate {
-			_ = binary.Write(buf, binary.LittleEndian, int8(-1*len(ct.Cat)))
+			buf.WriteByte(byte(int8(-1 * len(ct.Cat))))
 		} else {
-			_ = binary.Write(buf, binary.LittleEndian, int8(len(ct.Cat)))
+			buf.WriteByte(byte(int8(len(ct.Cat))))
 		}
 		buf.WriteString(ct.Cat)
 	}
@@ -277,23 +280,32 @@ func NewCharSetRuntime(buf string) CharSet {
 	//1s bit == negate, 2s bit == anything
 	retVal.negate = (val&0x1 == 0x1)
 	retVal.anything = (val&0x2 == 0x2)
-	var lenRanges, lenCats int32
-	_ = binary.Read(b, binary.LittleEndian, &lenRanges)
-	_ = binary.Read(b, binary.LittleEndian, &lenCats)
+	tmp := b.Next(8)
+	if len(tmp) < 8 {
+		return retVal
+	}
+	lenRanges := int32(binary.LittleEndian.Uint32(tmp[0:4]))
+	lenCats := int32(binary.LittleEndian.Uint32(tmp[4:8]))
 
 	retVal.ranges = make([]SingleRange, lenRanges)
 	for i := 0; i < int(lenRanges); i++ {
-		r := SingleRange{}
-		r.First, _, _ = b.ReadRune()
-		r.Last, _, _ = b.ReadRune()
-		retVal.ranges[i] = r
+		tmp = b.Next(8)
+		if len(tmp) < 8 {
+			break
+		}
+		first := int32(binary.LittleEndian.Uint32(tmp[0:4]))
+		last := int32(binary.LittleEndian.Uint32(tmp[4:8]))
+		retVal.ranges[i] = SingleRange{First: rune(first), Last: rune(last)}
 	}
 
 	retVal.categories = make([]charCategory, lenCats)
 	for i := 0; i < int(lenCats); i++ {
-		var lenCat int8
+		lenCatByte, err := b.ReadByte()
+		if err != nil {
+			break
+		}
+		lenCat := int8(lenCatByte)
 		c := Category{}
-		_ = binary.Read(b, binary.LittleEndian, &lenCat)
 		if lenCat < 0 {
 			c.Negate = true
 			lenCat *= -1
