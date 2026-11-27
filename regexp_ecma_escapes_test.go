@@ -217,9 +217,10 @@ func TestECMAUnicodeIdentityEscapes(t *testing.T) {
 	}
 }
 
-// Escape's output must remain a valid ECMAScript Unicode pattern.
+// Escape's output remains a valid ECMAScript Unicode pattern as long as the
+// input has no '#' or ' ', which Escape escapes but Unicode mode rejects.
 func TestEscapeECMAUnicodeRoundTrip(t *testing.T) {
-	input := `a-b_c #!\.*+?()[]{}|^$/'"~é`
+	input := `a-b_c!\.*+?()[]{}|^$/'"~é`
 	re, err := regexp2.Compile(`^`+regexp2.Escape(input)+`$`, regexp2.ECMAScript|regexp2.Unicode)
 	if err != nil {
 		t.Fatal(err)

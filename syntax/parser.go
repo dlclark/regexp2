@@ -1734,11 +1734,10 @@ func (p *parser) scanBasicBackslash(scanOnly bool) (*RegexNode, error) {
 
 // isECMAUnicodeIdentityEscape reports whether \ch is accepted as an identity
 // escape in an ECMAScript Unicode pattern. ECMA-262 allows a SyntaxCharacter
-// or '/' (https://tc39.es/ecma262/#prod-IdentityEscape). '#' and ' ' are also
-// accepted because Escape emits them, so its output stays valid in this mode.
+// or '/' (https://tc39.es/ecma262/#prod-IdentityEscape).
 func isECMAUnicodeIdentityEscape(ch rune) bool {
 	switch ch {
-	case '^', '$', '\\', '.', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|', '/', '#', ' ':
+	case '^', '$', '\\', '.', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|', '/':
 		return true
 	}
 	return false
@@ -2278,11 +2277,9 @@ func (p *parser) scanCharEscape(inClass bool) (r rune, err error) {
 
 	switch ch {
 	case 'x':
-		// support for \x{HEX} syntax from Perl and PCRE
-		if p.charsRight() > 0 && p.rightChar(0) == '{' {
-			if p.useOptionE() {
-				return ch, nil
-			}
+		// support for \x{HEX} syntax from Perl and PCRE; ECMAScript has no
+		// braced form, so there \x{ falls through to a failed two-digit scan
+		if p.charsRight() > 0 && p.rightChar(0) == '{' && !p.useOptionE() {
 			p.moveRight(1)
 			return p.scanHexUntilBrace()
 		} else {
@@ -2311,14 +2308,20 @@ func (p *parser) scanCharEscape(inClass bool) (r rune, err error) {
 			}
 		}
 	case 'a':
-		if p.useOptionE() && !p.useOptionU() {
+		if p.useOptionE() {
+			if p.useOptionU() {
+				return 0, p.getErr(ErrUnrecognizedEscape, string(ch))
+			}
 			return ch, nil
 		}
 		return '\u0007', nil
 	case 'b':
 		return '\b', nil
 	case 'e':
-		if p.useOptionE() && !p.useOptionU() {
+		if p.useOptionE() {
+			if p.useOptionU() {
+				return 0, p.getErr(ErrUnrecognizedEscape, string(ch))
+			}
 			return ch, nil
 		}
 		return '\u001B', nil
